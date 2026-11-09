@@ -1,7 +1,7 @@
 <p align="center"><img src="https://raw.githubusercontent.com/anilcanolcer/akis-kurgu-ai/main/docs/banner.svg" alt="Akış Kurgu AI — yerel öncelikli video düzenleyici"></p>
 
 <h1 align="center">Akış Kurgu AI</h1>
-<p align="center">Windows için yerel öncelikli, Türkçe ve İngilizce video düzenleme denemesi</p>
+<p align="center">Windows için yerel öncelikli, Türkçe ve İngilizce video düzenleyici</p>
 
 ## Windows'ta kurulum
 
@@ -11,15 +11,15 @@
 2. Kurulum adımlarını tamamlayıp Başlat menüsünden **Akış Kurgu AI** uygulamasını açın.
 3. Yerel Whisper modeli ilk kullanımda internet üzerinden indirilir; sonrasında çevrimdışı kullanılabilir.
 
-Bu sürüm deneyseldir. GitHub Windows ortamında kurulum, açılış ve yerel modelin indirilip çevrimdışı açılması denetlenmiştir; farklı cihazlarda ses eşzamanlaması değişebilir.
+GitHub Windows ortamında kurulum, açılış ve yerel modelin indirilip çevrimdışı açılması denetlenmiştir; farklı cihazlarda ses eşzamanlaması değişebilir.
 
 ## Uygulama görünümü
 
-![Deneysel sürümde örnek video ve zaman çizelgesi](https://raw.githubusercontent.com/anilcanolcer/akis-kurgu-ai/experimental/timeline-render/docs/editor-demo.png)
+![Uygulamada örnek video ve zaman çizelgesi](https://raw.githubusercontent.com/anilcanolcer/akis-kurgu-ai/experimental/timeline-render/docs/editor-demo.png)
 
-*Deneysel sürümün gerçek arayüzü; görüntülerde FFmpeg tarafından oluşturulan örnek test videosu kullanılmıştır.*
+*Uygulamanın gerçek arayüzü; görüntülerde FFmpeg tarafından oluşturulan örnek test videosu kullanılmıştır.*
 
-![Deneysel sürümün hız ve renk ayarları](https://raw.githubusercontent.com/anilcanolcer/akis-kurgu-ai/main/docs/editor-adjustments.png)
+![Uygulamanın hız ve renk ayarları](https://raw.githubusercontent.com/anilcanolcer/akis-kurgu-ai/main/docs/editor-adjustments.png)
 
 *Düzenle sekmesindeki tuval oranı, hız ve renk kontrolleri.*
 
@@ -33,7 +33,7 @@ Bu sürüm deneyseldir. GitHub Windows ortamında kurulum, açılış ve yerel m
 
 ## Neler çalışıyor?
 
-| Alan | Deneysel dalın durumu |
+| Alan | Özellik durumu |
 | --- | --- |
 | Timeline | Video, ses, metin ve overlay iz modeli; seçim, taşıma, bölme, uçtan kırpma ve ripple silme için temel kontroller |
 | Önizleme ve çıktı | Ortak kare planından çok katmanlı FFmpeg kompozisyonu; H.264/AAC MP4, filigransız çıktı ve temel oranlar |
@@ -91,7 +91,7 @@ Hata bildirirken Windows/Python/FFmpeg sürümlerini ve adımları paylaşın; A
 Yol haritası hedefleri mevcut özellik değildir.
 
 
-## Deneysel AI planları ve yerel konuşma metni
+## AI planları ve yerel konuşma metni
 
 AI Kurgu panelinde platform, tempo, stil ve odak seçilerek OpenAI üzerinden birden fazla öneri istenebilir. Seçilen öneri zaman çizelgesine başlangıç ve bitiş işaretleri ekler; klipleri otomatik olarak kesmez. API anahtarı gerektirir.
 
@@ -105,11 +105,13 @@ Panelde Yerel Whisper ve model boyutunu seçin. İlk kullanımda “Modeli indir
 
 Timeline cetveli ve klip taşıma, yakın klip kenarlarına sınırlı mesafede yapışır. Kliplerin bitişlerini hareket ettirirken yapışma henüz uygulanmaz. Ses ducking henüz yoktur; Windows sistem sesiyle çevrimdışı WAV oluşturulabilir.
 
-Deneysel waveform: ses içeren video ve ses klipleri için arka planda FFmpeg ile hesaplanır; kaynak başına ilk 60 dakika gösterilir. Klip başına sabit ses düzeyi desteklenir; ses zarfı otomasyonu henüz yoktur.
+Waveform: ses içeren video ve ses klipleri için arka planda FFmpeg ile hesaplanır; kaynak başına ilk 60 dakika gösterilir. Klip başına sabit ses düzeyi desteklenir; ses zarfı otomasyonu henüz yoktur.
 
 
-## Deneysel kurucu ve ses özellikleri
+## Kurucu ve ses özellikleri
 
 Bu geliştirme dalında `installer.iss`, Inno Setup 6 ile tek dosyalı `AkisKurguAI-Setup.exe` oluşturur. GitHub Actions, paketlenmiş Whisper tanılaması ve sessiz kurulum kontrolünden sonra kurucuyu artefakt olarak yükler. Kurucu henüz mevcut kalıcı Release yerine geçmez.
 
 Klip seçip **Klip sesi** ile ses düzeyi ayarlanabilir. Yerel seslendirme Windows sistem sesini kullanarak çevrimdışı WAV oluşturur; kullanılabilir dil ve sesler Windows kurulumuna bağlıdır. Medya listesindeki arama dosya adlarını filtreler. Timeline waveform en fazla ilk 60 dakikayı önbelleğe alır.
+
+Güncelleme işlevi için yeni sürüm hazırlanmaktadır.
