@@ -1,5 +1,5 @@
 #define AppName "Akis Kurgu AI"
-#define AppVersion "0.3.0"
+#define AppVersion "0.3.1"
 [Setup]
 AppId={{3F3FE53D-553B-4D25-9169-4493F9AFD241}
 AppName={#AppName}

@@ -25,6 +25,7 @@ import timeline_service
 from timeline_audio import TimelineAudio
 from render_worker import TimelineRenderWorker
 from preview_controller import PreviewController
+from update_worker import UpdateCheckWorker, UpdateDownloadWorker
 from ai_service import plan_prompt, parse_suggestions, add_plan_markers
 from caption_worker import LocalCaptionWorker
 from tts_worker import TtsWorker
@@ -326,6 +327,10 @@ class MainWindow(QMainWindow):
         self.autosave_timer.setInterval(30_000)
         self.autosave_timer.timeout.connect(self.autosave_project)
         self.autosave_timer.start()
+        self.update_check = None
+        self.update_download = None
+        if getattr(sys, '_MEIPASS', None) and sys.platform == 'win32':
+            QTimer.singleShot(5000, self.check_for_updates)
         self.set_status("Bir video sürükleyin veya “Video ekle” düğmesini kullanın.")
 
     def make_icon(self) -> QIcon:
@@ -1104,6 +1109,31 @@ class MainWindow(QMainWindow):
         self.set_status("İşlem tamamlanamadı.")
         QMessageBox.critical(self, APP_NAME, message)
 
+    def check_for_updates(self):
+        self.update_check = UpdateCheckWorker(self)
+        self.update_check.available.connect(self.offer_update)
+        self.update_check.start()
+
+    def offer_update(self, update):
+        self.set_status(f"{update['version']} güncellemesi indiriliyor…")
+        destination = str(Path(tempfile.mkdtemp(prefix='akis_update_')) / 'AkisKurguAI-Setup.exe')
+        self.update_download = UpdateDownloadWorker(update, destination)
+        self.update_download.completed.connect(self.install_update)
+        self.update_download.failed.connect(lambda message: self.set_status(f'Güncelleme indirilemedi: {message}'))
+        self.update_download.start()
+
+    def install_update(self, installer):
+        self.set_status('Güncelleme hazır.')
+        answer = QMessageBox.question(self, APP_NAME, 'Güncelleme hazır. Önce açık projenizi kaydedin. Uygulama kapanıp güncellensin mi?', QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        import base64
+        payload = base64.b64encode(json.dumps({'pid': os.getpid(), 'installer': installer, 'app': sys.executable}).encode('utf-8')).decode('ascii')
+        script = "$d=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('" + payload + "'))|ConvertFrom-Json; Wait-Process -Id $d.pid -ErrorAction SilentlyContinue; $p=Start-Process -FilePath $d.installer -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-' -Wait -PassThru; if($p.ExitCode -eq 0){Start-Process -FilePath $d.app}"
+        encoded = base64.b64encode(script.encode('utf-16le')).decode('ascii')
+        subprocess.Popen(['powershell.exe', '-NoProfile', '-NonInteractive', '-EncodedCommand', encoded], creationflags=subprocess.CREATE_NO_WINDOW)
+        self.close()
+
     def set_status(self, text: str) -> None:
         self.status_label.setText(text)
         self.status_label.setToolTip(text)
@@ -1365,6 +1395,10 @@ class MainWindow(QMainWindow):
         self.play_timer.stop()
         self.playback_clock.stop()
         self.timeline_audio.stop()
+        if self.update_download and self.update_download.isRunning():
+            self.update_download.wait()
+        if self.update_check and self.update_check.isRunning():
+            self.update_check.wait()
         self.preview.close()
         self.multitrack_view.stop_waveforms()
         super().closeEvent(event)
