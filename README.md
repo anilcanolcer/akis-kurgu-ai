@@ -17,7 +17,7 @@ Windows için yerel öncelikli, Türkçe ve İngilizce video düzenleyici. Proje
 Sınırlamalar:
 
 - Bu geliştirme dalı, ortak zaman çizelgesi render denemesini içerir. Sesli önizleme yoktur; kaynak oranı ve önceki renk/hız ayarları render yolunda uygulanmaz. Dışa aktarmadan önce sonucu kontrol edin. Bu dal kararlı sürüm değildir.
-- Çok izli önizleme ve dışa aktarma henüz tamamlanmadı. Çok izli projelerin dışa aktarılması eksik sonuçları önlemek için engellenir; önizleme ana video kaynağıyla sınırlıdır.
+- Çok izli önizleme ve dışa aktarma deneyseldir; görsel katmanlar için temel FFmpeg kompozisyonu uygulanmıştır, ancak tam uygulama akışı ve sesli önizleme doğrulanmış değildir.
 - Çok izli zaman çizelgesi tüm düzenleme senaryolarında doğrulanmış değildir. Waveform, keyframe düzenleme, opacity/transform ve ses zarfı yoktur.
 - Yerel AI/TTS, ses klonlama, proxy, export kuyruğu, iptal ve güvenilir ilerleme göstergesi yoktur.
 - LUT/scopes, hareket takibi, green screen, iç içe sekanslar, multicam ve eklenti sistemi yoktur.
@@ -37,7 +37,7 @@ python main.py
 Testler (gerçek medya testleri FFmpeg gerektirir):
 
 ```powershell
-python -m unittest test_timeline_model test_project_service test_media_service -v
+python -m unittest test_timeline_model test_project_service test_media_service test_timeline_render -v
 ```
 
 Windows klasör dağıtımı oluşturmak için `C:\Windows\System32\ffmpeg.exe` konumunda FFmpeg bulunduğundan emin olun ve:
