@@ -45,7 +45,7 @@ Paket taşınabilir klasör dağıtımıdır; bir Windows kurulum sihirbazı de�
 
 - Önizleme her kareyi FFmpeg ile üretir; özellikle yüksek çözünürlükte akıcı gerçek zamanlı oynatma beklenmemelidir. Ses önizlemesi tek kaynak seçer, çok izli miksi canlı çalmaz.
 - Eski aralık seçici, geçiş, görünüm efekti, başlık alanı ve bazı ses işleme kontrolleri yeni render yoluna bağlı olmadıklarından devre dışıdır. Metin izi model ve render düzeyinde desteklenir; tam bir metin düzenleyicisi yoktur.
-- Waveform, keyframe düzenleme, proxy, dışa aktarma kuyruğu, yerel AI/TTS, gelişmiş renk araçları ve kurulum sihirbazı yoktur. Çeviriler eksiksiz değildir.
+- Waveform, keyframe düzenleme, proxy, dışa aktarma kuyruğu, yerel TTS, gelişmiş renk araçları ve kurulum sihirbazı yoktur. Çeviriler eksiksiz değildir.
 - Instagram müzik kütüphanesi, hesap eşitleme veya doğrudan yayınlama sunulmaz. Proje Instagram ile bağlantılı değildir.
 
 ## Kaynak koddan çalıştırma
