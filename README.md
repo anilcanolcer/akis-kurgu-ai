@@ -19,7 +19,11 @@ Paket taşınabilir klasör dağıtımıdır; bir Windows kurulum sihirbazı de�
 
 ![Deneysel sürümde örnek video ve zaman çizelgesi](https://raw.githubusercontent.com/anilcanolcer/akis-kurgu-ai/experimental/timeline-render/docs/editor-demo.png)
 
-*Deneysel sürümün gerçek arayüzü; görüntüde FFmpeg tarafından oluşturulan örnek test videosu kullanılmıştır.*
+*Deneysel sürümün gerçek arayüzü; görüntülerde FFmpeg tarafından oluşturulan örnek test videosu kullanılmıştır.*
+
+![Deneysel sürümün hız ve renk ayarları](https://raw.githubusercontent.com/anilcanolcer/akis-kurgu-ai/main/docs/editor-adjustments.png)
+
+*Düzenle sekmesindeki tuval oranı, hız ve renk kontrolleri.*
 
 ## Kısa kullanım
 
