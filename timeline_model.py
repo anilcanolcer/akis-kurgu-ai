@@ -17,9 +17,12 @@ class Clip:
     source_length: int | None = None
     id: str = field(default_factory=lambda: uuid4().hex)
     text: str = ""
+    volume: float = 1.0
     keyframes: dict[str, list[dict]] = field(default_factory=dict)
 
     def __post_init__(self):
+        if not 0 <= self.volume <= 1:
+            raise ValueError("Volume must be between 0 and 1")
         if self.start < 0 or self.source_in < 0 or self.length < 1:
             raise ValueError("Invalid clip range")
         if self.source_length is not None and self.source_in + self.length > self.source_length:
@@ -67,7 +70,7 @@ class Track:
             raise ValueError("Split must be inside clip")
         right = Clip(source=clip.source, start=frame, length=clip.length-offset,
                      source_in=clip.source_in+offset, source_length=clip.source_length,
-                     text=clip.text)
+                     text=clip.text, volume=clip.volume)
         for name, points in clip.keyframes.items():
             right.keyframes[name] = [dict(p, frame=p['frame']-offset) for p in points if p['frame'] >= offset]
             clip.keyframes[name] = [p for p in points if p['frame'] < offset]

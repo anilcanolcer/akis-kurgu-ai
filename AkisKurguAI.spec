@@ -3,6 +3,14 @@
 from pathlib import Path
 import os
 import shutil
+from PyInstaller.utils.hooks import collect_all
+
+extra_datas, extra_binaries, extra_hidden = [], [], []
+for module in ("faster_whisper", "ctranslate2", "av", "onnxruntime", "tokenizers", "huggingface_hub"):
+    data, binaries, hidden = collect_all(module)
+    extra_datas += data
+    extra_binaries += binaries
+    extra_hidden += hidden
 
 project_dir = Path(SPECPATH)
 ffmpeg = os.environ.get("AKIS_FFMPEG") or shutil.which("ffmpeg")
@@ -12,16 +20,16 @@ if not ffmpeg or not Path(ffmpeg).is_file():
 a = Analysis(
     [str(project_dir / "main.py")],
     pathex=[str(project_dir)],
-    binaries=[(ffmpeg, ".")],
-    datas=[(str(project_dir / "app.ico"), ".")],
+    binaries=[(ffmpeg, ".")] + extra_binaries,
+    datas=[(str(project_dir / "app.ico"), ".")] + extra_datas,
     hiddenimports=[
         "keyring.backends.Windows",
         "openai",
-    ],
+    ] + extra_hidden,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=["tkinter", "matplotlib", "numpy"],
+    excludes=["tkinter", "matplotlib"],
     noarchive=False,
     optimize=1,
 )

@@ -87,7 +87,7 @@ class TimelineRenderer:
                         base = f'base{layer}'
                         if track.kind == 'video' and frame is None and self.media.has_audio(clip.source):
                             delay = round(start * 1000)
-                            graph.append(f'[{index}:a]atrim=start={source_in:.9f}:duration={length:.9f},asetpts=PTS-STARTPTS,adelay={delay}:all=1[a{index}]')
+                            graph.append(f'[{index}:a]atrim=start={source_in:.9f}:duration={length:.9f},asetpts=PTS-STARTPTS,volume={clip.volume:.6f},adelay={delay}:all=1[a{index}]')
                             audio.append(f'[a{index}]')
                         index += 1
                     elif track.kind == 'audio':
@@ -97,7 +97,7 @@ class TimelineRenderer:
                             raise FileNotFoundError(clip.source)
                         args += ['-i', clip.source]
                         delay = round(start * 1000)
-                        graph.append(f'[{index}:a]atrim=start={source_in:.9f}:duration={length:.9f},asetpts=PTS-STARTPTS,adelay={delay}:all=1[a{index}]')
+                        graph.append(f'[{index}:a]atrim=start={source_in:.9f}:duration={length:.9f},asetpts=PTS-STARTPTS,volume={clip.volume:.6f},adelay={delay}:all=1[a{index}]')
                         audio.append(f'[a{index}]')
                         index += 1
                     elif track.kind == 'text' and clip.text:

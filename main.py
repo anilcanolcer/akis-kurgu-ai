@@ -27,6 +27,9 @@ from render_worker import TimelineRenderWorker
 from preview_controller import PreviewController
 from ai_service import plan_prompt, parse_suggestions, add_plan_markers
 from caption_worker import LocalCaptionWorker
+from tts_worker import TtsWorker
+from ai_workers import AIWorker, TranscriptWorker
+from media_bin import MediaBin
 from caption_service import caption_track
 
 from PySide6.QtCore import QLocale, QSettings, QSize, QStandardPaths, Qt, QThread, QTimer, Signal
@@ -279,106 +282,11 @@ class TimelineBar(QWidget):
         self._drag = ""
 
 
-class AIWorker(QThread):
-    completed = Signal(list)
-    failed = Signal(str)
-    status = Signal(str)
-
-    def __init__(self, api_key: str, model: str, video: str, duration: float, prompt: str) -> None:
-        super().__init__()
-        self.api_key = api_key
-        self.model = model
-        self.video = video
-        self.duration = duration
-        self.prompt = prompt
-
-    def run(self) -> None:
-        try:
-            from openai import OpenAI
-
-            self.status.emit("Videodan temsilci kareler seçiliyor…")
-            with tempfile.TemporaryDirectory(prefix="akis_ai_") as temp:
-                frames = []
-                moments = [0.05, 0.22, 0.42, 0.62, 0.82]
-                for index, ratio in enumerate(moments):
-                    target = Path(temp) / f"frame_{index}.jpg"
-                    at = max(0, min(self.duration - 0.05, self.duration * ratio))
-                    result = MediaService(ffmpeg_path()).extract_frame(self.video, at, target)
-                    if result.returncode == 0 and target.exists():
-                        frames.append((at, target))
-
-                if not frames:
-                    raise RuntimeError("Videodan analiz karesi çıkarılamadı.")
-
-                content = [{
-                    "type": "input_text",
-                    "text": (
-                        "Aşağıdaki kareler aynı videodan zamana göre sıralıdır. Türkçe yanıt ver. "
-                        f"Video süresi {self.duration:.2f} saniye. Kullanıcı hedefi: {self.prompt}\n\n"
-                        "Yalnızca geçerli JSON döndür ve başka metin yazma. Şema: "
-                        '{"suggestions":[{"summary":"", "title":"", "caption":"", "hashtags":[""], '
-                        '"trim_start":0.0, "trim_end":0.0, "pacing":"", "filter":"natural|vivid|cinematic", '
-                        '"notes":[""]}, ...]} Üç farklı öneri ver. trim_start/trim_end video sınırları içinde olsun.'
-                    ),
-                }]
-                for at, path in frames:
-                    encoded = base64.b64encode(path.read_bytes()).decode("ascii")
-                    content.append({"type": "input_text", "text": f"{at:.2f}. saniyedeki kare:"})
-                    content.append({"type": "input_image", "detail": "low", "image_url": f"data:image/jpeg;base64,{encoded}"})
-
-                self.status.emit("AI kurgu planı hazırlanıyor…")
-                client = OpenAI(api_key=self.api_key)
-                response = client.responses.create(
-                    model=self.model,
-                    instructions="Kısa video kurgusunda uzman, ölçülü ve pratik bir Türkçe kreatif direktörsün.",
-                    input=[{"role": "user", "content": content}],
-                )
-                text = response.output_text.strip()
-                match = re.search(r"\{.*\}", text, re.DOTALL)
-                if not match:
-                    raise RuntimeError("AI yanıtı kurgu planı olarak okunamadı.")
-                self.completed.emit(parse_suggestions(match.group(0), self.duration))
-        except Exception as exc:
-            self.failed.emit(str(exc))
-
-
-class TranscriptWorker(QThread):
-    completed = Signal(str)
-    failed = Signal(str)
-    status = Signal(str)
-
-    def __init__(self, api_key: str, video: str) -> None:
-        super().__init__()
-        self.api_key = api_key
-        self.video = video
-
-    def run(self) -> None:
-        try:
-            from openai import OpenAI
-
-            self.status.emit("Ses parçası hazırlanıyor…")
-            with tempfile.TemporaryDirectory(prefix="akis_audio_") as temp:
-                audio = Path(temp) / "audio.mp3"
-                result = MediaService(ffmpeg_path()).extract_audio(self.video, audio)
-                if result.returncode != 0 or not audio.exists():
-                    raise RuntimeError("Videodan ses parçası çıkarılamadı.")
-                self.status.emit("Türkçe konuşma metne çevriliyor…")
-                client = OpenAI(api_key=self.api_key)
-                with audio.open("rb") as handle:
-                    transcript = client.audio.transcriptions.create(
-                        model="gpt-transcribe",
-                        file=handle,
-                        prompt="Türkçe kısa video konuşması. Noktalama işaretlerini doğal kullan.",
-                    )
-                self.completed.emit(transcript.text)
-        except Exception as exc:
-            self.failed.emit(str(exc))
-
-
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.state = EditState()
+        self.media_bin = MediaBin()
         self.multitrack = Timeline.from_legacy({})
         self.timeline_frame = 0
         self.playback_clock = timeline_service.PlaybackClock()
@@ -479,6 +387,10 @@ class MainWindow(QMainWindow):
         label = QLabel("PROJE MEDYASI")
         label.setObjectName("sectionLabel")
         v.addWidget(label)
+        self.media_search = QLineEdit()
+        self.media_search.setPlaceholderText("Medya ara / Search media")
+        self.media_search.textChanged.connect(self.refresh_media_bin)
+        v.addWidget(self.media_search)
         self.media_list = QListWidget()
         self.media_list.setObjectName("mediaList")
         self.media_list.setMinimumHeight(160)
@@ -588,7 +500,8 @@ class MainWindow(QMainWindow):
         volume.setRange(0, 100)
         volume.setValue(80)
         volume.setFixedWidth(100)
-        volume.valueChanged.connect(lambda val: self.preview_audio_output.setVolume(val / 100))
+        self.master_volume = 0.8
+        volume.valueChanged.connect(self.change_master_volume)
         controls.addWidget(volume)
         v.addLayout(controls)
 
@@ -602,7 +515,7 @@ class MainWindow(QMainWindow):
         tools = QHBoxLayout()
         for label, action in [('＋ İz', self.add_track), ('− İz', self.remove_track),
                               ('＋ Medya', self.add_timeline_media), ('Böl', self.split_clip),
-                              ('Ripple sil', self.ripple_delete)]:
+                              ('Ripple sil', self.ripple_delete), ('Klip sesi', self.set_clip_volume)]:
             button = QPushButton(label)
             button.clicked.connect(action)
             tools.addWidget(button)
@@ -733,9 +646,6 @@ class MainWindow(QMainWindow):
         v.addWidget(apply_plan)
         self.caption_backend = QComboBox()
         self.caption_backend.addItems(['OpenAI API', 'Yerel / Local Whisper'])
-        if getattr(sys, '_MEIPASS', None):
-            self.caption_backend.model().item(1).setEnabled(False)
-            self.caption_backend.setToolTip('Yerel Whisper şu anda yalnızca kaynak koddan çalıştırmada kullanılabilir.')
         v.addWidget(self.caption_backend)
         self.local_model = QComboBox(); self.local_model.addItems(['tiny', 'base', 'small'])
         v.addWidget(self.local_model)
@@ -753,6 +663,17 @@ class MainWindow(QMainWindow):
         self.apply_captions_button.setEnabled(False)
         self.apply_captions_button.clicked.connect(self.apply_local_captions)
         v.addWidget(self.apply_captions_button)
+
+        self.tts_input = QPlainTextEdit()
+        self.tts_input.setPlaceholderText('Seslendirme metni / Voiceover text')
+        self.tts_input.setFixedHeight(75)
+        v.addWidget(self.tts_input)
+        tts_button = QPushButton('Windows sesiyle WAV oluştur / Create voiceover')
+        tts_button.clicked.connect(self.create_voiceover)
+        v.addWidget(tts_button)
+        tts_hint = QLabel('Çevrimdışı Windows sistem sesi kullanılır; dil ve ses işletim sisteminde yüklü seslere bağlıdır.')
+        tts_hint.setWordWrap(True)
+        v.addWidget(tts_hint)
 
         self.ai_result = QPlainTextEdit()
         self.ai_result.setReadOnly(True)
@@ -892,6 +813,13 @@ class MainWindow(QMainWindow):
         v.addStretch()
         return self.scroll_page(content)
 
+    def refresh_media_bin(self):
+        self.media_list.clear()
+        for path in self.media_bin.search(self.media_search.text()):
+            item = QListWidgetItem(f'▣  {Path(path).name}')
+            item.setToolTip(path)
+            self.media_list.addItem(item)
+
     def choose_video(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Video seç", "", "Video (*.mp4 *.mov *.mkv *.webm *.avi *.m4v)")
         if path:
@@ -916,10 +844,9 @@ class MainWindow(QMainWindow):
             self.multitrack_view.set_model(self.multitrack)
         self.project_title.setText(file.stem)
         self.project_subtitle.setText(f"{file.suffix.upper().lstrip('.')} · {file.stat().st_size / 1024 / 1024:.1f} MB")
-        self.media_list.clear()
-        item = QListWidgetItem(f"▣  {file.name}")
-        item.setToolTip(str(file))
-        self.media_list.addItem(item)
+        self.media_bin.clear()
+        self.media_bin.add(str(file))
+        self.refresh_media_bin()
         self.on_duration(round(duration * 1000))
         self.set_status("Video hazır. Zaman çizelgesinden aralığı ayarlayabilirsiniz.")
 
@@ -1039,7 +966,7 @@ class MainWindow(QMainWindow):
             return
         key, model = credentials
         self.begin_work("AI analizi başlatılıyor…")
-        self.worker = AIWorker(key, model, self.state.source, self.state.duration, plan_prompt(self.ai_prompt.toPlainText().strip(), self.ai_platform.currentText(), self.ai_tempo.currentText(), self.ai_style.currentText(), self.ai_focus.currentText()))
+        self.worker = AIWorker(key, model, self.state.source, self.state.duration, plan_prompt(self.ai_prompt.toPlainText().strip(), self.ai_platform.currentText(), self.ai_tempo.currentText(), self.ai_style.currentText(), self.ai_focus.currentText()), ffmpeg_path())
         self.worker.status.connect(self.set_status)
         self.worker.completed.connect(self.on_ai_plan)
         self.worker.failed.connect(self.on_worker_error)
@@ -1077,7 +1004,7 @@ class MainWindow(QMainWindow):
             credentials = self.api_credentials()
             if not credentials:
                 return
-            self.worker = TranscriptWorker(credentials[0], self.state.source)
+            self.worker = TranscriptWorker(credentials[0], self.state.source, ffmpeg_path())
         self.begin_work("Ses hazırlanıyor…")
         self.worker.status.connect(self.set_status)
         self.worker.completed.connect(self.on_local_transcript if self.caption_backend.currentIndex() == 1 else self.on_transcript)
@@ -1096,6 +1023,22 @@ class MainWindow(QMainWindow):
         self.multitrack_view.update()
         self.seek_timeline(self.timeline_frame)
         self.set_status(f'{count} altyazı klibi eklendi. / Caption clips added.')
+
+    def create_voiceover(self):
+        text = self.tts_input.toPlainText().strip()
+        if not text:
+            self.set_status('Önce seslendirme metni girin.')
+            return
+        path, _ = QFileDialog.getSaveFileName(self, 'Seslendirmeyi kaydet', '', 'WAV (*.wav)')
+        if not path:
+            return
+        if not path.lower().endswith('.wav'):
+            path += '.wav'
+        self.begin_work('Windows sesi oluşturuluyor…')
+        self.worker = TtsWorker(text, path)
+        self.worker.completed.connect(lambda result: self.finish_work(f'Ses kaydedildi: {result}'))
+        self.worker.failed.connect(self.on_worker_error)
+        self.worker.start()
 
     def on_transcript(self, text: str) -> None:
         self.ai_result.setPlainText("KONUŞMA METNİ\n\n" + text)
@@ -1208,6 +1151,8 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, APP_NAME, 'Medya süresi okunamadı.')
             return
         timeline_service.append_media(self.multitrack, index, path, seconds)
+        self.media_bin.add(path)
+        self.refresh_media_bin()
         self.multitrack_view.refresh_waveforms()
         self.multitrack_view.update()
 
@@ -1263,7 +1208,23 @@ class MainWindow(QMainWindow):
 
     def sync_timeline_audio(self, force=False):
         if self.play_timer.isActive():
+            self.preview_audio_output.setVolume(timeline_service.playback_volume(self.multitrack, self.timeline_frame, self.master_volume))
             self.timeline_audio.sync(self.multitrack, self.timeline_frame, self.state.speed, force)
+
+    def change_master_volume(self, value):
+        self.master_volume = value / 100
+        self.sync_timeline_audio()
+
+    def set_clip_volume(self):
+        track, clip = self.selected_clip()
+        if not clip or track.kind not in ('audio', 'video'):
+            self.set_status('Bir ses veya video klibi seçin.')
+            return
+        value, ok = QInputDialog.getInt(self, 'Klip sesi / Clip volume', 'Ses / Volume (%)', round(clip.volume * 100), 0, 100)
+        if ok:
+            timeline_service.set_clip_volume(self.multitrack, self.multitrack_view.selected, value / 100)
+            self.sync_timeline_audio(force=True)
+            self.set_status(f'Klip sesi: %{value}')
 
     def change_color(self, name, value):
         setattr(self.state, name, value)
@@ -1484,6 +1445,15 @@ if __name__ == "__main__":
     if len(sys.argv) == 3 and sys.argv[1] == '--audio-diagnostic':
         from audio_diagnostic import diagnose
         Path(sys.argv[2]).write_text(json.dumps(diagnose(), ensure_ascii=False, indent=2), encoding='utf-8')
+    elif len(sys.argv) == 3 and sys.argv[1] == '--whisper-diagnostic':
+        from whisper_diagnostic import diagnose
+        try:
+            report = diagnose()
+        except Exception as exc:
+            report = {'status': 'failed', 'reason': str(exc)}
+        Path(sys.argv[2]).write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
+        if report['status'] != 'passed':
+            raise SystemExit(1)
     else:
         raise SystemExit(main())
 

@@ -92,3 +92,20 @@ class PlaybackClock:
 
     def stop(self):
         self.playing = False
+
+
+def set_clip_volume(timeline, selection, volume):
+    track, clip = selected_clip(timeline, selection)
+    if clip is None or track.kind not in ('audio', 'video'):
+        raise ValueError('Select a video or audio clip')
+    if not 0 <= volume <= 1:
+        raise ValueError('Volume must be between 0 and 1')
+    clip.volume = volume
+
+
+def playback_volume(timeline, frame, master):
+    layer = audio_at(timeline, frame)
+    if layer is None:
+        return 0.0
+    clip = timeline.tracks[layer.track_index].find(layer.clip_id)
+    return max(0.0, min(1.0, master * clip.volume))
