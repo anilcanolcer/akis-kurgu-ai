@@ -8,14 +8,12 @@ from __future__ import annotations
 import os
 import tempfile
 from pathlib import Path
+from frame_plan import plan_frame, plan_segments
 
 
 def active_clips(timeline, frame):
-    if frame < 0:
-        raise ValueError('Invalid frame')
-    return [(track.kind, clip, clip.source_in + frame - clip.start)
-            for track in timeline.tracks if not track.muted
-            for clip in track.clips if clip.start <= frame < clip.end]
+    return [(layer.kind, timeline.tracks[layer.track_index].find(layer.clip_id), layer.source_frame)
+            for layer in plan_frame(timeline, frame)]
 
 
 def duration_frames(timeline):
@@ -41,6 +39,11 @@ class TimelineRenderer:
         fps = timeline.fps_num / timeline.fps_den
         if frame is not None and not 0 <= frame < total:
             raise ValueError('Frame is outside timeline')
+        segments = plan_segments(timeline)
+        planned_ids = {(layer.track_index, layer.clip_id)
+                       for _, _, layers in segments for layer in layers}
+        if frame is not None:
+            planned_ids = {(layer.track_index, layer.clip_id) for layer in plan_frame(timeline, frame)}
         with tempfile.TemporaryDirectory(prefix='akis_render_') as tmp:
             args = ['-y', '-f', 'lavfi', '-i', f'color=c=black:s={self.width}x{self.height}:r={timeline.fps_num}/{timeline.fps_den}:d={total/fps:.9f}']
             graph = ['[0:v]format=yuv420p[base0]']
@@ -48,10 +51,12 @@ class TimelineRenderer:
             audio = []
             index = 1
             layer = 0
-            for track in timeline.tracks:
+            for track_index, track in enumerate(timeline.tracks):
                 if track.muted:
                     continue
                 for clip in track.clips:
+                    if (track_index, clip.id) not in planned_ids:
+                        continue
                     start, length, source_in = clip.start/fps, clip.length/fps, clip.source_in/fps
                     if track.kind in ('video', 'overlay'):
                         if not Path(clip.source).is_file():
@@ -67,6 +72,8 @@ class TimelineRenderer:
                             audio.append(f'[a{index}]')
                         index += 1
                     elif track.kind == 'audio':
+                        if frame is not None:
+                            continue
                         if not Path(clip.source).is_file():
                             raise FileNotFoundError(clip.source)
                         args += ['-i', clip.source]

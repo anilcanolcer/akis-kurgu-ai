@@ -44,6 +44,11 @@ class Track:
 
     def validate(self):
         clips = sorted(self.clips, key=lambda c: c.start)
+        if any(c.start < 0 or c.source_in < 0 or c.length < 1 or
+               (c.source_length is not None and c.source_in + c.length > c.source_length) for c in clips):
+            raise ValueError("Invalid clip range")
+        if len({c.id for c in clips}) != len(clips):
+            raise ValueError("Duplicate clip id")
         if any(a.end > b.start for a, b in zip(clips, clips[1:])):
             raise ValueError("Clips on the same track overlap")
 
@@ -79,6 +84,24 @@ class Track:
         if new_in < 0 or (clip.source_length is not None and new_in + clip.length > clip.source_length):
             raise ValueError("Slip exceeds source duration")
         clip.source_in = new_in
+
+    def move(self, clip_id: str, start: int):
+        clip = self.find(clip_id)
+        old = clip.start
+        clip.start = start
+        try:
+            self.validate()
+        except ValueError:
+            clip.start = old
+            raise
+
+    def ripple_delete(self, clip_id: str):
+        clip = self.find(clip_id)
+        end, length = clip.end, clip.length
+        self.clips.remove(clip)
+        for other in self.clips:
+            if other.start >= end:
+                other.start -= length
 
     def trim_end(self, clip_id: str, end: int, ripple: bool = False):
         clip = self.find(clip_id)

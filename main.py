@@ -17,6 +17,7 @@ from multitrack_widget import MultitrackWidget
 import project_service
 from media_service import MediaService
 from timeline_render import TimelineRenderer, duration_frames
+from frame_plan import audio_at
 
 from PySide6.QtCore import QLocale, QSettings, QSize, QStandardPaths, Qt, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QFont, QIcon, QPainter, QPainterPath, QPen, QPixmap
@@ -515,6 +516,10 @@ class MainWindow(QMainWindow):
         self.audio.setVolume(0.8)
         self.player = QMediaPlayer()
         self.player.setAudioOutput(self.audio)
+        self.preview_audio_output = QAudioOutput()
+        self.preview_audio = QMediaPlayer()
+        self.preview_audio.setAudioOutput(self.preview_audio_output)
+        self.preview_audio_source = None
 
         root = QWidget()
         self.setCentralWidget(root)
@@ -1030,9 +1035,11 @@ class MainWindow(QMainWindow):
             return
         if self.play_timer.isActive():
             self.play_timer.stop()
+            self.preview_audio.pause()
             self.play_button.setText('▶')
         else:
             self.play_timer.start(max(1, round(1000 * self.multitrack.fps_den / self.multitrack.fps_num)))
+            self.sync_timeline_audio(force=True)
             self.play_button.setText('❚❚')
 
     def on_timeline_range(self, start: float, end: float) -> None:
@@ -1292,11 +1299,7 @@ class MainWindow(QMainWindow):
     def ripple_delete(self):
         track, clip = self.selected_clip()
         if clip:
-            end, length = clip.end, clip.length
-            track.clips.remove(clip)
-            for item in track.clips:
-                if item.start >= end:
-                    item.start -= length
+            track.ripple_delete(clip.id)
             self.multitrack_view.selected = None
             self.multitrack_view.update()
 
@@ -1305,6 +1308,7 @@ class MainWindow(QMainWindow):
         if not total:
             return
         self.timeline_frame = min(max(0, frame), total - 1)
+        self.sync_timeline_audio()
         self.multitrack_view.playhead = self.timeline_frame
         self.multitrack_view.update()
         fps = self.multitrack.fps_num / self.multitrack.fps_den
@@ -1335,6 +1339,7 @@ class MainWindow(QMainWindow):
     def advance_timeline(self):
         if self.timeline_frame + 1 >= duration_frames(self.multitrack):
             self.play_timer.stop()
+            self.preview_audio.pause()
             self.play_button.setText('▶')
         else:
             self.seek_timeline(self.timeline_frame + 1)
@@ -1347,7 +1352,29 @@ class MainWindow(QMainWindow):
             return (1080, 1080)
         if aspect.startswith('4:5'):
             return (1080, 1350)
+        if aspect in ('Kaynak oranı', 'Source ratio'):
+            for track in self.multitrack.tracks:
+                if track.kind == 'video' and track.clips:
+                    return MediaService(ffmpeg_path()).dimensions(track.clips[0].source)
+            raise ValueError('Kaynak video bulunamadı.')
         return (1080, 1920)
+
+    def sync_timeline_audio(self, force=False):
+        if not self.play_timer.isActive():
+            return
+        layer = audio_at(self.multitrack, self.timeline_frame)
+        if layer is None:
+            self.preview_audio.pause()
+            self.preview_audio_source = None
+            return
+        position = round(layer.source_frame * 1000 * self.multitrack.fps_den / self.multitrack.fps_num)
+        if self.preview_audio_source != layer.source:
+            self.preview_audio_source = layer.source
+            self.preview_audio.setSource(QUrl.fromLocalFile(layer.source))
+            force = True
+        if force or abs(self.preview_audio.position() - position) > 250:
+            self.preview_audio.setPosition(position)
+        self.preview_audio.play()
 
     def project_document(self) -> dict:
         return {

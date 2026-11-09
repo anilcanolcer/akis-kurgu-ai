@@ -33,8 +33,14 @@ class RenderTests(unittest.TestCase):
             output = root/'result.mp4'
             renderer.preview(timeline, 7, preview)
             renderer.export(timeline, output)
+            exported_frame = root/'exported.png'
+            extracted = media.run(['-y', '-ss', '0.7', '-i', output, '-frames:v', '1', exported_frame])
+            self.assertEqual(extracted.returncode, 0)
             from PIL import Image
             with Image.open(preview) as image:
+                red, green, blue = image.convert('RGB').getpixel((80, 45))
+                self.assertGreater(blue, red + 100)
+            with Image.open(exported_frame) as image:
                 red, green, blue = image.convert('RGB').getpixel((80, 45))
                 self.assertGreater(blue, red + 100)
             self.assertGreater(preview.stat().st_size, 50)
