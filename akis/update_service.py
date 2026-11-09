@@ -5,7 +5,7 @@ import re
 import urllib.request
 from pathlib import Path
 
-VERSION = '0.3.4'
+VERSION = '0.3.5'
 API = 'https://api.github.com/repos/anilcanolcer/akis-kurgu-ai/releases/latest'
 ASSET = 'AkisKurguAI-Setup.exe'
 
@@ -66,7 +66,12 @@ $d = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('PAYLOAD')) | C
 try {
     Wait-Process -Id $d.pid -ErrorAction SilentlyContinue
     $arguments = @('/VERYSILENT', '/NORESTART', '/SP-', ('/DIR="' + $d.directory + '"'), ('/LOG="' + $d.log + '"'))
-    $p = Start-Process -FilePath $d.installer -ArgumentList $arguments -Wait -PassThru
+    $protected = @($env:ProgramFiles, ${env:ProgramFiles(x86)}) | Where-Object { $_ -and ($d.directory.Equals($_, [StringComparison]::OrdinalIgnoreCase) -or $d.directory.StartsWith($_ + '\', [StringComparison]::OrdinalIgnoreCase)) }
+    if ($protected) {
+        $p = Start-Process -FilePath $d.installer -ArgumentList $arguments -Verb RunAs -Wait -PassThru
+    } else {
+        $p = Start-Process -FilePath $d.installer -ArgumentList $arguments -Wait -PassThru
+    }
     if ($p.ExitCode -ne 0) { throw ("Kurucu hata kodu: " + $p.ExitCode) }
     Start-Process -FilePath $d.app
 } catch {

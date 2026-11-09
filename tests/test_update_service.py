@@ -26,6 +26,7 @@ class UpdateTests(unittest.TestCase):
             self.assertIn('MessageBox', script)
             self.assertIn('/LOG=', script)
             self.assertIn('/DIR=', script)
+            self.assertIn('-Verb RunAs', script)
             self.assertNotIn('/SUPPRESSMSGBOXES', script)
             import re, json
             encoded = re.search(r"FromBase64String\('([^']+)'\)", script).group(1)
