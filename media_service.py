@@ -23,6 +23,18 @@ class MediaService:
             raise ValueError('Medya süresi okunamadı.')
         return int(match.group(1))*3600 + int(match.group(2))*60 + float(match.group(3))
 
+    def has_audio(self, path):
+        result = self.run(['-hide_banner', '-i', path], text=True)
+        return bool(re.search(r'Stream #\S+.*Audio:', result.stderr))
+
+    def dimensions(self, path):
+        result = self.run(['-hide_banner', '-i', path], text=True)
+        match = re.search(r'Stream #.*Video:.*?\b(\d{2,5})x(\d{2,5})\b', result.stderr)
+        if not match:
+            raise ValueError('Video boyutları okunamadı.')
+        width, height = int(match.group(1)), int(match.group(2))
+        return width - width % 2, height - height % 2
+
     def extract_frame(self, source, seconds, destination):
         return self.run(['-y', '-ss', str(seconds), '-i', source, '-frames:v', '1',
                          '-vf', 'scale=640:-2', '-q:v', '3', destination])

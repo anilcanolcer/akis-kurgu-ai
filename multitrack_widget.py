@@ -1,5 +1,7 @@
 """Interactive frame-based timeline view."""
 from PySide6.QtCore import Qt, Signal
+from caption_service import snap_frame
+from waveform_service import WaveformWorker, SAMPLE_RATE, WINDOW
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QWidget
 
@@ -12,9 +14,13 @@ class MultitrackWidget(QWidget):
     def __init__(self, model, parent=None):
         super().__init__(parent)
         self.model = model
+        self.waveforms = {}
+        self.waveform_worker = None
+        self.waveform_executable = None
         self.zoom = 2.0
         self.playhead = 0
         self.selected = None
+        self.selected_track = None
         self.drag_mode = None
         self.drag_anchor = 0
         self.original = None
@@ -24,8 +30,41 @@ class MultitrackWidget(QWidget):
     def set_model(self, model):
         self.model = model
         self.selected = None
+        self.selected_track = None
         self.updateGeometry()
         self.update()
+        self.refresh_waveforms()
+
+    def refresh_waveforms(self):
+        if not self.waveform_executable or self.waveform_worker:
+            return
+        source = next((c.source for t in self.model.tracks if t.kind in ('audio', 'video')
+                       for c in t.clips if c.source and c.source not in self.waveforms), None)
+        if source:
+            self.waveforms[source] = None
+            try:
+                executable = self.waveform_executable() if callable(self.waveform_executable) else self.waveform_executable
+            except RuntimeError:
+                self.waveforms[source] = []
+                return
+            self.waveform_worker = WaveformWorker(executable, source)
+            self.waveform_worker.ready.connect(self._waveform_ready)
+            self.waveform_worker.finished.connect(self._waveform_finished)
+            self.waveform_worker.start()
+
+    def _waveform_ready(self, source, peaks):
+        self.waveforms[source] = peaks
+        self.update()
+
+    def _waveform_finished(self):
+        self.waveform_worker = None
+        self.refresh_waveforms()
+
+    def stop_waveforms(self):
+        self.waveform_executable = None
+        if self.waveform_worker:
+            self.waveform_worker.wait()
+            self.waveform_worker = None
 
     def x_for(self, frame):
         return 100 + frame * self.zoom
@@ -57,8 +96,22 @@ class MultitrackWidget(QWidget):
                 p.setBrush(QColor(colors[track.kind]))
                 p.setPen(QPen(QColor('#ffffff' if self.selected == (ti, clip.id) else '#282a37'), 2))
                 p.drawRoundedRect(x, y + 3, w, 34, 5, 5)
+                peaks = self.waveforms.get(clip.source)
+                if peaks and track.kind in ('audio', 'video'):
+                    p.setPen(QColor('#a4e3db'))
+                    for px in range(max(0, x), min(self.width(), x + w), 2):
+                        source_frame = clip.source_in + (px - x) / self.zoom
+                        sample = int(source_frame / fps * SAMPLE_RATE / WINDOW)
+                        if 0 <= sample < len(peaks):
+                            height = int(peaks[sample] * 14)
+                            p.drawLine(px, y + 21 - height, px, y + 21 + height)
                 p.setPen(QColor('white'))
                 p.drawText(x + 5, y + 25, (clip.text or clip.source.replace('\\', '/').split('/')[-1])[:max(0, w // 7)])
+        p.setPen(QPen(QColor('#ffcd5a'), 2))
+        for marker in self.model.markers:
+            x = int(self.x_for(marker.get('frame', 0)))
+            p.drawLine(x, 20, x, self.height())
+            p.drawText(x + 3, 28, str(marker.get('label', ''))[:24])
         p.setPen(QPen(QColor('#ff4fa3'), 2))
         x = int(self.x_for(self.playhead))
         p.drawLine(x, 20, x, self.height())
@@ -67,12 +120,15 @@ class MultitrackWidget(QWidget):
         x, y = event.position().x(), event.position().y()
         frame = self.frame_for(x)
         if y < 30:
+            self.drag_mode = 'scrub'
+            frame = snap_frame(self.model, frame, max(1, round(8 / self.zoom)))
             self.playhead = frame
             self.seek.emit(frame)
             self.update()
             return
         ti = int((y - 30) // 43)
         if 0 <= ti < len(self.model.tracks):
+            self.selected_track = ti
             track = self.model.tracks[ti]
             clip = next((c for c in track.clips if c.start <= frame < c.end), None)
             self.selected = (ti, clip.id) if clip else None
@@ -87,26 +143,29 @@ class MultitrackWidget(QWidget):
             self.update()
 
     def mouseMoveEvent(self, event):
+        if self.drag_mode == 'scrub':
+            self.playhead = snap_frame(self.model, self.frame_for(event.position().x()), max(1, round(8 / self.zoom)))
+            self.seek.emit(self.playhead)
+            self.update()
+            return
         if not self.drag_mode or not self.selected:
             return
         ti, clip_id = self.selected
         track = self.model.tracks[ti]
         clip = track.find(clip_id)
         delta = self.frame_for(event.position().x()) - self.drag_anchor
-        previous = (clip.start, clip.length)
-        if self.drag_mode == 'move':
-            clip.start = max(0, self.original[0] + delta)
-        else:
-            clip.length = max(1, self.original[1] + delta)
-            if clip.source_length is not None:
-                clip.length = min(clip.length, clip.source_length - clip.source_in)
         try:
-            track.validate()
+            if self.drag_mode == 'move':
+                target = max(0, self.original[0] + delta)
+                target = snap_frame(self.model, target, max(1, round(8 / self.zoom)), self.selected)
+                track.move(clip.id, target)
+            else:
+                track.trim_end(clip.id, clip.start + max(1, self.original[1] + delta))
         except ValueError:
-            clip.start, clip.length = previous
+            pass
         self.update()
 
     def mouseReleaseEvent(self, event):
-        if self.drag_mode:
+        if self.drag_mode in ('move', 'trim'):
             self.changed.emit()
         self.drag_mode = None
