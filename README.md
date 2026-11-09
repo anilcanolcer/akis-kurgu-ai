@@ -1,70 +1,89 @@
-<p align="center"><img src="logo.svg" width="128" alt="Akış Kurgu AI logosu"></p>
+<p align="center"><img src="logo.svg" width="120" alt="Akış Kurgu AI logosu"></p>
 
-# Akış Kurgu AI
+<h1 align="center">Akış Kurgu AI</h1>
+<p align="center">Windows için yerel öncelikli, Türkçe ve İngilizce video düzenleme denemesi</p>
 
-Windows için yerel öncelikli, Türkçe ve İngilizce video düzenleyici. Proje erken geliştirme aşamasındadır; üretim kullanımı için hazır değildir. Instagram Edits ile bağlantılı değildir. Müzik kütüphanesi, hesap eşitleme veya doğrudan Instagram yayını sağlamaz.
+> **Geliştirme durumu:** Proje deneysel aşamadadır. Ana dal erken sürümü içerir; aşağıdaki çok izli özellikler ve görsel [experimental/timeline-render](https://github.com/anilcanolcer/akis-kurgu-ai/tree/experimental/timeline-render) dalına aittir. Önemli çalışmalarınız için kaynak dosyalarınızın yedeğini saklayın.
 
-## Mevcut durum
+## Windows'ta çalıştırma
 
-Çalışan veya temel düzeyde uygulanan parçalar:
+[Windows için deneysel paketi indir](https://github.com/anilcanolcer/akis-kurgu-ai/releases/download/v0.2.0-experimental/AkisKurguAI-Windows.zip)
 
-- Yerel video açma ve temel düzenleme arayüzü; klip/iz modeli, klip bölme, taşıma ve ripple silme için ilk kontroller.
-- FFmpeg ile kare ve ses çıkarma; H.264/AAC ile filigransız dışa aktarma altyapısı.
-- JSON proje kaydetme, şema sürümü 2'ye geçiş ve sürüm anlık görüntüleri.
-- İsteğe bağlı OpenAI API ile örnek kare analizi ve konuşma metni oluşturma. API kullanımı internet bağlantısı ve kullanıcıya ait ücretlendirmeyi gerektirir. Anahtar isteğe bağlı olarak Windows Kimlik Bilgileri Yöneticisi'nde saklanır.
-- Türkçe/İngilizce arayüz için kısmi çeviri; otomatik testlerin başlangıcı.
+1. ZIP dosyasını indirin ve tamamını bir klasöre çıkarın.
+2. Çıkarılan klasördeki **AkisKurguAI.exe** dosyasını açın. `_internal` klasörü EXE'nin yanında kalmalıdır.
+3. **Video ekle** ile bir video seçin. İnternet ve API anahtarı temel yerel düzenleme için gerekli değildir.
 
-Sınırlamalar:
+Paket taşınabilir klasör dağıtımıdır; bir Windows kurulum sihirbazı değildir. Windows 10/11 64-bit hedeflenir. GitHub Actions derlemesinde testler ve otomatik açılış kontrolü çalışır; bütün donanımlarda gerçek zamanlı ses/görüntü eşzamanlaması garanti edilmez.
 
-- Çok izli önizleme ve dışa aktarma henüz tamamlanmadı. Çok izli projelerin dışa aktarılması eksik sonuçları önlemek için engellenir; önizleme ana video kaynağıyla sınırlıdır.
-- Çok izli zaman çizelgesi tüm düzenleme senaryolarında doğrulanmış değildir. Waveform, keyframe düzenleme, opacity/transform ve ses zarfı yoktur.
-- Yerel AI/TTS, ses klonlama, proxy, export kuyruğu, iptal ve güvenilir ilerleme göstergesi yoktur.
-- LUT/scopes, hareket takibi, green screen, iç içe sekanslar, multicam ve eklenti sistemi yoktur.
-- Çeviriler ve otomatik kurtarma kapsamlı biçimde test edilmemiştir. `MainWindow` hâlâ çok fazla sorumluluk taşır.
+## Uygulama görünümü
 
-## Kurulum ve çalıştırma
+![Deneysel sürümde örnek video ve zaman çizelgesi](https://raw.githubusercontent.com/anilcanolcer/akis-kurgu-ai/experimental/timeline-render/docs/editor-demo.png)
 
-Windows 10/11 64-bit, Python 3.12 ve PATH üzerinde FFmpeg gerekir. `sample/` klasörü kaynak paketinde bulunur.
+*Deneysel sürümün gerçek arayüzü; görüntüde FFmpeg tarafından oluşturulan örnek test videosu kullanılmıştır.*
+
+## Kısa kullanım
+
+1. **Video ekle** ile dosya açın. İlk klip Video izinde görünür.
+2. İzdeki klibe tıklayın; cetvel üzerinde tıklayarak veya sürükleyerek oynatma konumunu değiştirin.
+3. Klip seçiliyken oynatma çizgisini klibin içine getirin ve **Böl** düğmesine basın. Klipleri aynı izde sürükleyebilir veya **Ripple sil** ile seçileni silip sonraki klipleri kaydırabilirsiniz.
+4. Boş bir izi seçip **Medya** ile video/ses ekleyin; **İz** düğmeleriyle izleri yönetin. ▶ düğmesi oynatma ve duraklatma içindir.
+5. **Düzenle** sekmesinden oran, renk ve hız ayarlayın; **Dışa aktar** ile MP4 oluşturun. Projeyi `.akis.json` olarak kaydedebilirsiniz.
+
+## Neler çalışıyor?
+
+| Alan | Deneysel dalın durumu |
+| --- | --- |
+| Timeline | Video, ses, metin ve overlay iz modeli; seçim, taşıma, bölme, uçtan kırpma ve ripple silme için temel kontroller |
+| Önizleme ve çıktı | Ortak kare planından çok katmanlı FFmpeg kompozisyonu; H.264/AAC MP4, filigransız çıktı ve temel oranlar |
+| Renk ve hız | Parlaklık, kontrast, doygunluk ve genel hız önizleme/çıktıya uygulanır; hız değiştirilmiş export ara dosya ve ikinci kodlama kullanır |
+| Ses | Tek kaynaklı temel ses önizlemesi ve basit zamanlama düzeltmesi; export tarafında ses izlerinin temel karışımı |
+| Proje ve AI | Sürümlü JSON proje; isteğe bağlı OpenAI ile kurgu önerisi ve konuşma metni. API kullanımı internet ve kendi anahtarınızı gerektirir |
+
+### Bilinen sınırlamalar
+
+- Önizleme her kareyi FFmpeg ile üretir; özellikle yüksek çözünürlükte akıcı gerçek zamanlı oynatma beklenmemelidir. Ses önizlemesi tek kaynak seçer, çok izli miksi canlı çalmaz.
+- Eski aralık seçici, geçiş, görünüm efekti, başlık alanı ve bazı ses işleme kontrolleri yeni render yoluna bağlı olmadıklarından devre dışıdır. Metin izi model ve render düzeyinde desteklenir; tam bir metin düzenleyicisi yoktur.
+- Waveform, keyframe düzenleme, proxy, dışa aktarma kuyruğu, yerel AI/TTS, gelişmiş renk araçları ve kurulum sihirbazı yoktur. Çeviriler eksiksiz değildir.
+- Instagram müzik kütüphanesi, hesap eşitleme veya doğrudan yayınlama sunulmaz. Proje Instagram ile bağlantılı değildir.
+
+## Kaynak koddan çalıştırma
+
+Python 3.12, Windows ve PATH üzerinde FFmpeg gerekir:
 
 ```powershell
+git clone https://github.com/anilcanolcer/akis-kurgu-ai.git
+cd akis-kurgu-ai
+git switch experimental/timeline-render
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
 python main.py
 ```
 
-Testler (gerçek medya testleri FFmpeg gerektirir):
-
 ```powershell
-python -m unittest test_timeline_model test_project_service test_media_service -v
-```
-
-Windows klasör dağıtımı oluşturmak için `C:\Windows\System32\ffmpeg.exe` konumunda FFmpeg bulunduğundan emin olun ve:
-
-```powershell
+# Birim testleri, arayüz etkileşimleri ve gerçek FFmpeg testleri
+python -m unittest discover -v
+# FFmpeg PATH üzerinde veya AKIS_FFMPEG ile belirtilmişken Windows paketi
 python -m PyInstaller AkisKurguAI.spec --noconfirm --clean
 ```
 
-Çıktı `dist/AkisKurguAI/` içindedir. EXE bu klasördeki `_internal` ile birlikte dağıtılmalıdır. Paket FFmpeg'i içerir; dağıtım öncesinde kullanılan FFmpeg derlemesinin lisans koşullarını ayrıca değerlendirin.
+PyInstaller çıktısı `dist/AkisKurguAI/` klasöründedir. FFmpeg içeren dağıtımlarda ilgili FFmpeg derlemesinin lisans koşulları değerlendirilmelidir.
 
-## Mimari
+## Mimari ve katkı
 
-- `main.py`: PySide6 penceresi ve henüz ayrıştırılmamış uygulama akışları.
-- `timeline_model.py`: kare tabanlı `Timeline`, `Track`, `Clip` modelleri.
-- `multitrack_widget.py`: deneysel zaman çizelgesi görünümü.
-- `media_service.py`: FFmpeg süreç sınırı; test için süreç çalıştırıcısı enjekte edilebilir.
-- `project_service.py`: sürümlü JSON okuma, taşıma ve atomik kayıt.
-- `logo.svg`, `app.ico`: özgün logo ve uygulama simgesi.
+- `timeline_model.py`: kare tabanlı klip ve izler; `frame_plan.py`: etkin katmanlar.
+- `timeline_service.py`, `timeline_audio.py`: düzenleme, oynatma saati ve temel ses konumu eşleme.
+- `timeline_render.py`, `render_worker.py`, `media_service.py`: ortak kompozisyon, arka plan işi ve FFmpeg sınırı.
+- `multitrack_widget.py`, `main.py`: zaman çizelgesi arayüzü ve uygulama penceresi. Pencerede hâlâ ayrıştırılabilecek iş akışları vardır.
+- `project_service.py`: proje şeması ve kayıt; `logo.svg`, `logo.png`, `app.ico`: logo ve simge varlıkları.
+
+Hata bildirirken Windows/Python/FFmpeg sürümlerini ve adımları paylaşın; API anahtarlarını veya kişisel medya dosyalarını depoya eklemeyin. Değişikliklerde mevcut proje dosyalarıyla uyumluluğu koruyun ve testleri çalıştırın.
 
 ## Yol haritası
 
-1. **Phase 1 — Timeline:** Önizleme ve export'u tek timeline modeline güvenilir biçimde bağlamak; çok iz, sesli oynatma, waveform ve düzenleme testleri.
-2. **Phase 2 — AI ve ses:** İsteğe bağlı yerel transkripsiyon, AI düzenleme akışı ve ses araçları.
-3. **Phase 3 — Görüntü ve teslim:** Renk araçları, proxy, ilerleme/iptal, export kuyruğu ve çoklu çıktılar.
-4. **Phase 4 — Kullanılabilirlik:** Tam çift dil, düzenlenebilir çalışma alanları, medya organizasyonu ve kararlılık.
+1. **Phase 1:** Timeline ve önizleme/çıktı tutarlılığı, ses ve düzenleme kararlılığı.
+2. **Phase 2:** İsteğe bağlı yerel transkripsiyon ve ses araçları.
+3. **Phase 3:** Proxy, dışa aktarma ilerlemesi/kuyruğu ve ek görüntü araçları.
+4. **Phase 4:** Daha kapsamlı çeviriler, çalışma alanları ve güvenilirlik.
 
-Bu maddeler hedeftir; kullanılabilir özellik taahhüdü değildir.
-
-## Katkı ve geliştirme
-
-Hata raporunda Windows/Python/FFmpeg sürümlerini, yeniden üretme adımlarını ve mümkünse kişisel veri içermeyen örnek projeyi paylaşın. Değişikliklerde mevcut `.akis.json` dosyaları için geçişi koruyun, kaynak medyayı değiştirmeyin ve ilgili birim/entegrasyon testlerini çalıştırın. API anahtarlarını veya kişisel medyayı depoya eklemeyin. Logo varlıkları `python generate_icons.py` ile yeniden üretilebilir.
+Yol haritası hedefleri mevcut özellik değildir.
