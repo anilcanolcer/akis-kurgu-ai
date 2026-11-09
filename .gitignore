@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+build/
+dist/
+*.spec.bak
+sample-input.mp4
+sample-output*.mp4
+ui-preview.png
+.env
+.venv/
