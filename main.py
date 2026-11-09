@@ -27,6 +27,7 @@ from render_worker import TimelineRenderWorker
 from preview_controller import PreviewController
 from ai_service import plan_prompt, parse_suggestions, add_plan_markers
 from caption_worker import LocalCaptionWorker
+from caption_service import caption_track
 
 from PySide6.QtCore import QLocale, QSettings, QSize, QStandardPaths, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QFont, QIcon, QPainter, QPainterPath, QPen, QPixmap
@@ -745,6 +746,12 @@ class MainWindow(QMainWindow):
         transcript.setObjectName("secondary")
         transcript.clicked.connect(self.run_transcript)
         v.addWidget(transcript)
+        self.caption_segments = []
+        self.caption_source = ''
+        self.apply_captions_button = QPushButton('Yerel altyazıyı timeline’a ekle / Add local captions')
+        self.apply_captions_button.setEnabled(False)
+        self.apply_captions_button.clicked.connect(self.apply_local_captions)
+        v.addWidget(self.apply_captions_button)
 
         self.ai_result = QPlainTextEdit()
         self.ai_result.setReadOnly(True)
@@ -1063,7 +1070,8 @@ class MainWindow(QMainWindow):
         if not self.ensure_video():
             return
         if self.caption_backend.currentIndex() == 1:
-            self.worker = LocalCaptionWorker(self.state.source, self.local_model.currentText(), self.download_model.isChecked())
+            self.caption_request_source = self.state.source
+            self.worker = LocalCaptionWorker(self.caption_request_source, self.local_model.currentText(), self.download_model.isChecked())
         else:
             credentials = self.api_credentials()
             if not credentials:
@@ -1071,9 +1079,22 @@ class MainWindow(QMainWindow):
             self.worker = TranscriptWorker(credentials[0], self.state.source)
         self.begin_work("Ses hazırlanıyor…")
         self.worker.status.connect(self.set_status)
-        self.worker.completed.connect(self.on_transcript)
+        self.worker.completed.connect(self.on_local_transcript if self.caption_backend.currentIndex() == 1 else self.on_transcript)
         self.worker.failed.connect(self.on_worker_error)
         self.worker.start()
+
+    def on_local_transcript(self, segments):
+        self.caption_segments = segments
+        self.caption_source = self.caption_request_source
+        self.apply_captions_button.setEnabled(bool(segments))
+        self.on_transcript(' '.join(segment['text'] for segment in segments))
+
+    def apply_local_captions(self):
+        count = caption_track(self.multitrack, self.caption_source, self.caption_segments)
+        self.multitrack_view.setMinimumHeight(max(210, 40 + 43 * len(self.multitrack.tracks)))
+        self.multitrack_view.update()
+        self.seek_timeline(self.timeline_frame)
+        self.set_status(f'{count} altyazı klibi eklendi. / Caption clips added.')
 
     def on_transcript(self, text: str) -> None:
         self.ai_result.setPlainText("KONUŞMA METNİ\n\n" + text)

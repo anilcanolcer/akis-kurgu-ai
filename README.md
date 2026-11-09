@@ -102,4 +102,6 @@ Yerel Türkçe konuşma metni kaynak koddan çalıştırmada isteğe bağlıdır
 python -m pip install -r requirements-local-ai.txt
 ```
 
-Panelde Yerel Whisper ve model boyutunu seçin. İlk kullanımda “Modeli indir” seçeneği internet bağlantısı gerektirir; model indirildikten sonra bu seçeneği kapatarak çevrimdışı kullanabilirsiniz. Metin yayın açıklaması alanına aktarılır; zamanlanmış altyazı klipleri henüz üretilmez. Yerel AI bağımlılığı standart Windows paketine dahil değildir; paketlenmiş EXE için yerel model desteği henüz doğrulanmamıştır. API transkripsiyonu ayrı seçenek olarak kalır.
+Panelde Yerel Whisper ve model boyutunu seçin. İlk kullanımda “Modeli indir” seçeneği internet bağlantısı gerektirir; model indirildikten sonra bu seçeneği kapatarak çevrimdışı kullanabilirsiniz. Yerel sonuç yayın açıklaması alanına aktarılır; “Yerel altyazıyı timeline’a ekle” kaynak zamanlarını mevcut video kliplerine eşleyip yeni bir metin izi oluşturur. Bu klipler ortak önizleme ve dışa aktarmada gösterilir. API seçeneği şimdilik yalnızca düz metin üretir. Yerel AI bağımlılığı standart Windows paketine dahil değildir; paketlenmiş EXE için yerel model desteği henüz doğrulanmamıştır. API transkripsiyonu ayrı seçenek olarak kalır.
+
+Timeline cetveli ve klip taşıma, yakın klip kenarlarına sınırlı mesafede yapışır. Kliplerin bitişlerini hareket ettirirken yapışma henüz uygulanmaz. Waveform, ses ducking ve yerel TTS henüz yoktur.

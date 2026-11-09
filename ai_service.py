@@ -32,7 +32,7 @@ def add_plan_markers(timeline, plan):
         timeline.markers.append({'frame': round(seconds * fps), 'label': f"AI: {label} — {plan.get('title', '')}"})
 
 
-def local_transcribe(path, model_name, *, download=False, model_factory=None):
+def local_transcribe(path, model_name, *, download=False, model_factory=None, timed=False):
     if model_factory is None:
         try:
             from faster_whisper import WhisperModel
@@ -41,4 +41,5 @@ def local_transcribe(path, model_name, *, download=False, model_factory=None):
         model_factory = WhisperModel
     model = model_factory(model_name, device='cpu', compute_type='int8', local_files_only=not download)
     segments, _ = model.transcribe(str(path), language='tr', vad_filter=True)
-    return ' '.join(segment.text.strip() for segment in segments).strip()
+    items = [{'start': segment.start, 'end': segment.end, 'text': segment.text.strip()} for segment in segments if segment.text.strip()]
+    return items if timed else ' '.join(item['text'] for item in items)

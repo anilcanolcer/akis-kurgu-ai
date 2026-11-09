@@ -14,7 +14,7 @@ class AiTests(unittest.TestCase):
         calls = []
         def factory(name, **kw):
             calls.append(kw)
-            return SimpleNamespace(transcribe=lambda *a, **k: ([SimpleNamespace(text=' Merhaba ')], None))
+            return SimpleNamespace(transcribe=lambda *a, **k: ([SimpleNamespace(start=0, end=1, text=' Merhaba ')], None))
         self.assertEqual(local_transcribe('x', 'tiny', model_factory=factory), 'Merhaba')
         self.assertTrue(calls[-1]['local_files_only'])
         local_transcribe('x', 'tiny', download=True, model_factory=factory)

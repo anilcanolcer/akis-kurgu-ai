@@ -1,5 +1,6 @@
 """Interactive frame-based timeline view."""
 from PySide6.QtCore import Qt, Signal
+from caption_service import snap_frame
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QWidget
 
@@ -75,6 +76,7 @@ class MultitrackWidget(QWidget):
         frame = self.frame_for(x)
         if y < 30:
             self.drag_mode = 'scrub'
+            frame = snap_frame(self.model, frame, max(1, round(8 / self.zoom)))
             self.playhead = frame
             self.seek.emit(frame)
             self.update()
@@ -97,7 +99,7 @@ class MultitrackWidget(QWidget):
 
     def mouseMoveEvent(self, event):
         if self.drag_mode == 'scrub':
-            self.playhead = self.frame_for(event.position().x())
+            self.playhead = snap_frame(self.model, self.frame_for(event.position().x()), max(1, round(8 / self.zoom)))
             self.seek.emit(self.playhead)
             self.update()
             return
@@ -109,7 +111,9 @@ class MultitrackWidget(QWidget):
         delta = self.frame_for(event.position().x()) - self.drag_anchor
         try:
             if self.drag_mode == 'move':
-                track.move(clip.id, max(0, self.original[0] + delta))
+                target = max(0, self.original[0] + delta)
+                target = snap_frame(self.model, target, max(1, round(8 / self.zoom)), self.selected)
+                track.move(clip.id, target)
             else:
                 track.trim_end(clip.id, clip.start + max(1, self.original[1] + delta))
         except ValueError:
