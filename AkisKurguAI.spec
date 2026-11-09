@@ -1,9 +1,13 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 from pathlib import Path
+import os
+import shutil
 
 project_dir = Path(SPECPATH)
-ffmpeg = r"C:\Windows\System32\ffmpeg.exe"
+ffmpeg = os.environ.get("AKIS_FFMPEG") or shutil.which("ffmpeg")
+if not ffmpeg or not Path(ffmpeg).is_file():
+    raise SystemExit("FFmpeg bulunamadı: PATH veya AKIS_FFMPEG ayarlayın.")
 
 a = Analysis(
     [str(project_dir / "main.py")],

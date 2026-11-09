@@ -40,13 +40,15 @@ Testler (gerçek medya testleri FFmpeg gerektirir):
 python -m unittest test_timeline_model test_project_service test_media_service test_timeline_render test_frame_plan -v
 ```
 
-Windows klasör dağıtımı oluşturmak için `C:\Windows\System32\ffmpeg.exe` konumunda FFmpeg bulunduğundan emin olun ve:
+Windows klasör dağıtımı oluşturmak için FFmpeg'in PATH üzerinde olduğundan emin olun (veya `AKIS_FFMPEG` ortam değişkeniyle tam yolunu belirtin) ve:
 
 ```powershell
 python -m PyInstaller AkisKurguAI.spec --noconfirm --clean
 ```
 
 Çıktı `dist/AkisKurguAI/` içindedir. EXE bu klasördeki `_internal` ile birlikte dağıtılmalıdır. Paket FFmpeg'i içerir; dağıtım öncesinde kullanılan FFmpeg derlemesinin lisans koşullarını ayrıca değerlendirin.
+
+GitHub Actions `Windows build and tests` iş akışı deneysel dalda testleri, EXE derlemesini ve açılış kontrolünü çalıştırır. Başarılı çalışmanın **Artifacts** bölümünden `AkisKurguAI-Windows-experimental` paketi indirilebilir. Artifact kalıcı bir GitHub Release değildir.
 
 ## Mimari
 
