@@ -1,17 +1,17 @@
-<p align="center"><img src="logo.svg" width="120" alt="Akış Kurgu AI logosu"></p>
+<p align="center"><img src="https://raw.githubusercontent.com/anilcanolcer/akis-kurgu-ai/main/docs/banner.svg" alt="Akış Kurgu AI — yerel öncelikli video düzenleyici"></p>
 
 <h1 align="center">Akış Kurgu AI</h1>
 <p align="center">Windows için yerel öncelikli, Türkçe ve İngilizce video düzenleme denemesi</p>
 
-## Windows'ta çalıştırma
+## Windows'ta kurulum
 
-[Windows için deneysel paketi indir](https://github.com/anilcanolcer/akis-kurgu-ai/releases/download/v0.2.1-experimental/AkisKurguAI-Windows.zip)
+[**Windows kurucusunu indir — AkisKurguAI-Setup.exe**](https://github.com/anilcanolcer/akis-kurgu-ai/releases/download/v0.3.0-experimental/AkisKurguAI-Setup.exe)
 
-1. ZIP dosyasını indirin ve tamamını bir klasöre çıkarın.
-2. Çıkarılan klasördeki **AkisKurguAI.exe** dosyasını açın. `_internal` klasörü EXE'nin yanında kalmalıdır.
-3. **Video ekle** ile bir video seçin. İnternet ve API anahtarı temel yerel düzenleme için gerekli değildir.
+1. Kurucu EXE dosyasını indirin ve çalıştırın.
+2. Kurulum adımlarını tamamlayıp Başlat menüsünden **Akış Kurgu AI** uygulamasını açın.
+3. Yerel Whisper modeli ilk kullanımda internet üzerinden indirilir; sonrasında çevrimdışı kullanılabilir.
 
-Paket taşınabilir klasör dağıtımıdır; bir Windows kurulum sihirbazı değildir. Windows 10/11 64-bit hedeflenir. GitHub Actions derlemesinde testler, otomatik açılış ve ses arka ucu kontrolü çalışır. Uygulama Windows medya arka ucunu tercih eder. Ses aygıtı bulunmayan ortamlarda gerçek oynatma testi atlanır; farklı cihazlarda ses/görüntü eşzamanlaması henüz doğrulanmamıştır.
+Bu sürüm deneyseldir. GitHub Windows ortamında kurulum, açılış ve yerel modelin indirilip çevrimdışı açılması denetlenmiştir; farklı cihazlarda ses eşzamanlaması değişebilir.
 
 ## Uygulama görünümü
 
@@ -45,7 +45,7 @@ Paket taşınabilir klasör dağıtımıdır; bir Windows kurulum sihirbazı de�
 
 - Önizleme her kareyi FFmpeg ile üretir; özellikle yüksek çözünürlükte akıcı gerçek zamanlı oynatma beklenmemelidir. Ses önizlemesi tek kaynak seçer, çok izli miksi canlı çalmaz.
 - Eski aralık seçici, geçiş, görünüm efekti, başlık alanı ve bazı ses işleme kontrolleri yeni render yoluna bağlı olmadıklarından devre dışıdır. Metin izi model ve render düzeyinde desteklenir; tam bir metin düzenleyicisi yoktur.
-- Keyframe düzenleme, proxy, dışa aktarma kuyruğu, yerel TTS, gelişmiş renk araçları ve kurulum sihirbazı yoktur. Çeviriler eksiksiz değildir.
+- Keyframe düzenleme, proxy, dışa aktarma kuyruğu ve gelişmiş renk araçları yoktur. Çeviriler eksiksiz değildir.
 - Instagram müzik kütüphanesi, hesap eşitleme veya doğrudan yayınlama sunulmaz. Proje Instagram ile bağlantılı değildir.
 
 ## Kaynak koddan çalıştırma
@@ -78,7 +78,6 @@ PyInstaller çıktısı `dist/AkisKurguAI/` klasöründedir. FFmpeg içeren dağ
 - `timeline_render.py`, `render_worker.py`, `preview_controller.py`, `media_service.py`: ortak kompozisyon, önizleme iş sırası ve FFmpeg sınırı.
 - `multitrack_widget.py`, `main.py`: zaman çizelgesi arayüzü ve uygulama penceresi. Pencerede hâlâ ayrıştırılabilecek iş akışları vardır.
 - `project_service.py`: proje şeması ve kayıt; `logo.svg`, `logo.png`, `app.ico`: logo ve simge varlıkları.
-- `AkisKurguAI-Eski-Kaynak-ve-Ornekler.zip`: eski kaynak ve örnek arşivi; güncel uygulama veya logo kaynak paketi değildir.
 
 Hata bildirirken Windows/Python/FFmpeg sürümlerini ve adımları paylaşın; API anahtarlarını veya kişisel medya dosyalarını depoya eklemeyin. Değişikliklerde mevcut proje dosyalarıyla uyumluluğu koruyun ve testleri çalıştırın.
 
@@ -102,8 +101,15 @@ Yerel Türkçe konuşma metni kaynak koddan çalıştırmada isteğe bağlıdır
 python -m pip install -r requirements-local-ai.txt
 ```
 
-Panelde Yerel Whisper ve model boyutunu seçin. İlk kullanımda “Modeli indir” seçeneği internet bağlantısı gerektirir; model indirildikten sonra bu seçeneği kapatarak çevrimdışı kullanabilirsiniz. Yerel sonuç yayın açıklaması alanına aktarılır; “Yerel altyazıyı timeline’a ekle” kaynak zamanlarını mevcut video kliplerine eşleyip yeni bir metin izi oluşturur. Bu klipler ortak önizleme ve dışa aktarmada gösterilir. API seçeneği şimdilik yalnızca düz metin üretir. Yerel AI bağımlılığı standart Windows paketine dahil değildir; paketlenmiş EXE için yerel model desteği henüz doğrulanmamıştır. API transkripsiyonu ayrı seçenek olarak kalır.
+Panelde Yerel Whisper ve model boyutunu seçin. İlk kullanımda “Modeli indir” seçeneği internet bağlantısı gerektirir; model indirildikten sonra bu seçeneği kapatarak çevrimdışı kullanabilirsiniz. Yerel sonuç yayın açıklaması alanına aktarılır; “Yerel altyazıyı timeline’a ekle” kaynak zamanlarını mevcut video kliplerine eşleyip yeni bir metin izi oluşturur. Bu klipler ortak önizleme ve dışa aktarmada gösterilir. API seçeneği şimdilik yalnızca düz metin üretir. Yerel Whisper bağımlılıkları kurucuya dahildir; model ayrıca indirilir. API transkripsiyonu ayrı seçenek olarak kalır.
 
-Timeline cetveli ve klip taşıma, yakın klip kenarlarına sınırlı mesafede yapışır. Kliplerin bitişlerini hareket ettirirken yapışma henüz uygulanmaz. Ses ducking ve yerel TTS henüz yoktur.
+Timeline cetveli ve klip taşıma, yakın klip kenarlarına sınırlı mesafede yapışır. Kliplerin bitişlerini hareket ettirirken yapışma henüz uygulanmaz. Ses ducking henüz yoktur; Windows sistem sesiyle çevrimdışı WAV oluşturulabilir.
 
-Deneysel waveform: ses içeren video ve ses klipleri için arka planda FFmpeg ile hesaplanır; kaynak başına ilk 60 dakika gösterilir. Ses düzeyi otomasyonu ve EXE içinde yerel Whisper henüz yoktur.
+Deneysel waveform: ses içeren video ve ses klipleri için arka planda FFmpeg ile hesaplanır; kaynak başına ilk 60 dakika gösterilir. Klip başına sabit ses düzeyi desteklenir; ses zarfı otomasyonu henüz yoktur.
+
+
+## Deneysel kurucu ve ses özellikleri
+
+Bu geliştirme dalında `installer.iss`, Inno Setup 6 ile tek dosyalı `AkisKurguAI-Setup.exe` oluşturur. GitHub Actions, paketlenmiş Whisper tanılaması ve sessiz kurulum kontrolünden sonra kurucuyu artefakt olarak yükler. Kurucu henüz mevcut kalıcı Release yerine geçmez.
+
+Klip seçip **Klip sesi** ile ses düzeyi ayarlanabilir. Yerel seslendirme Windows sistem sesini kullanarak çevrimdışı WAV oluşturur; kullanılabilir dil ve sesler Windows kurulumuna bağlıdır. Medya listesindeki arama dosya adlarını filtreler. Timeline waveform en fazla ilk 60 dakikayı önbelleğe alır.
