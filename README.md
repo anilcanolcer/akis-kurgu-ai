@@ -16,6 +16,7 @@ Windows için yerel öncelikli, Türkçe ve İngilizce video düzenleyici. Proje
 
 Sınırlamalar:
 
+- Bu geliştirme dalı, ortak zaman çizelgesi render denemesini içerir. Sesli önizleme yoktur; kaynak oranı ve önceki renk/hız ayarları render yolunda uygulanmaz. Dışa aktarmadan önce sonucu kontrol edin. Bu dal kararlı sürüm değildir.
 - Çok izli önizleme ve dışa aktarma henüz tamamlanmadı. Çok izli projelerin dışa aktarılması eksik sonuçları önlemek için engellenir; önizleme ana video kaynağıyla sınırlıdır.
 - Çok izli zaman çizelgesi tüm düzenleme senaryolarında doğrulanmış değildir. Waveform, keyframe düzenleme, opacity/transform ve ses zarfı yoktur.
 - Yerel AI/TTS, ses klonlama, proxy, export kuyruğu, iptal ve güvenilir ilerleme göstergesi yoktur.

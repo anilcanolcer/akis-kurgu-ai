@@ -23,6 +23,10 @@ class MediaService:
             raise ValueError('Medya süresi okunamadı.')
         return int(match.group(1))*3600 + int(match.group(2))*60 + float(match.group(3))
 
+    def has_audio(self, path):
+        result = self.run(['-hide_banner', '-i', path], text=True)
+        return bool(re.search(r'Stream #\S+.*Audio:', result.stderr))
+
     def extract_frame(self, source, seconds, destination):
         return self.run(['-y', '-ss', str(seconds), '-i', source, '-frames:v', '1',
                          '-vf', 'scale=640:-2', '-q:v', '3', destination])

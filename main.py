@@ -16,6 +16,7 @@ from timeline_model import Timeline, Track, Clip
 from multitrack_widget import MultitrackWidget
 import project_service
 from media_service import MediaService
+from timeline_render import TimelineRenderer, duration_frames
 
 from PySide6.QtCore import QLocale, QSettings, QSize, QStandardPaths, Qt, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QFont, QIcon, QPainter, QPainterPath, QPen, QPixmap
@@ -468,12 +469,38 @@ class ExportWorker(QThread):
             self.failed.emit(str(exc))
 
 
+class TimelineRenderWorker(QThread):
+    completed = Signal(str)
+    failed = Signal(str)
+
+    def __init__(self, timeline, output, size, frame=None):
+        super().__init__()
+        self.timeline = Timeline.from_dict(timeline.to_dict())
+        self.output, self.size, self.frame = output, size, frame
+
+    def run(self):
+        try:
+            renderer = TimelineRenderer(MediaService(ffmpeg_path()), self.size)
+            if self.frame is None:
+                renderer.export(self.timeline, self.output)
+            else:
+                renderer.preview(self.timeline, self.frame, self.output)
+            self.completed.emit(self.output)
+        except Exception as exc:
+            self.failed.emit(str(exc))
+
+
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.state = EditState()
         self.multitrack = Timeline.from_legacy({})
         self.timeline_frame = 0
+        self.preview_worker = None
+        self.preview_pending = None
+        self.preview_dir = tempfile.TemporaryDirectory(prefix='akis_preview_')
+        self.play_timer = QTimer(self)
+        self.play_timer.timeout.connect(self.advance_timeline)
         self.settings = QSettings(ORG_NAME, APP_NAME)
         self.project_path = ""
         self._pending_project: dict | None = None
@@ -653,10 +680,10 @@ class MainWindow(QMainWindow):
         v.setContentsMargins(14, 14, 14, 14)
         v.setSpacing(12)
 
-        self.video = QVideoWidget()
+        self.video = QLabel('Video ekleyin / Add a video')
         self.video.setObjectName("video")
         self.video.setMinimumSize(520, 360)
-        self.player.setVideoOutput(self.video)
+        self.video.setAlignment(Qt.AlignmentFlag.AlignCenter)
         v.addWidget(self.video, 1)
 
         controls = QHBoxLayout()
@@ -707,7 +734,7 @@ class MainWindow(QMainWindow):
         v.addWidget(self.multitrack_view)
         self.timeline = TimelineBar()
         self.timeline.range_changed.connect(self.on_timeline_range)
-        self.timeline.seek_requested.connect(lambda sec: self.player.setPosition(int(sec * 1000)))
+        self.timeline.seek_requested.connect(lambda sec: self.seek_timeline(round(sec * self.multitrack.fps_num / self.multitrack.fps_den)))
         v.addWidget(self.timeline)
 
         trims = QHBoxLayout()
@@ -976,6 +1003,7 @@ class MainWindow(QMainWindow):
         elif not any(t.clips for t in self.multitrack.tracks):
             self.multitrack = Timeline.from_legacy(asdict(self.state))
             self.multitrack_view.set_model(self.multitrack)
+            self.seek_timeline(0)
 
     def on_position(self, milliseconds: int) -> None:
         seconds = milliseconds / 1000.0
@@ -1000,13 +1028,12 @@ class MainWindow(QMainWindow):
         if not self.state.source:
             self.choose_video()
             return
-        if self.player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
-            self.player.pause()
+        if self.play_timer.isActive():
+            self.play_timer.stop()
+            self.play_button.setText('▶')
         else:
-            current = self.player.position() / 1000
-            if current < self.state.start or current >= self.state.end:
-                self.player.setPosition(int(self.state.start * 1000))
-            self.player.play()
+            self.play_timer.start(max(1, round(1000 * self.multitrack.fps_den / self.multitrack.fps_num)))
+            self.play_button.setText('❚❚')
 
     def on_timeline_range(self, start: float, end: float) -> None:
         self.state.start, self.state.end = start, end
@@ -1145,12 +1172,6 @@ class MainWindow(QMainWindow):
     def export_video(self) -> None:
         if not self.ensure_video():
             return
-        reference = Timeline.from_legacy(asdict(self.state))
-        def content(timeline):
-            return [(t.kind, [(c.source, c.start, c.length, c.source_in) for c in t.clips]) for t in timeline.tracks if t.clips]
-        if content(self.multitrack) != content(reference):
-            QMessageBox.warning(self, APP_NAME, 'Çok izli dışa aktarma henüz hazır değil. Düzenlemelerinizin eksik çıkmasını önlemek için işlem durduruldu.')
-            return
         default = safe_filename(self.project_title.text()) + "_akis.mp4"
         path, _ = QFileDialog.getSaveFileName(self, "Videoyu dışa aktar", str(Path.home() / "Videos" / default), "MP4 Video (*.mp4)")
         if not path:
@@ -1161,8 +1182,7 @@ class MainWindow(QMainWindow):
         self.state.aspect = self.aspect.currentText()
         self.state.export_profile = self.export_profile.currentText()
         self.begin_work("Dışa aktarma hazırlanıyor…")
-        self.worker = ExportWorker(self.state, path)
-        self.worker.status.connect(self.set_status)
+        self.worker = TimelineRenderWorker(self.multitrack, path, self.canvas_size())
         self.worker.completed.connect(self.on_exported)
         self.worker.failed.connect(self.on_worker_error)
         self.worker.start()
@@ -1281,16 +1301,53 @@ class MainWindow(QMainWindow):
             self.multitrack_view.update()
 
     def seek_timeline(self, frame):
+        total = duration_frames(self.multitrack)
+        if not total:
+            return
+        self.timeline_frame = min(max(0, frame), total - 1)
+        self.multitrack_view.playhead = self.timeline_frame
+        self.multitrack_view.update()
         fps = self.multitrack.fps_num / self.multitrack.fps_den
-        for track in reversed(self.multitrack.tracks):
-            if track.kind != 'video' or track.muted:
-                continue
-            clip = next((c for c in track.clips if c.start <= frame < c.end), None)
-            if clip and Path(clip.source).resolve() == Path(self.state.source).resolve():
-                self.player.setPosition(round((clip.source_in + frame - clip.start) / fps * 1000))
-                self.timeline_frame = frame
-                return
-        self.set_status('Bu konumda önizlenebilir ana video yok.')
+        self.time_label.setText(f'{format_time(self.timeline_frame/fps)} / {format_time(total/fps)}')
+        if self.preview_worker and self.preview_worker.isRunning():
+            self.preview_pending = self.timeline_frame
+            return
+        w, h = self.canvas_size()
+        scale = min(1, 480/max(w, h))
+        size = (max(2, int(w*scale)//2*2), max(2, int(h*scale)//2*2))
+        path = str(Path(self.preview_dir.name) / 'frame.png')
+        self.preview_worker = TimelineRenderWorker(self.multitrack, path, size, self.timeline_frame)
+        self.preview_worker.completed.connect(self.show_timeline_frame)
+        self.preview_worker.failed.connect(self.set_status)
+        self.preview_worker.finished.connect(self.next_preview)
+        self.preview_worker.start()
+
+    def show_timeline_frame(self, path):
+        pixmap = QPixmap(path)
+        self.video.setPixmap(pixmap.scaled(self.video.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+
+    def next_preview(self):
+        self.preview_worker = None
+        if self.preview_pending is not None:
+            frame, self.preview_pending = self.preview_pending, None
+            self.seek_timeline(frame)
+
+    def advance_timeline(self):
+        if self.timeline_frame + 1 >= duration_frames(self.multitrack):
+            self.play_timer.stop()
+            self.play_button.setText('▶')
+        else:
+            self.seek_timeline(self.timeline_frame + 1)
+
+    def canvas_size(self):
+        aspect = self.aspect.currentText()
+        if aspect.startswith('16:9'):
+            return (1920, 1080)
+        if aspect.startswith('1:1'):
+            return (1080, 1080)
+        if aspect.startswith('4:5'):
+            return (1080, 1350)
+        return (1080, 1920)
 
     def project_document(self) -> dict:
         return {
