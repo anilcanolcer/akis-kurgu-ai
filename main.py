@@ -615,6 +615,7 @@ class MainWindow(QMainWindow):
         tools.addWidget(zoom)
         v.addLayout(tools)
         self.multitrack_view = MultitrackWidget(self.multitrack)
+        self.multitrack_view.waveform_executable = ffmpeg_path
         self.multitrack_view.seek.connect(self.seek_timeline)
         self.multitrack_view.changed.connect(lambda: self.seek_timeline(self.timeline_frame))
         v.addWidget(self.multitrack_view)
@@ -1207,6 +1208,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, APP_NAME, 'Medya süresi okunamadı.')
             return
         timeline_service.append_media(self.multitrack, index, path, seconds)
+        self.multitrack_view.refresh_waveforms()
         self.multitrack_view.update()
 
     def split_clip(self):
@@ -1403,6 +1405,7 @@ class MainWindow(QMainWindow):
         self.playback_clock.stop()
         self.timeline_audio.stop()
         self.preview.close()
+        self.multitrack_view.stop_waveforms()
         super().closeEvent(event)
 
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:

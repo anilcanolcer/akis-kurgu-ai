@@ -1,6 +1,7 @@
 """Interactive frame-based timeline view."""
 from PySide6.QtCore import Qt, Signal
 from caption_service import snap_frame
+from waveform_service import WaveformWorker, SAMPLE_RATE, WINDOW
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QWidget
 
@@ -13,6 +14,9 @@ class MultitrackWidget(QWidget):
     def __init__(self, model, parent=None):
         super().__init__(parent)
         self.model = model
+        self.waveforms = {}
+        self.waveform_worker = None
+        self.waveform_executable = None
         self.zoom = 2.0
         self.playhead = 0
         self.selected = None
@@ -29,6 +33,38 @@ class MultitrackWidget(QWidget):
         self.selected_track = None
         self.updateGeometry()
         self.update()
+        self.refresh_waveforms()
+
+    def refresh_waveforms(self):
+        if not self.waveform_executable or self.waveform_worker:
+            return
+        source = next((c.source for t in self.model.tracks if t.kind in ('audio', 'video')
+                       for c in t.clips if c.source and c.source not in self.waveforms), None)
+        if source:
+            self.waveforms[source] = None
+            try:
+                executable = self.waveform_executable() if callable(self.waveform_executable) else self.waveform_executable
+            except RuntimeError:
+                self.waveforms[source] = []
+                return
+            self.waveform_worker = WaveformWorker(executable, source)
+            self.waveform_worker.ready.connect(self._waveform_ready)
+            self.waveform_worker.finished.connect(self._waveform_finished)
+            self.waveform_worker.start()
+
+    def _waveform_ready(self, source, peaks):
+        self.waveforms[source] = peaks
+        self.update()
+
+    def _waveform_finished(self):
+        self.waveform_worker = None
+        self.refresh_waveforms()
+
+    def stop_waveforms(self):
+        self.waveform_executable = None
+        if self.waveform_worker:
+            self.waveform_worker.wait()
+            self.waveform_worker = None
 
     def x_for(self, frame):
         return 100 + frame * self.zoom
@@ -60,6 +96,15 @@ class MultitrackWidget(QWidget):
                 p.setBrush(QColor(colors[track.kind]))
                 p.setPen(QPen(QColor('#ffffff' if self.selected == (ti, clip.id) else '#282a37'), 2))
                 p.drawRoundedRect(x, y + 3, w, 34, 5, 5)
+                peaks = self.waveforms.get(clip.source)
+                if peaks and track.kind in ('audio', 'video'):
+                    p.setPen(QColor('#a4e3db'))
+                    for px in range(max(0, x), min(self.width(), x + w), 2):
+                        source_frame = clip.source_in + (px - x) / self.zoom
+                        sample = int(source_frame / fps * SAMPLE_RATE / WINDOW)
+                        if 0 <= sample < len(peaks):
+                            height = int(peaks[sample] * 14)
+                            p.drawLine(px, y + 21 - height, px, y + 21 + height)
                 p.setPen(QColor('white'))
                 p.drawText(x + 5, y + 25, (clip.text or clip.source.replace('\\', '/').split('/')[-1])[:max(0, w // 7)])
         p.setPen(QPen(QColor('#ffcd5a'), 2))

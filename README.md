@@ -45,7 +45,7 @@ Paket taşınabilir klasör dağıtımıdır; bir Windows kurulum sihirbazı de�
 
 - Önizleme her kareyi FFmpeg ile üretir; özellikle yüksek çözünürlükte akıcı gerçek zamanlı oynatma beklenmemelidir. Ses önizlemesi tek kaynak seçer, çok izli miksi canlı çalmaz.
 - Eski aralık seçici, geçiş, görünüm efekti, başlık alanı ve bazı ses işleme kontrolleri yeni render yoluna bağlı olmadıklarından devre dışıdır. Metin izi model ve render düzeyinde desteklenir; tam bir metin düzenleyicisi yoktur.
-- Waveform, keyframe düzenleme, proxy, dışa aktarma kuyruğu, yerel TTS, gelişmiş renk araçları ve kurulum sihirbazı yoktur. Çeviriler eksiksiz değildir.
+- Keyframe düzenleme, proxy, dışa aktarma kuyruğu, yerel TTS, gelişmiş renk araçları ve kurulum sihirbazı yoktur. Çeviriler eksiksiz değildir.
 - Instagram müzik kütüphanesi, hesap eşitleme veya doğrudan yayınlama sunulmaz. Proje Instagram ile bağlantılı değildir.
 
 ## Kaynak koddan çalıştırma
@@ -104,4 +104,6 @@ python -m pip install -r requirements-local-ai.txt
 
 Panelde Yerel Whisper ve model boyutunu seçin. İlk kullanımda “Modeli indir” seçeneği internet bağlantısı gerektirir; model indirildikten sonra bu seçeneği kapatarak çevrimdışı kullanabilirsiniz. Yerel sonuç yayın açıklaması alanına aktarılır; “Yerel altyazıyı timeline’a ekle” kaynak zamanlarını mevcut video kliplerine eşleyip yeni bir metin izi oluşturur. Bu klipler ortak önizleme ve dışa aktarmada gösterilir. API seçeneği şimdilik yalnızca düz metin üretir. Yerel AI bağımlılığı standart Windows paketine dahil değildir; paketlenmiş EXE için yerel model desteği henüz doğrulanmamıştır. API transkripsiyonu ayrı seçenek olarak kalır.
 
-Timeline cetveli ve klip taşıma, yakın klip kenarlarına sınırlı mesafede yapışır. Kliplerin bitişlerini hareket ettirirken yapışma henüz uygulanmaz. Waveform, ses ducking ve yerel TTS henüz yoktur.
+Timeline cetveli ve klip taşıma, yakın klip kenarlarına sınırlı mesafede yapışır. Kliplerin bitişlerini hareket ettirirken yapışma henüz uygulanmaz. Ses ducking ve yerel TTS henüz yoktur.
+
+Deneysel waveform: ses içeren video ve ses klipleri için arka planda FFmpeg ile hesaplanır; kaynak başına ilk 60 dakika gösterilir. Ses düzeyi otomasyonu ve EXE içinde yerel Whisper henüz yoktur.
