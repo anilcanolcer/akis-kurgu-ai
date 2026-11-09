@@ -41,6 +41,18 @@ jobs:
           Start-Sleep -Seconds 12
           if ($proc.HasExited) { throw "Application exited at startup: $($proc.ExitCode)" }
           Stop-Process -Id $proc.Id
+      - name: Check packaged audio backend
+        shell: pwsh
+        run: |
+          $exe = (Resolve-Path 'dist/AkisKurguAI/AkisKurguAI.exe').Path
+          $report = Join-Path (Get-Location) 'audio-diagnostic.json'
+          $env:QT_QPA_PLATFORM = 'offscreen'
+          $proc = Start-Process -FilePath $exe -ArgumentList @('--audio-diagnostic', "`"$report`"") -WindowStyle Hidden -Wait -PassThru
+          if ($proc.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $report)) { throw 'Packaged audio diagnostic failed to start' }
+          $result = Get-Content -Raw -LiteralPath $report | ConvertFrom-Json
+          Write-Host "Audio diagnostic: $($result.status), reason: $($result.reason)"
+          if ($result.status -eq 'failed') { throw 'Packaged audio playback check failed' }
+          if ($result.status -eq 'unavailable') { Write-Warning 'No audio backend or output device; real playback test skipped.' }
       - name: Upload Windows package
         uses: actions/upload-artifact@v4
         with:
@@ -65,8 +77,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
         run: |
-          gh release view v0.2.0-experimental *> $null
+          gh release view v0.2.1-experimental *> $null
           if ($LASTEXITCODE -eq 0) { Write-Host 'Experimental release already exists'; exit 0 }
           Compress-Archive -Path 'package/*' -DestinationPath 'AkisKurguAI-Windows.zip'
-          gh release create v0.2.0-experimental 'AkisKurguAI-Windows.zip' --target $env:GITHUB_SHA --title 'Akış Kurgu AI — deneysel Windows' --notes 'Deneysel taşınabilir Windows paketi. ZIP dosyasını çıkarın ve AkisKurguAI.exe dosyasını klasörüyle birlikte çalıştırın. Bu bir kurulum sihirbazı değildir.' --prerelease
+          gh release create v0.2.1-experimental 'AkisKurguAI-Windows.zip' --target $env:GITHUB_SHA --title 'Akış Kurgu AI — deneysel Windows' --notes 'Deneysel taşınabilir Windows paketi. ZIP dosyasını çıkarın ve AkisKurguAI.exe dosyasını klasörüyle birlikte çalıştırın. Bu bir kurulum sihirbazı değildir.' --prerelease
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
