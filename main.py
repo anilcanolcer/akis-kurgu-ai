@@ -32,6 +32,9 @@ from tts_worker import TtsWorker
 from ai_workers import AIWorker, TranscriptWorker
 from media_bin import MediaBin
 from caption_service import caption_track
+import ai_providers
+import template_service
+from template_dialog import TemplateDialog
 
 from PySide6.QtCore import QLocale, QSettings, QSize, QStandardPaths, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QFont, QIcon, QPainter, QPainterPath, QPen, QPixmap
@@ -321,6 +324,10 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.build_sidebar())
         layout.addWidget(self.build_workspace(), 1)
 
+        self._provider_keys = {}
+        self._saved_providers = set()
+        self._active_provider = self.provider.currentText()
+        self.provider.currentTextChanged.connect(self.change_provider)
         self.load_key()
         self.apply_language(self.settings.value("language", self.system_language_code()))
         self.autosave_timer = QTimer(self)
@@ -384,8 +391,10 @@ class MainWindow(QMainWindow):
             button.setCursor(Qt.CursorShape.PointingHandCursor)
             if index == 0:
                 button.clicked.connect(lambda: self.set_status("Proje düzenleyicisi açık."))
+            elif index in (1, 2):
+                button.clicked.connect(self.show_templates)
             else:
-                button.clicked.connect(lambda _=False, t=text: self.set_status(f"{t} bölümü bu ilk sürümde yakında genişletilecek."))
+                button.clicked.connect(lambda: self.set_status("Dışa aktarmak için üstteki düğmeyi kullanın."))
             v.addWidget(button)
 
         v.addSpacing(20)
@@ -520,7 +529,7 @@ class MainWindow(QMainWindow):
         tools = QHBoxLayout()
         for label, action in [('＋ İz', self.add_track), ('− İz', self.remove_track),
                               ('＋ Medya', self.add_timeline_media), ('Böl', self.split_clip),
-                              ('Ripple sil', self.ripple_delete), ('Klip sesi', self.set_clip_volume)]:
+                              ('Ripple sil', self.ripple_delete), ('Klip sesi', self.set_clip_volume), ('Metni düzenle', self.edit_text_clip)]:
             button = QPushButton(label)
             button.clicked.connect(action)
             tools.addWidget(button)
@@ -618,7 +627,10 @@ class MainWindow(QMainWindow):
         self.ai_prompt.setFixedHeight(112)
         v.addWidget(self.ai_prompt)
 
-        v.addWidget(self.section("OPENAI AYARLARI"))
+        v.addWidget(self.section("AI SAĞLAYICI / PROVIDER"))
+        self.provider = QComboBox()
+        self.provider.addItems(ai_providers.PROVIDERS)
+        v.addWidget(self.provider)
         self.api_key = QLineEdit()
         self.api_key.setEchoMode(QLineEdit.EchoMode.Password)
         self.api_key.setPlaceholderText("sk-…")
@@ -634,9 +646,11 @@ class MainWindow(QMainWindow):
         v.addLayout(key_row)
         self.model = QComboBox()
         self.model.setEditable(True)
-        self.model.addItems(["gpt-5.5", "gpt-5.5-mini"])
-        self.model.setCurrentText("gpt-5.5")
+        self.model.addItems(ai_providers.PROVIDERS["OpenAI"])
         v.addWidget(self.model)
+        save_key = QPushButton("Anahtarı güvenli kaydet / Save key")
+        save_key.clicked.connect(lambda: self.save_key(self.api_key.text().strip()))
+        v.addWidget(save_key)
 
         analyze = QPushButton("✦  AI ile kurguyu planla")
         analyze.setObjectName("primaryLarge")
@@ -650,8 +664,13 @@ class MainWindow(QMainWindow):
         apply_plan.clicked.connect(self.apply_ai_suggestion)
         v.addWidget(apply_plan)
         self.caption_backend = QComboBox()
-        self.caption_backend.addItems(['OpenAI API', 'Yerel / Local Whisper'])
+        self.caption_backend.addItems(['OpenAI', 'Yerel / Local Whisper', 'xAI', 'Gemini'])
         v.addWidget(self.caption_backend)
+        v.addWidget(QLabel('API transkripsiyon modeli'))
+        self.transcript_model = QComboBox(); self.transcript_model.setEditable(True)
+        self.transcript_model.addItems(ai_providers.TRANSCRIPTION_MODELS['OpenAI'])
+        v.addWidget(self.transcript_model)
+        self.caption_backend.currentTextChanged.connect(self.change_transcript_provider)
         self.local_model = QComboBox(); self.local_model.addItems(['tiny', 'base', 'small'])
         v.addWidget(self.local_model)
         self.download_model = QCheckBox('Modeli indir / Download model (internet)')
@@ -843,8 +862,11 @@ class MainWindow(QMainWindow):
         self.play_timer.stop()
         self.playback_clock.stop()
         self.timeline_audio.stop()
-        self.state = EditState(source=str(file), aspect=self.aspect.currentText())
-        if not self._pending_project:
+        self.state = EditState(source=str(file), aspect=self.aspect.currentText(),
+                               brightness=self.brightness.value(), contrast=self.contrast.value(),
+                               saturation=self.saturation.value(),
+                               speed=float(self.speed.currentText().replace("×", "")))
+        if not self._pending_project and not getattr(self, "_template_before_video", False):
             self.multitrack = Timeline.from_legacy({})
             self.multitrack_view.set_model(self.multitrack)
         self.project_title.setText(file.stem)
@@ -876,6 +898,12 @@ class MainWindow(QMainWindow):
             pending = self._pending_project
             self._pending_project = None
             self.apply_project_state(pending)
+        elif getattr(self, '_template_before_video', False):
+            self._template_before_video = False
+            index = next(i for i, t in enumerate(self.multitrack.tracks) if t.kind == 'video')
+            timeline_service.append_media(self.multitrack, index, self.state.source, duration)
+            self.multitrack_view.set_model(self.multitrack)
+            self.seek_timeline(0)
         elif not any(t.clips for t in self.multitrack.tracks):
             self.multitrack = Timeline.from_legacy(asdict(self.state))
             self.multitrack_view.set_model(self.multitrack)
@@ -929,35 +957,67 @@ class MainWindow(QMainWindow):
     def api_credentials(self) -> tuple[str, str] | None:
         key = self.api_key.text().strip()
         model = self.model.currentText().strip()
-        if not key:
-            QMessageBox.information(self, APP_NAME, "AI özellikleri için OpenAI API anahtarınızı girin.")
+        if not key or not model:
+            QMessageBox.information(self, APP_NAME, "API anahtarı ve model belirtin.")
             return None
-        if not model:
-            QMessageBox.information(self, APP_NAME, "Bir OpenAI modeli belirtin.")
-            return None
+        self._provider_keys[self.provider.currentText()] = key
         if self.remember_key.isChecked():
             self.save_key(key)
         return key, model
 
-    def save_key(self, key: str) -> None:
-        try:
-            import keyring
-            keyring.set_password(APP_NAME, "openai_api_key", key)
-            self.settings.setValue("remember_key", True)
-        except Exception as exc:
-            self.set_status(f"Anahtar güvenli kasaya kaydedilemedi: {exc}")
+    def change_provider(self, provider):
+        self._provider_keys[self._active_provider] = self.api_key.text().strip()
+        self._active_provider = provider
+        self.model.clear(); self.model.addItems(ai_providers.PROVIDERS[provider])
+        self.load_key()
 
-    def load_key(self) -> None:
-        if not self.settings.value("remember_key", False, type=bool):
+    def save_key(self, key: str) -> None:
+        if not key:
+            self.set_status('Kaydedilecek API anahtarını girin.')
             return
         try:
-            import keyring
-            key = keyring.get_password(APP_NAME, "openai_api_key")
-            if key:
-                self.api_key.setText(key)
-                self.remember_key.setChecked(True)
-        except Exception:
-            pass
+            ai_providers.save_key(APP_NAME, self.provider.currentText(), key)
+            self._provider_keys[self.provider.currentText()] = key
+            self._saved_providers.add(self.provider.currentText())
+            self.remember_key.setChecked(True)
+            self.set_status('API anahtarı sistem kasasına kaydedildi.')
+        except Exception as exc:
+            self.set_status(f'Anahtar güvenli kasaya kaydedilemedi: {exc}')
+
+    def load_key(self) -> None:
+        provider = self.provider.currentText()
+        key = self._provider_keys.get(provider, '')
+        if not key:
+            try:
+                key = ai_providers.load_key(APP_NAME, provider)
+                if key:
+                    self._saved_providers.add(provider)
+            except Exception:
+                key = ''
+        self.api_key.setText(key)
+        self.remember_key.setChecked(provider in self._saved_providers)
+
+    def change_transcript_provider(self, provider):
+        self.transcript_model.clear()
+        self.transcript_model.addItems(ai_providers.TRANSCRIPTION_MODELS.get(provider, ()))
+
+    def show_templates(self):
+        dialog = TemplateDialog(self)
+        if dialog.exec():
+            template, style, tempo = dialog.selection()
+            template_service.apply_template(self.multitrack, template)
+            self._template_before_video = not bool(self.state.source)
+            for i in range(self.aspect.count()):
+                if self.aspect.itemText(i).startswith(template.ratio):
+                    self.aspect.setCurrentIndex(i); break
+            self.apply_preset(*template_service.STYLES[style])
+            self.speed.setCurrentText(template_service.TEMPOS[tempo])
+            self.multitrack_view.set_model(self.multitrack)
+            self.multitrack_view.setMinimumHeight(max(210, 40 + 43 * len(self.multitrack.tracks)))
+            self.multitrack_view.update()
+            if duration_frames(self.multitrack):
+                self.seek_timeline(self.timeline_frame)
+            self.set_status(f'{template.name} uygulandı; medyayı izlere ekleyin.')
 
     def toggle_key(self) -> None:
         mode = self.api_key.echoMode()
@@ -971,7 +1031,7 @@ class MainWindow(QMainWindow):
             return
         key, model = credentials
         self.begin_work("AI analizi başlatılıyor…")
-        self.worker = AIWorker(key, model, self.state.source, self.state.duration, plan_prompt(self.ai_prompt.toPlainText().strip(), self.ai_platform.currentText(), self.ai_tempo.currentText(), self.ai_style.currentText(), self.ai_focus.currentText()), ffmpeg_path())
+        self.worker = AIWorker(key, model, self.state.source, self.state.duration, plan_prompt(self.ai_prompt.toPlainText().strip(), self.ai_platform.currentText(), self.ai_tempo.currentText(), self.ai_style.currentText(), self.ai_focus.currentText()), ffmpeg_path(), self.provider.currentText())
         self.worker.status.connect(self.set_status)
         self.worker.completed.connect(self.on_ai_plan)
         self.worker.failed.connect(self.on_worker_error)
@@ -1006,10 +1066,20 @@ class MainWindow(QMainWindow):
             self.caption_request_source = self.state.source
             self.worker = LocalCaptionWorker(self.caption_request_source, self.local_model.currentText(), self.download_model.isChecked())
         else:
-            credentials = self.api_credentials()
-            if not credentials:
+            provider = self.caption_backend.currentText()
+            if self.provider.currentText() == provider:
+                key = self.api_key.text().strip()
+            else:
+                key = self._provider_keys.get(provider, '')
+                if not key:
+                    try:
+                        key = ai_providers.load_key(APP_NAME, provider)
+                    except Exception:
+                        key = ''
+            if not key or not self.transcript_model.currentText().strip():
+                QMessageBox.information(self, APP_NAME, f'{provider} için API anahtarı ve modeli girin.')
                 return
-            self.worker = TranscriptWorker(credentials[0], self.state.source, ffmpeg_path())
+            self.worker = TranscriptWorker(key, self.state.source, ffmpeg_path(), self.transcript_model.currentText().strip(), provider)
         self.begin_work("Ses hazırlanıyor…")
         self.worker.status.connect(self.set_status)
         self.worker.completed.connect(self.on_local_transcript if self.caption_backend.currentIndex() == 1 else self.on_transcript)
@@ -1161,6 +1231,17 @@ class MainWindow(QMainWindow):
         self.multitrack_view.selected = None
         self.multitrack_view.selected_track = None
         self.multitrack_view.update()
+
+    def edit_text_clip(self):
+        track, clip = self.selected_clip()
+        if not clip or track.kind != 'text':
+            self.set_status('Önce bir metin klibi seçin.')
+            return
+        value, ok = QInputDialog.getMultiLineText(self, 'Metni düzenle', 'Başlık / altyazı', clip.text)
+        if ok:
+            clip.text = value
+            self.multitrack_view.update()
+            self.seek_timeline(self.timeline_frame)
 
     def add_timeline_media(self):
         index = self.multitrack_view.selected_track

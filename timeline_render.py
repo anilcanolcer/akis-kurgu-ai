@@ -106,7 +106,7 @@ class TimelineRenderer:
                         layer += 1
                         graph.append(f'[{base}]drawtext=fontfile=\'{_escape_filter_path(self.font)}\':textfile=\'{_escape_filter_path(textfile)}\':expansion=none:fontcolor=white:fontsize=h/18:x=(w-text_w)/2:y=h*0.78:box=1:boxcolor=black@0.5:boxborderw=12:enable=\'gte(t,{start:.9f})*lt(t,{clip.end/fps:.9f})\'[base{layer}]')
                         base = f'base{layer}'
-            graph.append(f'[{base}]eq=brightness={self.brightness/100:.3f}:contrast={1+self.contrast/100:.3f}:saturation={1+self.saturation/100:.3f}[graded]')
+            graph.append(f'[{base}]eq=brightness={self.brightness/100:.3f}:contrast={1+self.contrast/100:.3f}:saturation={1+self.saturation/50:.3f}[graded]')
             base = 'graded'
             if audio:
                 graph.append(''.join(audio) + f'amix=inputs={len(audio)}:duration=longest:normalize=0[aout]')

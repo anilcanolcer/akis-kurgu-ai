@@ -6,6 +6,7 @@ from pathlib import Path
 from PySide6.QtCore import QThread, Signal
 from media_service import MediaService
 from ai_service import parse_suggestions
+from ai_providers import request_plan, transcribe
 
 
 class AIWorker(QThread):
@@ -13,9 +14,10 @@ class AIWorker(QThread):
     failed = Signal(str)
     status = Signal(str)
 
-    def __init__(self, api_key: str, model: str, video: str, duration: float, prompt: str, executable: str) -> None:
+    def __init__(self, api_key: str, model: str, video: str, duration: float, prompt: str, executable: str, provider: str = "OpenAI") -> None:
         super().__init__()
         self.api_key = api_key
+        self.provider = provider
         self.model = model
         self.video = video
         self.duration = duration
@@ -24,8 +26,6 @@ class AIWorker(QThread):
 
     def run(self) -> None:
         try:
-            from openai import OpenAI
-
             self.status.emit("Videodan temsilci kareler seçiliyor…")
             with tempfile.TemporaryDirectory(prefix="akis_ai_") as temp:
                 frames = []
@@ -40,30 +40,17 @@ class AIWorker(QThread):
                 if not frames:
                     raise RuntimeError("Videodan analiz karesi çıkarılamadı.")
 
-                content = [{
-                    "type": "input_text",
-                    "text": (
-                        "Aşağıdaki kareler aynı videodan zamana göre sıralıdır. Türkçe yanıt ver. "
-                        f"Video süresi {self.duration:.2f} saniye. Kullanıcı hedefi: {self.prompt}\n\n"
-                        "Yalnızca geçerli JSON döndür ve başka metin yazma. Şema: "
-                        '{"suggestions":[{"summary":"", "title":"", "caption":"", "hashtags":[""], '
-                        '"trim_start":0.0, "trim_end":0.0, "pacing":"", "filter":"natural|vivid|cinematic", '
-                        '"notes":[""]}, ...]} Üç farklı öneri ver. trim_start/trim_end video sınırları içinde olsun.'
-                    ),
-                }]
-                for at, path in frames:
-                    encoded = base64.b64encode(path.read_bytes()).decode("ascii")
-                    content.append({"type": "input_text", "text": f"{at:.2f}. saniyedeki kare:"})
-                    content.append({"type": "input_image", "detail": "low", "image_url": f"data:image/jpeg;base64,{encoded}"})
-
-                self.status.emit("AI kurgu planı hazırlanıyor…")
-                client = OpenAI(api_key=self.api_key)
-                response = client.responses.create(
-                    model=self.model,
-                    instructions="Kısa video kurgusunda uzman, ölçülü ve pratik bir Türkçe kreatif direktörsün.",
-                    input=[{"role": "user", "content": content}],
+                prompt = (
+                    "Aşağıdaki kareler aynı videodan zamana göre sıralıdır. Türkçe yanıt ver. "
+                    f"Video süresi {self.duration:.2f} saniye. Kullanıcı hedefi: {self.prompt}\n"
+                    "Yalnızca geçerli JSON döndür. Şema: "
+                    '{"suggestions":[{"summary":"", "title":"", "caption":"", "hashtags":[""], '
+                    '"trim_start":0.0, "trim_end":0.0, "pacing":"", "filter":"natural|vivid|cinematic", '
+                    '"notes":[""]}]} Üç farklı öneri ver. Zamanlar video sınırları içinde olsun.'
                 )
-                text = response.output_text.strip()
+                self.status.emit("AI kurgu planı hazırlanıyor…")
+                text = request_plan(self.provider, self.api_key, self.model, prompt,
+                                    [(at, path.read_bytes()) for at, path in frames]).strip()
                 match = re.search(r"\{.*\}", text, re.DOTALL)
                 if not match:
                     raise RuntimeError("AI yanıtı kurgu planı olarak okunamadı.")
@@ -77,16 +64,16 @@ class TranscriptWorker(QThread):
     failed = Signal(str)
     status = Signal(str)
 
-    def __init__(self, api_key: str, video: str, executable: str) -> None:
+    def __init__(self, api_key: str, video: str, executable: str, model: str = "gpt-4o-mini-transcribe", provider: str = "OpenAI") -> None:
         super().__init__()
         self.api_key = api_key
         self.video = video
         self.executable = executable
+        self.model = model
+        self.provider = provider
 
     def run(self) -> None:
         try:
-            from openai import OpenAI
-
             self.status.emit("Ses parçası hazırlanıyor…")
             with tempfile.TemporaryDirectory(prefix="akis_audio_") as temp:
                 audio = Path(temp) / "audio.mp3"
@@ -94,14 +81,7 @@ class TranscriptWorker(QThread):
                 if result.returncode != 0 or not audio.exists():
                     raise RuntimeError("Videodan ses parçası çıkarılamadı.")
                 self.status.emit("Türkçe konuşma metne çevriliyor…")
-                client = OpenAI(api_key=self.api_key)
-                with audio.open("rb") as handle:
-                    transcript = client.audio.transcriptions.create(
-                        model="gpt-transcribe",
-                        file=handle,
-                        prompt="Türkçe kısa video konuşması. Noktalama işaretlerini doğal kullan.",
-                    )
-                self.completed.emit(transcript.text)
+                self.completed.emit(transcribe(self.provider, self.api_key, self.model, audio))
         except Exception as exc:
             self.failed.emit(str(exc))
 

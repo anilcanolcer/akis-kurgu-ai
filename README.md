@@ -39,7 +39,7 @@ GitHub Windows ortamında kurulum, açılış ve yerel modelin indirilip çevrim
 | Önizleme ve çıktı | Ortak kare planından çok katmanlı FFmpeg kompozisyonu; H.264/AAC MP4, filigransız çıktı ve temel oranlar |
 | Renk ve hız | Parlaklık, kontrast, doygunluk ve genel hız önizleme/çıktıya uygulanır; hız değiştirilmiş export ara dosya ve ikinci kodlama kullanır |
 | Ses | Tek kaynaklı temel ses önizlemesi ve basit zamanlama düzeltmesi; export tarafında ses izlerinin temel karışımı |
-| Proje ve AI | Sürümlü JSON proje; isteğe bağlı OpenAI ile kurgu önerisi ve konuşma metni. API kullanımı internet ve kendi anahtarınızı gerektirir |
+| Proje ve AI | Sürümlü JSON proje; isteğe bağlı OpenAI, Claude, Grok veya Gemini ile kurgu önerisi; OpenAI, xAI veya Gemini ile konuşma metni. API kullanımı internet ve kendi anahtarınızı gerektirir |
 
 ### Bilinen sınırlamalar
 
@@ -93,7 +93,7 @@ Yol haritası hedefleri mevcut özellik değildir.
 
 ## AI planları ve yerel konuşma metni
 
-AI Kurgu panelinde platform, tempo, stil ve odak seçilerek OpenAI üzerinden birden fazla öneri istenebilir. Seçilen öneri zaman çizelgesine başlangıç ve bitiş işaretleri ekler; klipleri otomatik olarak kesmez. API anahtarı gerektirir.
+AI Kurgu panelinde sağlayıcı (OpenAI, Anthropic Claude, xAI Grok veya Google Gemini), model, platform, tempo, stil ve odak seçilerek birden fazla öneri istenebilir. Görsel giriş destekleyen bir model seçin; model alanı düzenlenebilir. Her sağlayıcının anahtarını ayrı girip “Anahtarı güvenli kaydet” ile Windows Credential Manager içinde saklayabilirsiniz. Anahtarlar proje dosyasına yazılmaz. Temsilci kareler seçilen sağlayıcıya gönderilir ve sağlayıcının ücretleri geçerli olabilir. Seçilen öneri zaman çizelgesine başlangıç ve bitiş işaretleri ekler; klipleri otomatik olarak kesmez. API anahtarı gerektirir.
 
 Yerel Türkçe konuşma metni kaynak koddan çalıştırmada isteğe bağlıdır:
 
@@ -101,7 +101,7 @@ Yerel Türkçe konuşma metni kaynak koddan çalıştırmada isteğe bağlıdır
 python -m pip install -r requirements-local-ai.txt
 ```
 
-Panelde Yerel Whisper ve model boyutunu seçin. İlk kullanımda “Modeli indir” seçeneği internet bağlantısı gerektirir; model indirildikten sonra bu seçeneği kapatarak çevrimdışı kullanabilirsiniz. Yerel sonuç yayın açıklaması alanına aktarılır; “Yerel altyazıyı timeline’a ekle” kaynak zamanlarını mevcut video kliplerine eşleyip yeni bir metin izi oluşturur. Bu klipler ortak önizleme ve dışa aktarmada gösterilir. API seçeneği şimdilik yalnızca düz metin üretir. Yerel Whisper bağımlılıkları kurucuya dahildir; model ayrıca indirilir. API transkripsiyonu ayrı seçenek olarak kalır.
+Panelde Yerel Whisper ve model boyutunu seçin. İlk kullanımda “Modeli indir” seçeneği internet bağlantısı gerektirir; model indirildikten sonra bu seçeneği kapatarak çevrimdışı kullanabilirsiniz. Yerel sonuç yayın açıklaması alanına aktarılır; “Yerel altyazıyı timeline’a ekle” kaynak zamanlarını mevcut video kliplerine eşleyip yeni bir metin izi oluşturur. Bu klipler ortak önizleme ve dışa aktarmada gösterilir. API transkripsiyonunda OpenAI, xAI veya Gemini ve bunların uygun modeli seçilebilir; sonuç düz metindir. Gemini inline ses sınırı 14 MB ile sınırlıdır. Claude için bu uygulamada transkripsiyon yoktur. Yerel Whisper bağımlılıkları kurucuya dahildir; model ayrıca indirilir. API transkripsiyonu ayrı seçenek olarak kalır.
 
 Timeline cetveli ve klip taşıma, yakın klip kenarlarına sınırlı mesafede yapışır. Kliplerin bitişlerini hareket ettirirken yapışma henüz uygulanmaz. Ses ducking henüz yoktur; Windows sistem sesiyle çevrimdışı WAV oluşturulabilir.
 
@@ -115,3 +115,7 @@ Bu geliştirme dalında `installer.iss`, Inno Setup 6 ile tek dosyalı `AkisKurg
 Klip seçip **Klip sesi** ile ses düzeyi ayarlanabilir. Yerel seslendirme Windows sistem sesini kullanarak çevrimdışı WAV oluşturur; kullanılabilir dil ve sesler Windows kurulumuna bağlıdır. Medya listesindeki arama dosya adlarını filtreler. Timeline waveform en fazla ilk 60 dakikayı önbelleğe alır.
 
 Uygulama açılışta yeni sürümü kontrol eder ve doğrulanmış kurucuyu arka planda indirir. Uygun olduğunuzda açık projenizi kaydedip güncellemeyi onaylayabilirsiniz; ayarlar ve projeler korunur. Bu özellik için mevcut eski kurucudan bu sürüme bir kez geçmek gerekir.
+
+### İlham / Şablonlar
+
+Sol menüde İlham veya Şablonlar ile sekiz başlangıç düzeninden birini seçin. Kart listesinde önerilen oran, süre, izler ve düzenlenebilir başlık görülür. Stil renk ayarlarını, tempo ise tüm projenin oynatma/dışa aktarma hızını değiştirir. Uygulama mevcut klipleri koruyarak iz ve üç saniyelik başlık ekler; başlık klibini seçip “Metni düzenle” düğmesiyle değiştirebilirsiniz; medyayı izlere kendiniz ekleyin. Boş projede önce şablonu seçip ardından video ekleyebilirsiniz. Önerilen süre otomatik kesme yapmaz. Slideshow için bu sürümün desteklediği video dosyalarını kullanın. Şablonlar genel kurgu fikirlerinden esinlenen özgün tanımlardır; üçüncü taraf varlık içermez.
