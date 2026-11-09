@@ -5,7 +5,7 @@
 
 ## Windows'ta kurulum
 
-[**Windows kurucusunu indir — AkisKurguAI-Setup.exe**](https://github.com/anilcanolcer/akis-kurgu-ai/releases/download/v0.3.0-experimental/AkisKurguAI-Setup.exe)
+[**Windows kurucusunu indir — AkisKurguAI-Setup.exe**](https://github.com/anilcanolcer/akis-kurgu-ai/releases/download/v0.3.1/AkisKurguAI-Setup.exe)
 
 1. Kurucu EXE dosyasını indirin ve çalıştırın.
 2. Kurulum adımlarını tamamlayıp Başlat menüsünden **Akış Kurgu AI** uygulamasını açın.
@@ -110,8 +110,8 @@ Waveform: ses içeren video ve ses klipleri için arka planda FFmpeg ile hesapla
 
 ## Kurucu ve ses özellikleri
 
-Bu geliştirme dalında `installer.iss`, Inno Setup 6 ile tek dosyalı `AkisKurguAI-Setup.exe` oluşturur. GitHub Actions, paketlenmiş Whisper tanılaması ve sessiz kurulum kontrolünden sonra kurucuyu artefakt olarak yükler. Kurucu henüz mevcut kalıcı Release yerine geçmez.
+Bu geliştirme dalında `installer.iss`, Inno Setup 6 ile tek dosyalı `AkisKurguAI-Setup.exe` oluşturur. GitHub Actions, paketlenmiş Whisper tanılaması ve sessiz kurulum kontrolünden sonra kurucuyu artefakt olarak yükler. Güncel kurucu Releases sayfasında bulunur.
 
 Klip seçip **Klip sesi** ile ses düzeyi ayarlanabilir. Yerel seslendirme Windows sistem sesini kullanarak çevrimdışı WAV oluşturur; kullanılabilir dil ve sesler Windows kurulumuna bağlıdır. Medya listesindeki arama dosya adlarını filtreler. Timeline waveform en fazla ilk 60 dakikayı önbelleğe alır.
 
-Güncelleme işlevi için yeni sürüm hazırlanmaktadır.
+Uygulama açılışta yeni sürümü kontrol eder ve doğrulanmış kurucuyu arka planda indirir. Uygun olduğunuzda açık projenizi kaydedip güncellemeyi onaylayabilirsiniz; ayarlar ve projeler korunur. Bu özellik için mevcut eski kurucudan bu sürüme bir kez geçmek gerekir.
