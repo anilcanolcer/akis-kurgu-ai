@@ -30,8 +30,8 @@ class UpdateTests(unittest.TestCase):
             import re, json
             encoded = re.search(r"FromBase64String\('([^']+)'\)", script).group(1)
             data = json.loads(base64.b64decode(encoded).decode('utf-8'))
-            self.assertEqual(data['directory'], str(root))
-            self.assertEqual(data['app'], str(app))
+            self.assertEqual(data['directory'], str(root.resolve()))
+            self.assertEqual(data['app'], str(app.resolve()))
             self.assertEqual(data['pid'], 123)
 
     def test_version(self):
