@@ -1,5 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Akış Kurgu AI logo">
-  <rect x="8" y="8" width="240" height="240" rx="68" fill="#7357f5"/>
-  <path d="M57 185 115 64h25l59 121h-34l-37-79-37 79z" fill="#fff"/>
-  <path d="m99 158 57-23" fill="none" stroke="#d8ccff" stroke-width="17" stroke-linecap="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Akış Kurgu AI">
+ <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#987bff"/><stop offset="1" stop-color="#5b3be0"/></linearGradient></defs>
+ <rect x="7" y="7" width="242" height="242" rx="70" fill="#141321"/>
+ <rect x="10" y="10" width="236" height="236" rx="67" fill="none" stroke="#6451aa" stroke-width="3"/>
+ <path d="M49 186 108 65h34l65 121h-35l-47-88-42 88z" fill="url(#g)"/>
+ <path d="M97 159 157 132" fill="none" stroke="#f9f6ff" stroke-width="15" stroke-linecap="round"/>
+ <circle cx="179" cy="77" r="7" fill="#e9dcff"/>
 </svg>
