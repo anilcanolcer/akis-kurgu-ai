@@ -10,6 +10,13 @@ class AiTests(unittest.TestCase):
         timeline = Timeline(); add_plan_markers(timeline, plans[0])
         self.assertEqual([m['frame'] for m in timeline.markers], [0, 60])
         with self.assertRaises(ValueError): parse_suggestions('{"suggestions":[{"trim_start":0,"trim_end":9},{"trim_start":1,"trim_end":2}]}', 4)
+    def test_missing_offline_model_explains_download(self):
+        def factory(*args, **kwargs):
+            raise FileNotFoundError('model missing')
+        with self.assertRaisesRegex(RuntimeError, 'Modeli indir'):
+            local_transcribe('x', 'tiny', model_factory=factory)
+        with self.assertRaises(FileNotFoundError):
+            local_transcribe('x', 'tiny', download=True, model_factory=factory)
     def test_local_offline_and_download_are_explicit(self):
         calls = []
         def factory(name, **kw):

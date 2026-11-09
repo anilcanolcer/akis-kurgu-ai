@@ -32,7 +32,7 @@ from akis.tts_worker import TtsWorker
 from akis.ai_workers import AIWorker, TranscriptWorker
 from akis.media_bin import MediaBin
 from akis.caption_service import caption_track
-from akis import ai_providers
+from akis import ai_providers, update_service
 from akis import template_service
 from akis.template_dialog import TemplateDialog
 
@@ -1222,11 +1222,14 @@ class MainWindow(QMainWindow):
         answer = QMessageBox.question(self, APP_NAME, 'Güncelleme hazır. Önce açık projenizi kaydedin. Uygulama kapanıp güncellensin mi?', QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         if answer != QMessageBox.StandardButton.Yes:
             return
-        import base64
-        payload = base64.b64encode(json.dumps({'pid': os.getpid(), 'installer': installer, 'app': sys.executable}).encode('utf-8')).decode('ascii')
-        script = "$d=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('" + payload + "'))|ConvertFrom-Json; Wait-Process -Id $d.pid -ErrorAction SilentlyContinue; $p=Start-Process -FilePath $d.installer -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-' -Wait -PassThru; if($p.ExitCode -eq 0){Start-Process -FilePath $d.app}"
-        encoded = base64.b64encode(script.encode('utf-16le')).decode('ascii')
-        subprocess.Popen(['powershell.exe', '-NoProfile', '-NonInteractive', '-EncodedCommand', encoded], creationflags=subprocess.CREATE_NO_WINDOW)
+        if self._workers:
+            QMessageBox.information(self, APP_NAME, 'Güncellemeden önce devam eden işlemin bitmesini bekleyin.')
+            return
+        try:
+            update_service.launch_installer(installer, sys.executable, os.getpid())
+        except (OSError, ValueError) as exc:
+            QMessageBox.critical(self, APP_NAME, f'Güncelleme başlatılamadı: {exc}')
+            return
         self.close()
 
     def set_status(self, text: str) -> None:

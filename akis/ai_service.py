@@ -39,7 +39,12 @@ def local_transcribe(path, model_name, *, download=False, model_factory=None, ti
         except ImportError as exc:
             raise RuntimeError('Yerel altyazı için faster-whisper kurulmalı: pip install -r requirements-local-ai.txt') from exc
         model_factory = WhisperModel
-    model = model_factory(model_name, device='cpu', compute_type='int8', local_files_only=not download)
+    try:
+        model = model_factory(model_name, device='cpu', compute_type='int8', local_files_only=not download)
+    except FileNotFoundError as exc:
+        if not download:
+            raise RuntimeError(f'Yerel Whisper modeli ({model_name}) bulunamadı. İlk kullanımda internet bağlantısıyla “Modeli indir” seçeneğini işaretleyin. Ayrıntı: {exc}') from exc
+        raise
     segments, _ = model.transcribe(str(path), language='tr', vad_filter=True)
     items = [{'start': segment.start, 'end': segment.end, 'text': segment.text.strip()} for segment in segments if segment.text.strip()]
     return items if timed else ' '.join(item['text'] for item in items)
