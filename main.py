@@ -10,7 +10,6 @@ import subprocess
 import sys
 import tempfile
 from dataclasses import asdict, dataclass
-from datetime import datetime
 from pathlib import Path
 from timeline_model import Timeline, Track
 from multitrack_widget import MultitrackWidget
@@ -20,6 +19,7 @@ from timeline_render import duration_frames
 import timeline_service
 from timeline_audio import TimelineAudio
 from render_worker import TimelineRenderWorker
+from preview_controller import PreviewController
 
 from PySide6.QtCore import QLocale, QSettings, QSize, QStandardPaths, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QFont, QIcon, QPainter, QPainterPath, QPen, QPixmap
@@ -375,9 +375,9 @@ class MainWindow(QMainWindow):
         self.multitrack = Timeline.from_legacy({})
         self.timeline_frame = 0
         self.playback_clock = timeline_service.PlaybackClock()
-        self.preview_worker = None
-        self.preview_pending = None
-        self.preview_dir = tempfile.TemporaryDirectory(prefix='akis_preview_')
+        self.preview = PreviewController(ffmpeg_path, self)
+        self.preview.frame_ready.connect(self.show_timeline_frame)
+        self.preview.failed.connect(self.set_status)
         self.play_timer = QTimer(self)
         self.play_timer.timeout.connect(self.advance_timeline)
         self.settings = QSettings(ORG_NAME, APP_NAME)
@@ -395,6 +395,7 @@ class MainWindow(QMainWindow):
         self.preview_audio = QMediaPlayer()
         self.preview_audio.setAudioOutput(self.preview_audio_output)
         self.timeline_audio = TimelineAudio(self.preview_audio, self)
+        self.timeline_audio.failed.connect(self.set_status)
 
         root = QWidget()
         self.setCentralWidget(root)
@@ -1192,30 +1193,11 @@ class MainWindow(QMainWindow):
         self.multitrack_view.update()
         fps = self.multitrack.fps_num / self.multitrack.fps_den
         self.time_label.setText(f'{format_time(self.timeline_frame/fps)} / {format_time(total/fps)}')
-        if self.preview_worker and self.preview_worker.isRunning():
-            self.preview_pending = self.timeline_frame
-            return
-        w, h = self.canvas_size()
-        scale = min(1, 480/max(w, h))
-        size = (max(2, int(w*scale)//2*2), max(2, int(h*scale)//2*2))
-        path = str(Path(self.preview_dir.name) / 'frame.png')
-        self.preview_worker = TimelineRenderWorker(self.multitrack, path, size, ffmpeg_path(), self.timeline_frame, self.render_adjustments())
-        self.preview_worker.completed.connect(self.show_timeline_frame)
-        self.preview_worker.failed.connect(self.set_status)
-        self.preview_worker.finished.connect(self.next_preview)
-        self.preview_worker.start()
+        self.preview.request(self.multitrack, self.timeline_frame, self.canvas_size(), self.render_adjustments())
 
     def show_timeline_frame(self, path):
-        if self.preview_pending is not None:
-            return
         pixmap = QPixmap(path)
         self.video.setPixmap(pixmap.scaled(self.video.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
-
-    def next_preview(self):
-        self.preview_worker = None
-        if self.preview_pending is not None:
-            frame, self.preview_pending = self.preview_pending, None
-            self.seek_timeline(frame, from_clock=True)
 
     def advance_timeline(self):
         total = duration_frames(self.multitrack)
@@ -1253,32 +1235,14 @@ class MainWindow(QMainWindow):
                 'saturation': self.state.saturation, 'speed': self.state.speed}
 
     def project_document(self) -> dict:
-        return {
-            "format": "akis-kurgu-project",
-            "version": project_service.CURRENT_VERSION,
-            "saved_at": datetime.now().astimezone().isoformat(),
-            "state": asdict(self.state),
-            "timeline": self.multitrack.to_dict(),
-            "publish": {
-                "title": self.publish_title.text(),
-                "caption": self.publish_caption.toPlainText(),
-                "hashtags": self.publish_tags.toPlainText(),
-            },
-            "ai_prompt": self.ai_prompt.toPlainText(),
-        }
+        publish = {'title': self.publish_title.text(),
+                   'caption': self.publish_caption.toPlainText(),
+                   'hashtags': self.publish_tags.toPlainText()}
+        return project_service.make_document(asdict(self.state), self.multitrack, publish,
+                                             self.ai_prompt.toPlainText())
 
     def write_project(self, path: str, snapshot: bool = False) -> None:
-        target = Path(path)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        document = self.project_document()
-        project_service.save(target, document)
-        if snapshot:
-            versions = target.parent / f"{target.name}.versions"
-            versions.mkdir(exist_ok=True)
-            stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-            (versions / f"{stamp}.json").write_text(
-                json.dumps(document, ensure_ascii=False, indent=2), encoding="utf-8"
-            )
+        project_service.save_with_snapshot(path, self.project_document(), snapshot)
 
     def save_project(self) -> None:
         if not self.state.source:
@@ -1305,19 +1269,10 @@ class MainWindow(QMainWindow):
         if not path:
             return
         try:
-            document = project_service.load(path)
-            if document.get("format") != "akis-kurgu-project":
-                raise ValueError("Bu dosya desteklenen bir Akış Kurgu projesi değil.")
-            source = document.get("state", {}).get("source", "")
-            source_path = Path(source)
-            if source and not source_path.is_absolute():
-                source_path = (Path(path).parent / source_path).resolve()
-                document.setdefault("state", {})["source"] = str(source_path)
-            if not source or not source_path.exists():
-                raise FileNotFoundError("Projede kullanılan kaynak video bulunamadı.")
+            document, source_path = project_service.load_with_source(path)
             self.project_path = path
             self._pending_project = document
-            self.load_video(str(source_path))
+            self.load_video(source_path)
         except Exception as exc:
             QMessageBox.critical(self, APP_NAME, str(exc))
 
@@ -1399,6 +1354,13 @@ class MainWindow(QMainWindow):
         self.apply_language(code)
         self.set_status("Language changed to English." if code == "en" else "Dil Türkçe olarak değiştirildi.")
 
+    def closeEvent(self, event):
+        self.play_timer.stop()
+        self.playback_clock.stop()
+        self.timeline_audio.stop()
+        self.preview.close()
+        super().closeEvent(event)
+
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:
         urls = event.mimeData().urls()
         if urls and Path(urls[0].toLocalFile()).suffix.lower() in VIDEO_EXTS:
@@ -1472,5 +1434,9 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    if len(sys.argv) == 3 and sys.argv[1] == '--audio-diagnostic':
+        from audio_diagnostic import diagnose
+        Path(sys.argv[2]).write_text(json.dumps(diagnose(), ensure_ascii=False, indent=2), encoding='utf-8')
+    else:
+        raise SystemExit(main())
 

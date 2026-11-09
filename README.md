@@ -7,13 +7,13 @@
 
 ## Windows'ta çalıştırma
 
-[Windows için deneysel paketi indir](https://github.com/anilcanolcer/akis-kurgu-ai/releases/download/v0.2.0-experimental/AkisKurguAI-Windows.zip)
+[Windows için deneysel paketi indir](https://github.com/anilcanolcer/akis-kurgu-ai/releases/download/v0.2.1-experimental/AkisKurguAI-Windows.zip)
 
 1. ZIP dosyasını indirin ve tamamını bir klasöre çıkarın.
 2. Çıkarılan klasördeki **AkisKurguAI.exe** dosyasını açın. `_internal` klasörü EXE'nin yanında kalmalıdır.
 3. **Video ekle** ile bir video seçin. İnternet ve API anahtarı temel yerel düzenleme için gerekli değildir.
 
-Paket taşınabilir klasör dağıtımıdır; bir Windows kurulum sihirbazı değildir. Windows 10/11 64-bit hedeflenir. GitHub Actions derlemesinde testler ve otomatik açılış kontrolü çalışır; bütün donanımlarda gerçek zamanlı ses/görüntü eşzamanlaması garanti edilmez.
+Paket taşınabilir klasör dağıtımıdır; bir Windows kurulum sihirbazı değildir. Windows 10/11 64-bit hedeflenir. GitHub Actions derlemesinde testler, otomatik açılış ve ses arka ucu kontrolü çalışır. Ses aygıtı bulunmayan ortamlarda gerçek oynatma testi atlanır; farklı cihazlarda ses/görüntü eşzamanlaması henüz doğrulanmamıştır.
 
 ## Uygulama görünümü
 
@@ -77,7 +77,7 @@ PyInstaller çıktısı `dist/AkisKurguAI/` klasöründedir. FFmpeg içeren dağ
 
 - `timeline_model.py`: kare tabanlı klip ve izler; `frame_plan.py`: etkin katmanlar.
 - `timeline_service.py`, `timeline_audio.py`: düzenleme, oynatma saati ve temel ses konumu eşleme.
-- `timeline_render.py`, `render_worker.py`, `media_service.py`: ortak kompozisyon, arka plan işi ve FFmpeg sınırı.
+- `timeline_render.py`, `render_worker.py`, `preview_controller.py`, `media_service.py`: ortak kompozisyon, önizleme iş sırası ve FFmpeg sınırı.
 - `multitrack_widget.py`, `main.py`: zaman çizelgesi arayüzü ve uygulama penceresi. Pencerede hâlâ ayrıştırılabilecek iş akışları vardır.
 - `project_service.py`: proje şeması ve kayıt; `logo.svg`, `logo.png`, `app.ico`: logo ve simge varlıkları.
 

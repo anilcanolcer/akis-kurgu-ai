@@ -69,6 +69,18 @@ class TimelineServiceTests(unittest.TestCase):
         now[0] += .25
         self.assertEqual(clock.position(self.timeline), 35)
 
+    def test_unavailable_backend_is_reported_once(self):
+        player = FakePlayer()
+        player.isAvailable = lambda: False
+        audio = TimelineAudio(player)
+        errors = []
+        audio.failed.connect(errors.append)
+        audio.sync(self.timeline, 25, 1)
+        audio.sync(self.timeline, 26, 1)
+        self.assertEqual(len(errors), 1)
+        self.assertIn('arka ucu', errors[0])
+        self.assertEqual(player.calls, [])
+
     def test_async_audio_load_and_drift_correction(self):
         player = FakePlayer()
         audio = TimelineAudio(player)

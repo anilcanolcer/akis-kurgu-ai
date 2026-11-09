@@ -1,18 +1,23 @@
 """Qt multimedia adapter for simple timeline audio playback."""
-from PySide6.QtCore import QObject, QUrl
+from PySide6.QtCore import QObject, QUrl, Signal
 from PySide6.QtMultimedia import QMediaPlayer
 
 from timeline_service import audio_target
 
 
 class TimelineAudio(QObject):
+    failed = Signal(str)
+
     def __init__(self, player, parent=None):
         super().__init__(parent)
         self.player = player
         self.source = None
         self.pending = None
         self.active = False
+        self.unavailable_reported = False
         player.mediaStatusChanged.connect(self._status_changed)
+        if hasattr(player, "errorOccurred"):
+            player.errorOccurred.connect(self._error)
 
     def stop(self):
         self.active = False
@@ -20,6 +25,12 @@ class TimelineAudio(QObject):
         self.player.pause()
 
     def sync(self, timeline, frame, speed, force=False):
+        if hasattr(self.player, "isAvailable") and not self.player.isAvailable():
+            if not self.unavailable_reported:
+                self.failed.emit("Ses önizlemesi kullanılamıyor: Qt medya arka ucu yüklenemedi.")
+                self.unavailable_reported = True
+            return
+        self.unavailable_reported = False
         self.active = True
         target = audio_target(timeline, frame, speed)
         if target is None:
@@ -49,3 +60,7 @@ class TimelineAudio(QObject):
             self.player.setPosition(self.pending)
             self.pending = None
             self.player.play()
+
+    def _error(self, error, message):
+        if self.active and error != QMediaPlayer.Error.NoError:
+            self.failed.emit(f"Ses önizlemesi: {message or str(error)}")

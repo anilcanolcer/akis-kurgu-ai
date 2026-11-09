@@ -17,6 +17,20 @@ class ProjectServiceTests(unittest.TestCase):
             self.assertEqual(result['timeline']['tracks'][0]['clips'][0]['source_in'], 30)
             self.assertEqual(result['state'], old['state'])
 
+    def test_document_snapshot_and_relative_source(self):
+        from timeline_model import Timeline
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / 'video.mp4').touch()
+            target = root / 'edit.akis.json'
+            document = project_service.make_document({'source': 'video.mp4'}, Timeline(), {}, '')
+            project_service.save_with_snapshot(target, document, snapshot=True)
+            project_service.save_with_snapshot(target, document, snapshot=True)
+            self.assertEqual(len(list((root / 'edit.akis.json.versions').glob('*.json'))), 2)
+            loaded, source = project_service.load_with_source(target)
+            self.assertEqual(Path(source), root / 'video.mp4')
+            self.assertEqual(loaded['state']['source'], str(root / 'video.mp4'))
+
     def test_reject_future_format(self):
         with self.assertRaises(ValueError):
             project_service.migrate({'format': 'akis-kurgu-project', 'version': 99})
