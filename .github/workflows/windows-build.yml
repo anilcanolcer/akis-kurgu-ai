@@ -29,7 +29,7 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
       - name: Run tests
-        run: python -m unittest test_timeline_model test_project_service test_media_service test_timeline_render test_frame_plan -v
+        run: python -m unittest discover -v
       - name: Build application
         run: python -m PyInstaller AkisKurguAI.spec --noconfirm --clean
       - name: Verify packaged startup
@@ -48,3 +48,4 @@ jobs:
           path: dist/AkisKurguAI/
           if-no-files-found: error
           retention-days: 14
+
