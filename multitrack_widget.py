@@ -61,6 +61,11 @@ class MultitrackWidget(QWidget):
                 p.drawRoundedRect(x, y + 3, w, 34, 5, 5)
                 p.setPen(QColor('white'))
                 p.drawText(x + 5, y + 25, (clip.text or clip.source.replace('\\', '/').split('/')[-1])[:max(0, w // 7)])
+        p.setPen(QPen(QColor('#ffcd5a'), 2))
+        for marker in self.model.markers:
+            x = int(self.x_for(marker.get('frame', 0)))
+            p.drawLine(x, 20, x, self.height())
+            p.drawText(x + 3, 28, str(marker.get('label', ''))[:24])
         p.setPen(QPen(QColor('#ff4fa3'), 2))
         x = int(self.x_for(self.playhead))
         p.drawLine(x, 20, x, self.height())

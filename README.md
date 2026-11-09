@@ -90,3 +90,16 @@ Hata bildirirken Windows/Python/FFmpeg sürümlerini ve adımları paylaşın; A
 4. **Phase 4:** Daha kapsamlı çeviriler, çalışma alanları ve güvenilirlik.
 
 Yol haritası hedefleri mevcut özellik değildir.
+
+
+## Deneysel AI planları ve yerel konuşma metni
+
+AI Kurgu panelinde platform, tempo, stil ve odak seçilerek OpenAI üzerinden birden fazla öneri istenebilir. Seçilen öneri zaman çizelgesine başlangıç ve bitiş işaretleri ekler; klipleri otomatik olarak kesmez. API anahtarı gerektirir.
+
+Yerel Türkçe konuşma metni kaynak koddan çalıştırmada isteğe bağlıdır:
+
+```powershell
+python -m pip install -r requirements-local-ai.txt
+```
+
+Panelde Yerel Whisper ve model boyutunu seçin. İlk kullanımda “Modeli indir” seçeneği internet bağlantısı gerektirir; model indirildikten sonra bu seçeneği kapatarak çevrimdışı kullanabilirsiniz. Metin yayın açıklaması alanına aktarılır; zamanlanmış altyazı klipleri henüz üretilmez. Yerel AI bağımlılığı standart Windows paketine dahil değildir; paketlenmiş EXE için yerel model desteği henüz doğrulanmamıştır. API transkripsiyonu ayrı seçenek olarak kalır.

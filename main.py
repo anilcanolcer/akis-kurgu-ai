@@ -25,6 +25,8 @@ import timeline_service
 from timeline_audio import TimelineAudio
 from render_worker import TimelineRenderWorker
 from preview_controller import PreviewController
+from ai_service import plan_prompt, parse_suggestions, add_plan_markers
+from caption_worker import LocalCaptionWorker
 
 from PySide6.QtCore import QLocale, QSettings, QSize, QStandardPaths, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QFont, QIcon, QPainter, QPainterPath, QPen, QPixmap
@@ -277,7 +279,7 @@ class TimelineBar(QWidget):
 
 
 class AIWorker(QThread):
-    completed = Signal(dict)
+    completed = Signal(list)
     failed = Signal(str)
     status = Signal(str)
 
@@ -313,9 +315,9 @@ class AIWorker(QThread):
                         "Aşağıdaki kareler aynı videodan zamana göre sıralıdır. Türkçe yanıt ver. "
                         f"Video süresi {self.duration:.2f} saniye. Kullanıcı hedefi: {self.prompt}\n\n"
                         "Yalnızca geçerli JSON döndür ve başka metin yazma. Şema: "
-                        '{"summary":"", "title":"", "caption":"", "hashtags":[""], '
+                        '{"suggestions":[{"summary":"", "title":"", "caption":"", "hashtags":[""], '
                         '"trim_start":0.0, "trim_end":0.0, "pacing":"", "filter":"natural|vivid|cinematic", '
-                        '"notes":[""]}. trim_start/trim_end video sınırları içinde olsun.'
+                        '"notes":[""]}, ...]} Üç farklı öneri ver. trim_start/trim_end video sınırları içinde olsun.'
                     ),
                 }]
                 for at, path in frames:
@@ -334,8 +336,7 @@ class AIWorker(QThread):
                 match = re.search(r"\{.*\}", text, re.DOTALL)
                 if not match:
                     raise RuntimeError("AI yanıtı kurgu planı olarak okunamadı.")
-                plan = json.loads(match.group(0))
-                self.completed.emit(plan)
+                self.completed.emit(parse_suggestions(match.group(0), self.duration))
         except Exception as exc:
             self.failed.emit(str(exc))
 
@@ -681,6 +682,15 @@ class MainWindow(QMainWindow):
         desc.setObjectName("muted")
         v.addWidget(desc)
 
+        v.addWidget(self.section("KURGU TERCİHLERİ / EDIT OPTIONS"))
+        options = QFormLayout()
+        self.ai_platform = QComboBox(); self.ai_platform.addItems(['Reels', 'TikTok', 'YouTube Shorts', 'General'])
+        self.ai_tempo = QComboBox(); self.ai_tempo.addItems(['Slow', 'Medium', 'Fast', 'Dynamic'])
+        self.ai_style = QComboBox(); self.ai_style.addItems(['Cinematic', 'Energetic', 'Minimal', 'Educational', 'Storytelling'])
+        self.ai_focus = QComboBox(); self.ai_focus.addItems(['Hook first', 'Highlights', 'Full story', 'Product', 'Tutorial'])
+        for label, widget in [('Platform', self.ai_platform), ('Tempo', self.ai_tempo), ('Stil / Style', self.ai_style), ('Odak / Focus', self.ai_focus)]:
+            options.addRow(label, widget)
+        v.addLayout(options)
         v.addWidget(self.section("YAPAY ZEKÂ HEDEFİ"))
         self.ai_prompt = QPlainTextEdit()
         self.ai_prompt.setPlaceholderText("Örn. İlk 2 saniyesi güçlü, dinamik bir Reels kurgusu. Ürün net görünsün, ton güven veren olsun.")
@@ -712,6 +722,25 @@ class MainWindow(QMainWindow):
         analyze.setObjectName("primaryLarge")
         analyze.clicked.connect(self.run_ai)
         v.addWidget(analyze)
+        self.ai_suggestions = []
+        self.ai_choice = QComboBox()
+        self.ai_choice.currentIndexChanged.connect(self.show_ai_suggestion)
+        v.addWidget(self.ai_choice)
+        apply_plan = QPushButton('Seçili öneriyi işaretlere uygula / Apply markers')
+        apply_plan.clicked.connect(self.apply_ai_suggestion)
+        v.addWidget(apply_plan)
+        self.caption_backend = QComboBox()
+        self.caption_backend.addItems(['OpenAI API', 'Yerel / Local Whisper'])
+        if getattr(sys, '_MEIPASS', None):
+            self.caption_backend.model().item(1).setEnabled(False)
+            self.caption_backend.setToolTip('Yerel Whisper şu anda yalnızca kaynak koddan çalıştırmada kullanılabilir.')
+        v.addWidget(self.caption_backend)
+        self.local_model = QComboBox(); self.local_model.addItems(['tiny', 'base', 'small'])
+        v.addWidget(self.local_model)
+        self.download_model = QCheckBox('Modeli indir / Download model (internet)')
+        v.addWidget(self.download_model)
+        note = QLabel('Yerel model ilk kullanımda indirilmeli; indirme kapalıyken yalnızca önbellek kullanılır. / Download once for offline use.')
+        note.setWordWrap(True); v.addWidget(note)
         transcript = QPushButton("Konuşmayı Türkçe metne çevir")
         transcript.setObjectName("secondary")
         transcript.clicked.connect(self.run_transcript)
@@ -1002,56 +1031,45 @@ class MainWindow(QMainWindow):
             return
         key, model = credentials
         self.begin_work("AI analizi başlatılıyor…")
-        self.worker = AIWorker(key, model, self.state.source, self.state.duration, self.ai_prompt.toPlainText().strip())
+        self.worker = AIWorker(key, model, self.state.source, self.state.duration, plan_prompt(self.ai_prompt.toPlainText().strip(), self.ai_platform.currentText(), self.ai_tempo.currentText(), self.ai_style.currentText(), self.ai_focus.currentText()))
         self.worker.status.connect(self.set_status)
         self.worker.completed.connect(self.on_ai_plan)
         self.worker.failed.connect(self.on_worker_error)
         self.worker.start()
 
-    def on_ai_plan(self, plan: dict) -> None:
-        start = float(plan.get("trim_start", 0) or 0)
-        end = float(plan.get("trim_end", self.state.duration) or self.state.duration)
-        if 0 <= start < end <= self.state.duration:
-            self.timeline.set_range(start, end, emit=True)
+    def on_ai_plan(self, plans):
+        self.ai_suggestions = plans
+        self.ai_choice.clear()
+        self.ai_choice.addItems([str(p.get('title') or f'Öneri / Suggestion {i+1}') for i, p in enumerate(plans)])
+        self.show_ai_suggestion(self.ai_choice.currentIndex())
+        self.finish_work('Öneriler hazır; birini seçip işaret olarak uygulayabilirsiniz.')
 
-        title = str(plan.get("title", "")).strip()
-        caption = str(plan.get("caption", "")).strip()
-        hashtags = plan.get("hashtags", [])
-        if isinstance(hashtags, str):
-            tags = hashtags
-        else:
-            tags = " ".join("#" + str(x).lstrip("#") for x in hashtags)
-        self.publish_title.setText(title)
-        self.publish_caption.setPlainText(caption)
-        self.publish_tags.setPlainText(tags)
-        if title:
-            self.overlay.setText(title[:70])
+    def show_ai_suggestion(self, index):
+        if 0 <= index < len(self.ai_suggestions):
+            plan = self.ai_suggestions[index]
+            self.ai_result.setPlainText(json.dumps(plan, ensure_ascii=False, indent=2))
 
-        filter_name = str(plan.get("filter", "natural"))
-        if filter_name == "vivid":
-            self.apply_preset(5, 10, 18)
-        elif filter_name == "cinematic":
-            self.apply_preset(-3, 16, -6)
-
-        notes = plan.get("notes", [])
-        if isinstance(notes, list):
-            notes = "\n".join(f"• {x}" for x in notes)
-        display = (
-            f"ÖZET\n{plan.get('summary', '')}\n\n"
-            f"RİTİM\n{plan.get('pacing', '')}\n\n"
-            f"ÖNERİLER\n{notes}"
-        )
-        self.ai_result.setPlainText(display.strip())
-        self.finish_work("AI önerileri hazır. Aralık ve başlığı timeline üzerinde elle düzenleyin.")
+    def apply_ai_suggestion(self):
+        index = self.ai_choice.currentIndex()
+        if 0 <= index < len(self.ai_suggestions):
+            plan = self.ai_suggestions[index]
+            add_plan_markers(self.multitrack, plan)
+            self.publish_title.setText(str(plan.get('title', '')))
+            self.publish_caption.setPlainText(str(plan.get('caption', '')))
+            self.set_status('Öneri işaretleri projeye eklendi. / Plan markers added.')
+            self.multitrack_view.update()
 
     def run_transcript(self) -> None:
         if not self.ensure_video():
             return
-        credentials = self.api_credentials()
-        if not credentials:
-            return
+        if self.caption_backend.currentIndex() == 1:
+            self.worker = LocalCaptionWorker(self.state.source, self.local_model.currentText(), self.download_model.isChecked())
+        else:
+            credentials = self.api_credentials()
+            if not credentials:
+                return
+            self.worker = TranscriptWorker(credentials[0], self.state.source)
         self.begin_work("Ses hazırlanıyor…")
-        self.worker = TranscriptWorker(credentials[0], self.state.source)
         self.worker.status.connect(self.set_status)
         self.worker.completed.connect(self.on_transcript)
         self.worker.failed.connect(self.on_worker_error)
