@@ -49,3 +49,24 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  release:
+    needs: windows
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: AkisKurguAI-Windows-experimental
+          path: package
+      - name: Publish experimental Windows release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release view v0.2.0-experimental *> $null
+          if ($LASTEXITCODE -eq 0) { Write-Host 'Experimental release already exists'; exit 0 }
+          Compress-Archive -Path 'package/*' -DestinationPath 'AkisKurguAI-Windows.zip'
+          gh release create v0.2.0-experimental 'AkisKurguAI-Windows.zip' --target $env:GITHUB_SHA --title 'Akış Kurgu AI — deneysel Windows' --notes 'Deneysel taşınabilir Windows paketi. ZIP dosyasını çıkarın ve AkisKurguAI.exe dosyasını klasörüyle birlikte çalıştırın. Bu bir kurulum sihirbazı değildir.' --prerelease
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
