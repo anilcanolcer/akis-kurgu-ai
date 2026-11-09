@@ -482,7 +482,7 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(1180, 760)
         self.resize(1500, 920)
         self.setAcceptDrops(True)
-        self.setWindowIcon(self.make_icon())
+        self.setWindowIcon(QIcon(str(runtime_file('app.ico'))))
 
         self.audio = QAudioOutput()
         self.audio.setVolume(0.8)
