@@ -305,8 +305,9 @@ class MainWindow(QMainWindow):
         self.worker: QThread | None = None
         self._workers = set()
         self.setWindowTitle(APP_NAME)
-        self.setMinimumSize(1180, 760)
-        self.resize(1500, 920)
+        self.setMinimumSize(900, 650)
+        available = QApplication.primaryScreen().availableGeometry()
+        self.resize(min(1500, available.width()), min(920, available.height()))
         self.setAcceptDrops(True)
         self.setWindowIcon(QIcon(str(runtime_file('app.ico'))))
 
@@ -370,7 +371,7 @@ class MainWindow(QMainWindow):
     def build_sidebar(self) -> QWidget:
         side = QFrame()
         side.setObjectName("sidebar")
-        side.setFixedWidth(220)
+        side.setFixedWidth(190)
         v = QVBoxLayout(side)
         v.setContentsMargins(18, 22, 18, 18)
         v.setSpacing(8)
@@ -527,7 +528,9 @@ class MainWindow(QMainWindow):
         self.selection_label.setObjectName("muted")
         timeline_header.addWidget(self.selection_label)
         v.addLayout(timeline_header)
-        tools = QHBoxLayout()
+        tool_container = QWidget()
+        tools = QHBoxLayout(tool_container)
+        tools.setContentsMargins(0, 0, 0, 0)
         for label, action in [('＋ İz', self.add_track), ('− İz', self.remove_track),
                               ('＋ Medya', self.add_timeline_media), ('Böl', self.split_clip),
                               ('Ripple sil', self.ripple_delete), ('Klip sesi', self.set_clip_volume), ('Metni düzenle', self.edit_text_clip)]:
@@ -541,7 +544,13 @@ class MainWindow(QMainWindow):
         zoom.valueChanged.connect(self.timeline_zoom)
         tools.addWidget(QLabel('Yakınlık'))
         tools.addWidget(zoom)
-        v.addLayout(tools)
+        tool_scroll = QScrollArea()
+        tool_scroll.setWidgetResizable(True)
+        tool_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        tool_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        tool_scroll.setMaximumHeight(65)
+        tool_scroll.setWidget(tool_container)
+        v.addWidget(tool_scroll)
         self.multitrack_view = MultitrackWidget(self.multitrack)
         self.multitrack_view.waveform_executable = ffmpeg_path
         self.multitrack_view.seek.connect(self.seek_timeline)
@@ -588,7 +597,7 @@ class MainWindow(QMainWindow):
     def build_inspector(self) -> QWidget:
         wrapper = QFrame()
         wrapper.setObjectName("inspector")
-        wrapper.setMinimumWidth(350)
+        wrapper.setMinimumWidth(300)
         layout = QVBoxLayout(wrapper)
         layout.setContentsMargins(0, 0, 0, 0)
         self.tabs = QTabWidget()
