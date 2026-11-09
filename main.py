@@ -12,6 +12,9 @@ import tempfile
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
+from timeline_model import Timeline, Track, Clip
+from multitrack_widget import MultitrackWidget
+import project_service
 
 from PySide6.QtCore import QLocale, QSettings, QSize, QStandardPaths, Qt, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QFont, QIcon, QPainter, QPainterPath, QPen, QPixmap
@@ -26,6 +29,7 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QFrame,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QListWidget,
@@ -480,6 +484,8 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.state = EditState()
+        self.multitrack = Timeline.from_legacy({})
+        self.timeline_frame = 0
         self.settings = QSettings(ORG_NAME, APP_NAME)
         self.project_path = ""
         self._pending_project: dict | None = None
@@ -693,6 +699,24 @@ class MainWindow(QMainWindow):
         self.selection_label.setObjectName("muted")
         timeline_header.addWidget(self.selection_label)
         v.addLayout(timeline_header)
+        tools = QHBoxLayout()
+        for label, action in [('＋ İz', self.add_track), ('− İz', self.remove_track),
+                              ('＋ Medya', self.add_timeline_media), ('Böl', self.split_clip),
+                              ('Ripple sil', self.ripple_delete)]:
+            button = QPushButton(label)
+            button.clicked.connect(action)
+            tools.addWidget(button)
+        zoom = QSlider(Qt.Orientation.Horizontal)
+        zoom.setRange(1, 100)
+        zoom.setValue(20)
+        zoom.setFixedWidth(90)
+        zoom.valueChanged.connect(self.timeline_zoom)
+        tools.addWidget(QLabel('Yakınlık'))
+        tools.addWidget(zoom)
+        v.addLayout(tools)
+        self.multitrack_view = MultitrackWidget(self.multitrack)
+        self.multitrack_view.seek.connect(self.seek_timeline)
+        v.addWidget(self.multitrack_view)
         self.timeline = TimelineBar()
         self.timeline.range_changed.connect(self.on_timeline_range)
         self.timeline.seek_requested.connect(lambda sec: self.player.setPosition(int(sec * 1000)))
@@ -928,6 +952,9 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, APP_NAME, "Desteklenen bir video dosyası seçin.")
             return
         self.state = EditState(source=str(file), aspect=self.aspect.currentText())
+        if not self._pending_project:
+            self.multitrack = Timeline.from_legacy({})
+            self.multitrack_view.set_model(self.multitrack)
         self.player.setSource(QUrl.fromLocalFile(str(file)))
         self.project_title.setText(file.stem)
         self.project_subtitle.setText(f"{file.suffix.upper().lstrip('.')} · {file.stat().st_size / 1024 / 1024:.1f} MB")
@@ -958,9 +985,20 @@ class MainWindow(QMainWindow):
             pending = self._pending_project
             self._pending_project = None
             self.apply_project_state(pending)
+        elif not any(t.clips for t in self.multitrack.tracks):
+            self.multitrack = Timeline.from_legacy(asdict(self.state))
+            self.multitrack_view.set_model(self.multitrack)
 
     def on_position(self, milliseconds: int) -> None:
         seconds = milliseconds / 1000.0
+        source_frame = round(seconds * self.multitrack.fps_num / self.multitrack.fps_den)
+        for track in self.multitrack.tracks:
+            if track.kind == 'video':
+                clip = next((c for c in track.clips if c.source == self.state.source and c.source_in <= source_frame < c.source_in + c.length), None)
+                if clip:
+                    self.multitrack_view.playhead = clip.start + source_frame - clip.source_in
+                    self.multitrack_view.update()
+                    break
         self.timeline.set_playhead(seconds)
         self.time_label.setText(f"{format_time(seconds)} / {format_time(self.state.duration)}")
         if self.player.playbackState() == QMediaPlayer.PlaybackState.PlayingState and self.state.end and seconds >= self.state.end:
@@ -1119,6 +1157,12 @@ class MainWindow(QMainWindow):
     def export_video(self) -> None:
         if not self.ensure_video():
             return
+        reference = Timeline.from_legacy(asdict(self.state))
+        def content(timeline):
+            return [(t.kind, [(c.source, c.start, c.length, c.source_in) for c in t.clips]) for t in timeline.tracks if t.clips]
+        if content(self.multitrack) != content(reference):
+            QMessageBox.warning(self, APP_NAME, 'Çok izli dışa aktarma henüz hazır değil. Düzenlemelerinizin eksik çıkmasını önlemek için işlem durduruldu.')
+            return
         default = safe_filename(self.project_title.text()) + "_akis.mp4"
         path, _ = QFileDialog.getSaveFileName(self, "Videoyu dışa aktar", str(Path.home() / "Videos" / default), "MP4 Video (*.mp4)")
         if not path:
@@ -1179,12 +1223,96 @@ class MainWindow(QMainWindow):
         self.status_label.setText(text)
         self.status_label.setToolTip(text)
 
+    def timeline_zoom(self, value):
+        self.multitrack_view.zoom = value / 10
+        self.multitrack_view.update()
+
+    def selected_clip(self):
+        selected = self.multitrack_view.selected
+        if not selected:
+            return None, None
+        track = self.multitrack.tracks[selected[0]]
+        return track, track.find(selected[1])
+
+    def add_track(self):
+        kind, ok = QInputDialog.getItem(self, 'İz ekle / Add track', 'Tür / Type', ['video', 'audio', 'text', 'overlay'], 0, False)
+        if ok:
+            self.multitrack.tracks.append(Track(kind, f'{kind.title()} {len(self.multitrack.tracks)+1}'))
+            self.multitrack_view.setMinimumHeight(max(210, 40 + 43 * len(self.multitrack.tracks)))
+            self.multitrack_view.update()
+
+    def remove_track(self):
+        selected = self.multitrack_view.selected
+        if not selected:
+            self.set_status('Silinecek izi seçmek için klibe tıklayın.')
+            return
+        self.multitrack.tracks.pop(selected[0])
+        self.multitrack_view.selected = None
+        self.multitrack_view.update()
+
+    def add_timeline_media(self):
+        track, _ = self.selected_clip()
+        if track is None:
+            self.set_status('Önce hedef izde bir klip seçin.')
+            return
+        if track.kind not in ('video', 'audio', 'overlay'):
+            self.set_status('Bu sürümde medya yalnızca video/ses izine eklenir.')
+            return
+        path, _ = QFileDialog.getOpenFileName(self, 'Medya seç', '', 'Media (*.mp4 *.mov *.mkv *.webm *.avi *.m4v *.mp3 *.wav *.m4a)')
+        if not path:
+            return
+        # Probe without decoding the file or relying on an additional ffprobe binary.
+        result = subprocess.run([ffmpeg_path(), '-hide_banner', '-i', path], capture_output=True,
+                                text=True, creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
+        match = re.search(r'Duration: (\d+):(\d+):(\d+(?:\.\d+)?)', result.stderr)
+        if not match:
+            QMessageBox.warning(self, APP_NAME, 'Medya süresi okunamadı.')
+            return
+        seconds = int(match.group(1))*3600 + int(match.group(2))*60 + float(match.group(3))
+        frames = max(1, round(seconds * self.multitrack.fps_num / self.multitrack.fps_den))
+        start = max((c.end for c in track.clips), default=0)
+        track.add(Clip(path, start, frames, source_length=frames))
+        self.multitrack_view.update()
+
+    def split_clip(self):
+        track, clip = self.selected_clip()
+        if clip:
+            try:
+                track.split(clip.id, self.multitrack_view.playhead)
+                self.multitrack_view.update()
+            except ValueError as exc:
+                self.set_status(str(exc))
+
+    def ripple_delete(self):
+        track, clip = self.selected_clip()
+        if clip:
+            end, length = clip.end, clip.length
+            track.clips.remove(clip)
+            for item in track.clips:
+                if item.start >= end:
+                    item.start -= length
+            self.multitrack_view.selected = None
+            self.multitrack_view.update()
+
+    def seek_timeline(self, frame):
+        fps = self.multitrack.fps_num / self.multitrack.fps_den
+        for track in reversed(self.multitrack.tracks):
+            if track.kind != 'video' or track.muted:
+                continue
+            clip = next((c for c in track.clips if c.start <= frame < c.end), None)
+            if clip and Path(clip.source).resolve() == Path(self.state.source).resolve():
+                self.player.setPosition(round((clip.source_in + frame - clip.start) / fps * 1000))
+                self.timeline_frame = frame
+                return
+        self.set_status('Bu konumda önizlenebilir ana video yok.')
+
     def project_document(self) -> dict:
         return {
             "format": "akis-kurgu-project",
-            "version": 1,
+            "version": project_service.CURRENT_VERSION,
             "saved_at": datetime.now().astimezone().isoformat(),
             "state": asdict(self.state),
+            "timeline": self.multitrack.to_dict(),
             "publish": {
                 "title": self.publish_title.text(),
                 "caption": self.publish_caption.toPlainText(),
@@ -1197,9 +1325,7 @@ class MainWindow(QMainWindow):
         target = Path(path)
         target.parent.mkdir(parents=True, exist_ok=True)
         document = self.project_document()
-        temp = target.with_suffix(target.suffix + ".tmp")
-        temp.write_text(json.dumps(document, ensure_ascii=False, indent=2), encoding="utf-8")
-        temp.replace(target)
+        project_service.save(target, document)
         if snapshot:
             versions = target.parent / f"{target.name}.versions"
             versions.mkdir(exist_ok=True)
@@ -1233,7 +1359,7 @@ class MainWindow(QMainWindow):
         if not path:
             return
         try:
-            document = json.loads(Path(path).read_text(encoding="utf-8"))
+            document = project_service.load(path)
             if document.get("format") != "akis-kurgu-project":
                 raise ValueError("Bu dosya desteklenen bir Akış Kurgu projesi değil.")
             source = document.get("state", {}).get("source", "")
@@ -1255,6 +1381,8 @@ class MainWindow(QMainWindow):
         merged = {key: value for key, value in raw.items() if key in allowed}
         merged["duration"] = self.state.duration
         self.state = EditState(**merged)
+        self.multitrack = Timeline.from_dict(document['timeline']) if 'timeline' in document else Timeline.from_legacy(merged)
+        self.multitrack_view.set_model(self.multitrack)
         self.timeline.set_range(
             self.state.start, min(self.state.end or self.state.duration, self.state.duration), emit=True
         )
