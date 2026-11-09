@@ -3,8 +3,6 @@
 <h1 align="center">Akış Kurgu AI</h1>
 <p align="center">Windows için yerel öncelikli, Türkçe ve İngilizce video düzenleme denemesi</p>
 
-> **Geliştirme durumu:** Proje deneysel aşamadadır. Ana dal erken sürümü içerir; aşağıdaki çok izli özellikler ve görsel [experimental/timeline-render](https://github.com/anilcanolcer/akis-kurgu-ai/tree/experimental/timeline-render) dalına aittir. Önemli çalışmalarınız için kaynak dosyalarınızın yedeğini saklayın.
-
 ## Windows'ta çalıştırma
 
 [Windows için deneysel paketi indir](https://github.com/anilcanolcer/akis-kurgu-ai/releases/download/v0.2.1-experimental/AkisKurguAI-Windows.zip)
@@ -47,7 +45,7 @@ Paket taşınabilir klasör dağıtımıdır; bir Windows kurulum sihirbazı de�
 
 - Önizleme her kareyi FFmpeg ile üretir; özellikle yüksek çözünürlükte akıcı gerçek zamanlı oynatma beklenmemelidir. Ses önizlemesi tek kaynak seçer, çok izli miksi canlı çalmaz.
 - Eski aralık seçici, geçiş, görünüm efekti, başlık alanı ve bazı ses işleme kontrolleri yeni render yoluna bağlı olmadıklarından devre dışıdır. Metin izi model ve render düzeyinde desteklenir; tam bir metin düzenleyicisi yoktur.
-- Waveform, keyframe düzenleme, proxy, dışa aktarma kuyruğu, yerel AI/TTS, gelişmiş renk araçları ve kurulum sihirbazı yoktur. Çeviriler eksiksiz değildir.
+- Keyframe düzenleme, proxy, dışa aktarma kuyruğu, yerel TTS, gelişmiş renk araçları ve kurulum sihirbazı yoktur. Çeviriler eksiksiz değildir.
 - Instagram müzik kütüphanesi, hesap eşitleme veya doğrudan yayınlama sunulmaz. Proje Instagram ile bağlantılı değildir.
 
 ## Kaynak koddan çalıştırma
@@ -80,7 +78,6 @@ PyInstaller çıktısı `dist/AkisKurguAI/` klasöründedir. FFmpeg içeren dağ
 - `timeline_render.py`, `render_worker.py`, `preview_controller.py`, `media_service.py`: ortak kompozisyon, önizleme iş sırası ve FFmpeg sınırı.
 - `multitrack_widget.py`, `main.py`: zaman çizelgesi arayüzü ve uygulama penceresi. Pencerede hâlâ ayrıştırılabilecek iş akışları vardır.
 - `project_service.py`: proje şeması ve kayıt; `logo.svg`, `logo.png`, `app.ico`: logo ve simge varlıkları.
-- `AkisKurguAI-Eski-Kaynak-ve-Ornekler.zip`: eski kaynak ve örnek arşivi; güncel uygulama veya logo kaynak paketi değildir.
 
 Hata bildirirken Windows/Python/FFmpeg sürümlerini ve adımları paylaşın; API anahtarlarını veya kişisel medya dosyalarını depoya eklemeyin. Değişikliklerde mevcut proje dosyalarıyla uyumluluğu koruyun ve testleri çalıştırın.
 
@@ -92,3 +89,27 @@ Hata bildirirken Windows/Python/FFmpeg sürümlerini ve adımları paylaşın; A
 4. **Phase 4:** Daha kapsamlı çeviriler, çalışma alanları ve güvenilirlik.
 
 Yol haritası hedefleri mevcut özellik değildir.
+
+
+## Deneysel AI planları ve yerel konuşma metni
+
+AI Kurgu panelinde platform, tempo, stil ve odak seçilerek OpenAI üzerinden birden fazla öneri istenebilir. Seçilen öneri zaman çizelgesine başlangıç ve bitiş işaretleri ekler; klipleri otomatik olarak kesmez. API anahtarı gerektirir.
+
+Yerel Türkçe konuşma metni kaynak koddan çalıştırmada isteğe bağlıdır:
+
+```powershell
+python -m pip install -r requirements-local-ai.txt
+```
+
+Panelde Yerel Whisper ve model boyutunu seçin. İlk kullanımda “Modeli indir” seçeneği internet bağlantısı gerektirir; model indirildikten sonra bu seçeneği kapatarak çevrimdışı kullanabilirsiniz. Yerel sonuç yayın açıklaması alanına aktarılır; “Yerel altyazıyı timeline’a ekle” kaynak zamanlarını mevcut video kliplerine eşleyip yeni bir metin izi oluşturur. Bu klipler ortak önizleme ve dışa aktarmada gösterilir. API seçeneği şimdilik yalnızca düz metin üretir. Yerel AI bağımlılığı standart Windows paketine dahil değildir; paketlenmiş EXE için yerel model desteği henüz doğrulanmamıştır. API transkripsiyonu ayrı seçenek olarak kalır.
+
+Timeline cetveli ve klip taşıma, yakın klip kenarlarına sınırlı mesafede yapışır. Kliplerin bitişlerini hareket ettirirken yapışma henüz uygulanmaz. Ses ducking ve yerel TTS henüz yoktur.
+
+Deneysel waveform: ses içeren video ve ses klipleri için arka planda FFmpeg ile hesaplanır; kaynak başına ilk 60 dakika gösterilir. Ses düzeyi otomasyonu ve EXE içinde yerel Whisper henüz yoktur.
+
+
+## Deneysel kurucu ve ses özellikleri
+
+Bu geliştirme dalında `installer.iss`, Inno Setup 6 ile tek dosyalı `AkisKurguAI-Setup.exe` oluşturur. GitHub Actions, paketlenmiş Whisper tanılaması ve sessiz kurulum kontrolünden sonra kurucuyu artefakt olarak yükler. Kurucu henüz mevcut kalıcı Release yerine geçmez.
+
+Klip seçip **Klip sesi** ile ses düzeyi ayarlanabilir. Yerel seslendirme Windows sistem sesini kullanarak çevrimdışı WAV oluşturur; kullanılabilir dil ve sesler Windows kurulumuna bağlıdır. Medya listesindeki arama dosya adlarını filtreler. Timeline waveform en fazla ilk 60 dakikayı önbelleğe alır.
