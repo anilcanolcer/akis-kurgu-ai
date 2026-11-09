@@ -15,6 +15,7 @@ class MultitrackWidget(QWidget):
         self.zoom = 2.0
         self.playhead = 0
         self.selected = None
+        self.selected_track = None
         self.drag_mode = None
         self.drag_anchor = 0
         self.original = None
@@ -24,6 +25,7 @@ class MultitrackWidget(QWidget):
     def set_model(self, model):
         self.model = model
         self.selected = None
+        self.selected_track = None
         self.updateGeometry()
         self.update()
 
@@ -67,12 +69,14 @@ class MultitrackWidget(QWidget):
         x, y = event.position().x(), event.position().y()
         frame = self.frame_for(x)
         if y < 30:
+            self.drag_mode = 'scrub'
             self.playhead = frame
             self.seek.emit(frame)
             self.update()
             return
         ti = int((y - 30) // 43)
         if 0 <= ti < len(self.model.tracks):
+            self.selected_track = ti
             track = self.model.tracks[ti]
             clip = next((c for c in track.clips if c.start <= frame < c.end), None)
             self.selected = (ti, clip.id) if clip else None
@@ -87,26 +91,27 @@ class MultitrackWidget(QWidget):
             self.update()
 
     def mouseMoveEvent(self, event):
+        if self.drag_mode == 'scrub':
+            self.playhead = self.frame_for(event.position().x())
+            self.seek.emit(self.playhead)
+            self.update()
+            return
         if not self.drag_mode or not self.selected:
             return
         ti, clip_id = self.selected
         track = self.model.tracks[ti]
         clip = track.find(clip_id)
         delta = self.frame_for(event.position().x()) - self.drag_anchor
-        previous = (clip.start, clip.length)
-        if self.drag_mode == 'move':
-            clip.start = max(0, self.original[0] + delta)
-        else:
-            clip.length = max(1, self.original[1] + delta)
-            if clip.source_length is not None:
-                clip.length = min(clip.length, clip.source_length - clip.source_in)
         try:
-            track.validate()
+            if self.drag_mode == 'move':
+                track.move(clip.id, max(0, self.original[0] + delta))
+            else:
+                track.trim_end(clip.id, clip.start + max(1, self.original[1] + delta))
         except ValueError:
-            clip.start, clip.length = previous
+            pass
         self.update()
 
     def mouseReleaseEvent(self, event):
-        if self.drag_mode:
+        if self.drag_mode in ('move', 'trim'):
             self.changed.emit()
         self.drag_mode = None

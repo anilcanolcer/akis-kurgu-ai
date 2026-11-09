@@ -12,17 +12,18 @@ import tempfile
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from timeline_model import Timeline, Track, Clip
+from timeline_model import Timeline, Track
 from multitrack_widget import MultitrackWidget
 import project_service
 from media_service import MediaService
-from timeline_render import TimelineRenderer, duration_frames
-from frame_plan import audio_at
+from timeline_render import duration_frames
+import timeline_service
+from timeline_audio import TimelineAudio
+from render_worker import TimelineRenderWorker
 
-from PySide6.QtCore import QLocale, QSettings, QSize, QStandardPaths, Qt, QThread, QTimer, QUrl, Signal
+from PySide6.QtCore import QLocale, QSettings, QSize, QStandardPaths, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QFont, QIcon, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
-from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -43,6 +44,7 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QSlider,
     QSplitter,
     QStackedWidget,
@@ -470,34 +472,13 @@ class ExportWorker(QThread):
             self.failed.emit(str(exc))
 
 
-class TimelineRenderWorker(QThread):
-    completed = Signal(str)
-    failed = Signal(str)
-
-    def __init__(self, timeline, output, size, frame=None, adjustments=None):
-        super().__init__()
-        self.timeline = Timeline.from_dict(timeline.to_dict())
-        self.output, self.size, self.frame = output, size, frame
-        self.adjustments = adjustments or {}
-
-    def run(self):
-        try:
-            renderer = TimelineRenderer(MediaService(ffmpeg_path()), self.size, **self.adjustments)
-            if self.frame is None:
-                renderer.export(self.timeline, self.output)
-            else:
-                renderer.preview(self.timeline, self.frame, self.output)
-            self.completed.emit(self.output)
-        except Exception as exc:
-            self.failed.emit(str(exc))
-
-
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.state = EditState()
         self.multitrack = Timeline.from_legacy({})
         self.timeline_frame = 0
+        self.playback_clock = timeline_service.PlaybackClock()
         self.preview_worker = None
         self.preview_pending = None
         self.preview_dir = tempfile.TemporaryDirectory(prefix='akis_preview_')
@@ -513,14 +494,11 @@ class MainWindow(QMainWindow):
         self.setAcceptDrops(True)
         self.setWindowIcon(QIcon(str(runtime_file('app.ico'))))
 
-        self.audio = QAudioOutput()
-        self.audio.setVolume(0.8)
-        self.player = QMediaPlayer()
-        self.player.setAudioOutput(self.audio)
         self.preview_audio_output = QAudioOutput()
+        self.preview_audio_output.setVolume(0.8)
         self.preview_audio = QMediaPlayer()
         self.preview_audio.setAudioOutput(self.preview_audio_output)
-        self.preview_audio_source = None
+        self.timeline_audio = TimelineAudio(self.preview_audio, self)
 
         root = QWidget()
         self.setCentralWidget(root)
@@ -530,10 +508,6 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.build_sidebar())
         layout.addWidget(self.build_workspace(), 1)
 
-        self.player.durationChanged.connect(self.on_duration)
-        self.player.positionChanged.connect(self.on_position)
-        self.player.playbackStateChanged.connect(self.on_play_state)
-        self.player.errorOccurred.connect(lambda _e, msg: self.set_status(f"Oynatıcı: {msg}"))
         self.load_key()
         self.apply_language(self.settings.value("language", self.system_language_code()))
         self.autosave_timer = QTimer(self)
@@ -688,7 +662,8 @@ class MainWindow(QMainWindow):
 
         self.video = QLabel('Video ekleyin / Add a video')
         self.video.setObjectName("video")
-        self.video.setMinimumSize(520, 360)
+        self.video.setMinimumSize(320, 200)
+        self.video.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
         self.video.setAlignment(Qt.AlignmentFlag.AlignCenter)
         v.addWidget(self.video, 1)
 
@@ -709,7 +684,7 @@ class MainWindow(QMainWindow):
         volume.setRange(0, 100)
         volume.setValue(80)
         volume.setFixedWidth(100)
-        volume.valueChanged.connect(lambda val: self.audio.setVolume(val / 100))
+        volume.valueChanged.connect(lambda val: self.preview_audio_output.setVolume(val / 100))
         controls.addWidget(volume)
         v.addLayout(controls)
 
@@ -737,8 +712,11 @@ class MainWindow(QMainWindow):
         v.addLayout(tools)
         self.multitrack_view = MultitrackWidget(self.multitrack)
         self.multitrack_view.seek.connect(self.seek_timeline)
+        self.multitrack_view.changed.connect(lambda: self.seek_timeline(self.timeline_frame))
         v.addWidget(self.multitrack_view)
         self.timeline = TimelineBar()
+        self.timeline.setEnabled(False)
+        self.timeline.setToolTip("Eski aralık seçimi ortak timeline çıktısını etkilemez; bölme aracını kullanın.")
         self.timeline.range_changed.connect(self.on_timeline_range)
         self.timeline.seek_requested.connect(lambda sec: self.seek_timeline(round(sec * self.multitrack.fps_num / self.multitrack.fps_den)))
         v.addWidget(self.timeline)
@@ -746,18 +724,21 @@ class MainWindow(QMainWindow):
         trims = QHBoxLayout()
         trims.addWidget(QLabel("Başlangıç"))
         self.start_spin = QDoubleSpinBox()
+        self.start_spin.setEnabled(False)
         self.start_spin.setDecimals(2)
         self.start_spin.setSuffix(" sn")
         self.start_spin.valueChanged.connect(self.on_spin_range)
         trims.addWidget(self.start_spin)
         trims.addWidget(QLabel("Bitiş"))
         self.end_spin = QDoubleSpinBox()
+        self.end_spin.setEnabled(False)
         self.end_spin.setDecimals(2)
         self.end_spin.setSuffix(" sn")
         self.end_spin.valueChanged.connect(self.on_spin_range)
         trims.addWidget(self.end_spin)
         trims.addStretch()
         reset = QPushButton("Aralığı sıfırla")
+        reset.setEnabled(False)
         reset.setObjectName("ghost")
         reset.clicked.connect(self.reset_range)
         trims.addWidget(reset)
@@ -866,12 +847,16 @@ class MainWindow(QMainWindow):
         v.addWidget(self.speed)
         self.fade = QCheckBox("Yumuşak giriş ve çıkış geçişi")
         self.fade.setChecked(True)
+        self.fade.setEnabled(False)
+        self.fade.setToolTip("Ortak timeline render yolunda henüz desteklenmiyor.")
         self.fade.toggled.connect(lambda checked: setattr(self.state, "fade", checked))
         v.addWidget(self.fade)
 
         v.addWidget(self.section("GÖRÜNÜM EFEKTİ"))
         self.effect = QComboBox()
         self.effect.addItems(["Yok", "Sinematik", "Siyah-beyaz", "Yumuşak"])
+        self.effect.setEnabled(False)
+        self.effect.setToolTip("Ortak timeline render yolunda henüz desteklenmiyor.")
         self.effect.currentTextChanged.connect(lambda text: setattr(self.state, "effect", text))
         v.addWidget(self.effect)
 
@@ -892,6 +877,8 @@ class MainWindow(QMainWindow):
         v.addWidget(self.section("BAŞLIK KATMANI"))
         self.overlay = QLineEdit()
         self.overlay.setPlaceholderText("Videoda görünecek kısa başlık")
+        self.overlay.setEnabled(False)
+        self.overlay.setToolTip("Bu kontrol ortak timeline render yolunda henüz desteklenmiyor.")
         self.overlay.textChanged.connect(lambda text: setattr(self.state, "overlay_text", text))
         v.addWidget(self.overlay)
         hint = QLabel("Başlık alt-orta güvenli bölgede, yüksek kontrastlı kutu içinde dışa aktarılır.")
@@ -931,10 +918,14 @@ class MainWindow(QMainWindow):
         self.export_profile.currentTextChanged.connect(lambda text: setattr(self.state, "export_profile", text))
         v.addWidget(self.export_profile)
         self.noise_reduction = QCheckBox("Temel gürültü azaltma")
+        self.noise_reduction.setEnabled(False)
+        self.noise_reduction.setToolTip("Ortak timeline render yolunda henüz desteklenmiyor.")
         self.noise_reduction.toggled.connect(lambda checked: setattr(self.state, "noise_reduction", checked))
         v.addWidget(self.noise_reduction)
         self.loudness = QCheckBox("Ses yüksekliğini -14 LUFS'a normalleştir")
         self.loudness.setChecked(True)
+        self.loudness.setEnabled(False)
+        self.loudness.setToolTip("Ortak timeline render yolunda henüz desteklenmiyor.")
         self.loudness.toggled.connect(lambda checked: setattr(self.state, "loudness_normalization", checked))
         v.addWidget(self.loudness)
         v.addWidget(QLabel("AI Başlık"))
@@ -972,17 +963,25 @@ class MainWindow(QMainWindow):
         if file.suffix.lower() not in VIDEO_EXTS or not file.exists():
             QMessageBox.warning(self, APP_NAME, "Desteklenen bir video dosyası seçin.")
             return
+        try:
+            duration = MediaService(ffmpeg_path()).duration(str(file))
+        except (ValueError, RuntimeError) as exc:
+            QMessageBox.warning(self, APP_NAME, str(exc))
+            return
+        self.play_timer.stop()
+        self.playback_clock.stop()
+        self.timeline_audio.stop()
         self.state = EditState(source=str(file), aspect=self.aspect.currentText())
         if not self._pending_project:
             self.multitrack = Timeline.from_legacy({})
             self.multitrack_view.set_model(self.multitrack)
-        self.player.setSource(QUrl.fromLocalFile(str(file)))
         self.project_title.setText(file.stem)
         self.project_subtitle.setText(f"{file.suffix.upper().lstrip('.')} · {file.stat().st_size / 1024 / 1024:.1f} MB")
         self.media_list.clear()
         item = QListWidgetItem(f"▣  {file.name}")
         item.setToolTip(str(file))
         self.media_list.addItem(item)
+        self.on_duration(round(duration * 1000))
         self.set_status("Video hazır. Zaman çizelgesinden aralığı ayarlayabilirsiniz.")
 
     def on_duration(self, milliseconds: int) -> None:
@@ -1011,36 +1010,20 @@ class MainWindow(QMainWindow):
             self.multitrack_view.set_model(self.multitrack)
             self.seek_timeline(0)
 
-    def on_position(self, milliseconds: int) -> None:
-        seconds = milliseconds / 1000.0
-        source_frame = round(seconds * self.multitrack.fps_num / self.multitrack.fps_den)
-        for track in self.multitrack.tracks:
-            if track.kind == 'video':
-                clip = next((c for c in track.clips if c.source == self.state.source and c.source_in <= source_frame < c.source_in + c.length), None)
-                if clip:
-                    self.multitrack_view.playhead = clip.start + source_frame - clip.source_in
-                    self.multitrack_view.update()
-                    break
-        self.timeline.set_playhead(seconds)
-        self.time_label.setText(f"{format_time(seconds)} / {format_time(self.state.duration)}")
-        if self.player.playbackState() == QMediaPlayer.PlaybackState.PlayingState and self.state.end and seconds >= self.state.end:
-            self.player.pause()
-            self.player.setPosition(int(self.state.start * 1000))
-
-    def on_play_state(self, state) -> None:
-        self.play_button.setText("❚❚" if state == QMediaPlayer.PlaybackState.PlayingState else "▶")
-
     def toggle_play(self) -> None:
         if not self.state.source:
             self.choose_video()
             return
         if self.play_timer.isActive():
             self.play_timer.stop()
-            self.preview_audio.pause()
+            self.playback_clock.stop()
+            self.timeline_audio.stop()
             self.play_button.setText('▶')
         else:
-            self.play_timer.start(max(1, round(1000 * self.multitrack.fps_den / self.multitrack.fps_num / self.state.speed)))
-            self.preview_audio.setPlaybackRate(self.state.speed)
+            if not duration_frames(self.multitrack):
+                return
+            self.playback_clock.start(self.timeline_frame, self.state.speed)
+            self.play_timer.start(15)
             self.sync_timeline_audio(force=True)
             self.play_button.setText('❚❚')
 
@@ -1157,7 +1140,7 @@ class MainWindow(QMainWindow):
             f"ÖNERİLER\n{notes}"
         )
         self.ai_result.setPlainText(display.strip())
-        self.finish_work("AI kurgu planı uygulandı. Dilerseniz ayarları elle değiştirebilirsiniz.")
+        self.finish_work("AI önerileri hazır. Aralık ve başlığı timeline üzerinde elle düzenleyin.")
 
     def run_transcript(self) -> None:
         if not self.ensure_video():
@@ -1191,7 +1174,7 @@ class MainWindow(QMainWindow):
         self.state.aspect = self.aspect.currentText()
         self.state.export_profile = self.export_profile.currentText()
         self.begin_work("Dışa aktarma hazırlanıyor…")
-        self.worker = TimelineRenderWorker(self.multitrack, path, self.canvas_size(), adjustments=self.render_adjustments())
+        self.worker = TimelineRenderWorker(self.multitrack, path, self.canvas_size(), ffmpeg_path(), adjustments=self.render_adjustments())
         self.worker.completed.connect(self.on_exported)
         self.worker.failed.connect(self.on_worker_error)
         self.worker.start()
@@ -1245,11 +1228,7 @@ class MainWindow(QMainWindow):
         self.multitrack_view.update()
 
     def selected_clip(self):
-        selected = self.multitrack_view.selected
-        if not selected:
-            return None, None
-        track = self.multitrack.tracks[selected[0]]
-        return track, track.find(selected[1])
+        return timeline_service.selected_clip(self.multitrack, self.multitrack_view.selected)
 
     def add_track(self):
         kind, ok = QInputDialog.getItem(self, 'İz ekle / Add track', 'Tür / Type', ['video', 'audio', 'text', 'overlay'], 0, False)
@@ -1259,18 +1238,20 @@ class MainWindow(QMainWindow):
             self.multitrack_view.update()
 
     def remove_track(self):
-        selected = self.multitrack_view.selected
-        if not selected:
-            self.set_status('Silinecek izi seçmek için klibe tıklayın.')
+        index = self.multitrack_view.selected_track
+        if index is None:
+            self.set_status('Silinecek izi seçin.')
             return
-        self.multitrack.tracks.pop(selected[0])
+        self.multitrack.tracks.pop(index)
         self.multitrack_view.selected = None
+        self.multitrack_view.selected_track = None
         self.multitrack_view.update()
 
     def add_timeline_media(self):
-        track, _ = self.selected_clip()
+        index = self.multitrack_view.selected_track
+        track = self.multitrack.tracks[index] if index is not None and index < len(self.multitrack.tracks) else None
         if track is None:
-            self.set_status('Önce hedef izde bir klip seçin.')
+            self.set_status('Önce hedef izi seçin.')
             return
         if track.kind not in ('video', 'audio', 'overlay'):
             self.set_status('Bu sürümde medya yalnızca video/ses izine eklenir.')
@@ -1284,16 +1265,14 @@ class MainWindow(QMainWindow):
         except ValueError:
             QMessageBox.warning(self, APP_NAME, 'Medya süresi okunamadı.')
             return
-        frames = max(1, round(seconds * self.multitrack.fps_num / self.multitrack.fps_den))
-        start = max((c.end for c in track.clips), default=0)
-        track.add(Clip(path, start, frames, source_length=frames))
+        timeline_service.append_media(self.multitrack, index, path, seconds)
         self.multitrack_view.update()
 
     def split_clip(self):
         track, clip = self.selected_clip()
         if clip:
             try:
-                track.split(clip.id, self.multitrack_view.playhead)
+                timeline_service.split_selected(self.multitrack, self.multitrack_view.selected, self.multitrack_view.playhead)
                 self.multitrack_view.update()
             except ValueError as exc:
                 self.set_status(str(exc))
@@ -1305,12 +1284,14 @@ class MainWindow(QMainWindow):
             self.multitrack_view.selected = None
             self.multitrack_view.update()
 
-    def seek_timeline(self, frame):
+    def seek_timeline(self, frame, *, from_clock=False):
         total = duration_frames(self.multitrack)
         if not total:
             return
         self.timeline_frame = min(max(0, frame), total - 1)
-        self.sync_timeline_audio()
+        if not from_clock and self.playback_clock.playing:
+            self.playback_clock.seek(self.timeline_frame)
+        self.sync_timeline_audio(force=not from_clock)
         self.multitrack_view.playhead = self.timeline_frame
         self.multitrack_view.update()
         fps = self.multitrack.fps_num / self.multitrack.fps_den
@@ -1322,13 +1303,15 @@ class MainWindow(QMainWindow):
         scale = min(1, 480/max(w, h))
         size = (max(2, int(w*scale)//2*2), max(2, int(h*scale)//2*2))
         path = str(Path(self.preview_dir.name) / 'frame.png')
-        self.preview_worker = TimelineRenderWorker(self.multitrack, path, size, self.timeline_frame, self.render_adjustments())
+        self.preview_worker = TimelineRenderWorker(self.multitrack, path, size, ffmpeg_path(), self.timeline_frame, self.render_adjustments())
         self.preview_worker.completed.connect(self.show_timeline_frame)
         self.preview_worker.failed.connect(self.set_status)
         self.preview_worker.finished.connect(self.next_preview)
         self.preview_worker.start()
 
     def show_timeline_frame(self, path):
+        if self.preview_pending is not None:
+            return
         pixmap = QPixmap(path)
         self.video.setPixmap(pixmap.scaled(self.video.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
 
@@ -1336,47 +1319,27 @@ class MainWindow(QMainWindow):
         self.preview_worker = None
         if self.preview_pending is not None:
             frame, self.preview_pending = self.preview_pending, None
-            self.seek_timeline(frame)
+            self.seek_timeline(frame, from_clock=True)
 
     def advance_timeline(self):
-        if self.timeline_frame + 1 >= duration_frames(self.multitrack):
+        total = duration_frames(self.multitrack)
+        frame = self.playback_clock.position(self.multitrack)
+        if total <= 0 or frame >= total:
             self.play_timer.stop()
-            self.preview_audio.pause()
+            self.playback_clock.stop()
+            self.timeline_audio.stop()
             self.play_button.setText('▶')
-        else:
-            self.seek_timeline(self.timeline_frame + 1)
+            if total:
+                self.seek_timeline(total - 1, from_clock=True)
+        elif frame != self.timeline_frame:
+            self.seek_timeline(frame, from_clock=True)
 
     def canvas_size(self):
-        aspect = self.aspect.currentText()
-        if aspect.startswith('16:9'):
-            return (1920, 1080)
-        if aspect.startswith('1:1'):
-            return (1080, 1080)
-        if aspect.startswith('4:5'):
-            return (1080, 1350)
-        if aspect in ('Kaynak oranı', 'Source ratio'):
-            for track in self.multitrack.tracks:
-                if track.kind == 'video' and track.clips:
-                    return MediaService(ffmpeg_path()).dimensions(track.clips[0].source)
-            raise ValueError('Kaynak video bulunamadı.')
-        return (1080, 1920)
+        return timeline_service.canvas_size(self.aspect.currentText(), self.multitrack, MediaService(ffmpeg_path()))
 
     def sync_timeline_audio(self, force=False):
-        if not self.play_timer.isActive():
-            return
-        layer = audio_at(self.multitrack, self.timeline_frame)
-        if layer is None:
-            self.preview_audio.pause()
-            self.preview_audio_source = None
-            return
-        position = round(layer.source_frame * 1000 * self.multitrack.fps_den / self.multitrack.fps_num)
-        if self.preview_audio_source != layer.source:
-            self.preview_audio_source = layer.source
-            self.preview_audio.setSource(QUrl.fromLocalFile(layer.source))
-            force = True
-        if force or abs(self.preview_audio.position() - position) > 250:
-            self.preview_audio.setPosition(position)
-        self.preview_audio.play()
+        if self.play_timer.isActive():
+            self.timeline_audio.sync(self.multitrack, self.timeline_frame, self.state.speed, force)
 
     def change_color(self, name, value):
         setattr(self.state, name, value)
@@ -1386,8 +1349,7 @@ class MainWindow(QMainWindow):
     def change_speed(self, text):
         self.state.speed = float(text.replace('×', ''))
         if hasattr(self, 'play_timer') and self.play_timer.isActive():
-            self.play_timer.setInterval(max(1, round(1000 * self.multitrack.fps_den / self.multitrack.fps_num / self.state.speed)))
-            self.preview_audio.setPlaybackRate(self.state.speed)
+            self.playback_clock.set_speed(self.multitrack, self.state.speed)
             self.sync_timeline_audio(force=True)
 
     def render_adjustments(self):
