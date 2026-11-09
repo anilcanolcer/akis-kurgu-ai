@@ -46,6 +46,22 @@ class RenderTests(unittest.TestCase):
             self.assertGreater(preview.stat().st_size, 50)
             self.assertGreater(output.stat().st_size, 100)
             self.assertAlmostEqual(media.duration(output), 1, delta=0.2)
+            adjusted = TimelineRenderer(media, (160, 90), brightness=-30, saturation=-50, speed=2)
+            adjusted_preview, adjusted_output = root/'adjusted.png', root/'adjusted.mp4'
+            adjusted.preview(timeline, 7, adjusted_preview)
+            adjusted.export(timeline, adjusted_output)
+            adjusted_frame = root/'adjusted-output.png'
+            check = media.run(['-y', '-ss', '0.35', '-i', adjusted_output, '-frames:v', '1', adjusted_frame])
+            self.assertEqual(check.returncode, 0)
+            self.assertAlmostEqual(media.duration(adjusted_output), 0.5, delta=0.2)
+            with Image.open(adjusted_preview) as image:
+                red, green, blue = image.convert('RGB').getpixel((80, 45))
+                self.assertLess(blue, 200)
+                preview_pixel = (red, green, blue)
+            with Image.open(adjusted_frame) as image:
+                output_pixel = image.convert('RGB').getpixel((80, 45))
+            for a, b in zip(preview_pixel, output_pixel):
+                self.assertLess(abs(a-b), 25)
 
 
 if __name__ == '__main__':

@@ -25,14 +25,33 @@ def _escape_filter_path(path):
 
 
 class TimelineRenderer:
-    def __init__(self, media, size=(1080, 1920), font=None):
+    def __init__(self, media, size=(1080, 1920), font=None, *, brightness=0, contrast=0, saturation=0, speed=1.0):
         self.media = media
         self.width, self.height = size
         if self.width <= 0 or self.height <= 0 or self.width % 2 or self.height % 2:
             raise ValueError('Canvas must have positive even dimensions')
         self.font = font or str(Path(os.environ.get('WINDIR', 'C:/Windows')) / 'Fonts' / 'arial.ttf')
+        if not 0.5 <= speed <= 2.0:
+            raise ValueError('Speed must be between 0.5 and 2.0')
+        if any(not -50 <= v <= 50 for v in (brightness, contrast, saturation)):
+            raise ValueError('Color adjustment out of range')
+        self.brightness, self.contrast, self.saturation, self.speed = brightness, contrast, saturation, speed
 
     def _render(self, timeline, output, *, frame=None):
+        if frame is None and self.speed != 1.0:
+            with tempfile.TemporaryDirectory(prefix='akis_speed_') as tmp:
+                intermediate = str(Path(tmp) / 'composition.mp4')
+                TimelineRenderer(self.media, (self.width, self.height), self.font,
+                                 brightness=self.brightness, contrast=self.contrast,
+                                 saturation=self.saturation).export(timeline, intermediate)
+                args = ['-y', '-i', intermediate, '-vf', f'setpts=PTS/{self.speed:.6f}']
+                if self.media.has_audio(intermediate):
+                    args += ['-af', f'atempo={self.speed:.6f}', '-c:a', 'aac', '-b:a', '192k']
+                args += ['-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', str(output)]
+                result = self.media.run(args, text=True)
+                if result.returncode or not Path(output).is_file():
+                    raise RuntimeError('\n'.join(result.stderr.splitlines()[-12:]))
+                return str(output)
         total = duration_frames(timeline)
         if total <= 0:
             raise ValueError('Timeline is empty')
@@ -87,6 +106,8 @@ class TimelineRenderer:
                         layer += 1
                         graph.append(f'[{base}]drawtext=fontfile=\'{_escape_filter_path(self.font)}\':textfile=\'{_escape_filter_path(textfile)}\':expansion=none:fontcolor=white:fontsize=h/18:x=(w-text_w)/2:y=h*0.78:box=1:boxcolor=black@0.5:boxborderw=12:enable=\'gte(t,{start:.9f})*lt(t,{clip.end/fps:.9f})\'[base{layer}]')
                         base = f'base{layer}'
+            graph.append(f'[{base}]eq=brightness={self.brightness/100:.3f}:contrast={1+self.contrast/100:.3f}:saturation={1+self.saturation/100:.3f}[graded]')
+            base = 'graded'
             if audio:
                 graph.append(''.join(audio) + f'amix=inputs={len(audio)}:duration=longest:normalize=0[aout]')
             args += ['-filter_complex', ';'.join(graph), '-map', f'[{base}]']
@@ -95,7 +116,7 @@ class TimelineRenderer:
             else:
                 if audio:
                     args += ['-map', '[aout]', '-c:a', 'aac', '-b:a', '192k']
-                args += ['-t', f'{total/fps:.9f}', '-r', f'{timeline.fps_num}/{timeline.fps_den}', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', str(output)]
+                args += ['-r', f'{timeline.fps_num}/{timeline.fps_den}', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', str(output)]
             result = self.media.run(args, text=True)
             if result.returncode:
                 raise RuntimeError('\n'.join(result.stderr.splitlines()[-12:]))

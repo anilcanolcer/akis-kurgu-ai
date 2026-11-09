@@ -16,7 +16,7 @@ Windows için yerel öncelikli, Türkçe ve İngilizce video düzenleyici. Proje
 
 Sınırlamalar:
 
-- Bu geliştirme dalı ortak zaman çizelgesi render denemesini ve temel tek kaynaklı ses önizlemesini içerir. Ses eşzamanlaması ve arayüz henüz uçtan uca doğrulanmadı; eski renk/hız ayarları render yolunda uygulanmaz. Bu dal kararlı sürüm değildir.
+- Bu geliştirme dalı ortak zaman çizelgesi render denemesini ve temel tek kaynaklı ses önizlemesini içerir. Ses eşzamanlaması ve arayüz henüz uçtan uca doğrulanmadı; parlaklık, kontrast, doygunluk ve hız ayarları ortak render yolunda uygulanır. Hızlı veya yavaş dışa aktarma geçici bir ara dosya ve ikinci kodlama kullanır. Bu dal kararlı sürüm değildir.
 - Çok izli önizleme ve dışa aktarma deneyseldir; görsel katmanlar için temel FFmpeg kompozisyonu uygulanmıştır, ancak tam uygulama akışı ve sesli önizleme doğrulanmış değildir.
 - Çok izli zaman çizelgesi tüm düzenleme senaryolarında doğrulanmış değildir. Waveform, keyframe düzenleme, opacity/transform ve ses zarfı yoktur.
 - Yerel AI/TTS, ses klonlama, proxy, export kuyruğu, iptal ve güvenilir ilerleme göstergesi yoktur.
@@ -55,6 +55,7 @@ GitHub Actions `Windows build and tests` iş akışı deneysel dalda testleri, E
 - `main.py`: PySide6 penceresi ve henüz ayrıştırılmamış uygulama akışları.
 - `timeline_model.py`: kare tabanlı `Timeline`, `Track`, `Clip` modelleri.
 - `multitrack_widget.py`: deneysel zaman çizelgesi görünümü.
+- `frame_plan.py` ve `timeline_render.py`: ortak kare planlama ve FFmpeg kompozisyonu.
 - `media_service.py`: FFmpeg süreç sınırı; test için süreç çalıştırıcısı enjekte edilebilir.
 - `project_service.py`: sürümlü JSON okuma, taşıma ve atomik kayıt.
 - `logo.svg`, `app.ico`: özgün logo ve uygulama simgesi.

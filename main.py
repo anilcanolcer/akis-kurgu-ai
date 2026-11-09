@@ -474,14 +474,15 @@ class TimelineRenderWorker(QThread):
     completed = Signal(str)
     failed = Signal(str)
 
-    def __init__(self, timeline, output, size, frame=None):
+    def __init__(self, timeline, output, size, frame=None, adjustments=None):
         super().__init__()
         self.timeline = Timeline.from_dict(timeline.to_dict())
         self.output, self.size, self.frame = output, size, frame
+        self.adjustments = adjustments or {}
 
     def run(self):
         try:
-            renderer = TimelineRenderer(MediaService(ffmpeg_path()), self.size)
+            renderer = TimelineRenderer(MediaService(ffmpeg_path()), self.size, **self.adjustments)
             if self.frame is None:
                 renderer.export(self.timeline, self.output)
             else:
@@ -861,7 +862,7 @@ class MainWindow(QMainWindow):
         self.speed = QComboBox()
         self.speed.addItems(["0.50×", "0.75×", "1.00×", "1.25×", "1.50×", "2.00×"])
         self.speed.setCurrentText("1.00×")
-        self.speed.currentTextChanged.connect(lambda text: setattr(self.state, "speed", float(text.replace("×", ""))))
+        self.speed.currentTextChanged.connect(self.change_speed)
         v.addWidget(self.speed)
         self.fade = QCheckBox("Yumuşak giriş ve çıkış geçişi")
         self.fade.setChecked(True)
@@ -875,9 +876,9 @@ class MainWindow(QMainWindow):
         v.addWidget(self.effect)
 
         v.addWidget(self.section("RENK VE IŞIK"))
-        self.brightness = self.add_slider(v, "Parlaklık", -50, 50, lambda x: setattr(self.state, "brightness", x))
-        self.contrast = self.add_slider(v, "Kontrast", -50, 50, lambda x: setattr(self.state, "contrast", x))
-        self.saturation = self.add_slider(v, "Doygunluk", -50, 50, lambda x: setattr(self.state, "saturation", x))
+        self.brightness = self.add_slider(v, "Parlaklık", -50, 50, lambda x: self.change_color("brightness", x))
+        self.contrast = self.add_slider(v, "Kontrast", -50, 50, lambda x: self.change_color("contrast", x))
+        self.saturation = self.add_slider(v, "Doygunluk", -50, 50, lambda x: self.change_color("saturation", x))
 
         vivid = QPushButton("Canlı görünüm uygula")
         vivid.setObjectName("secondary")
@@ -1038,7 +1039,8 @@ class MainWindow(QMainWindow):
             self.preview_audio.pause()
             self.play_button.setText('▶')
         else:
-            self.play_timer.start(max(1, round(1000 * self.multitrack.fps_den / self.multitrack.fps_num)))
+            self.play_timer.start(max(1, round(1000 * self.multitrack.fps_den / self.multitrack.fps_num / self.state.speed)))
+            self.preview_audio.setPlaybackRate(self.state.speed)
             self.sync_timeline_audio(force=True)
             self.play_button.setText('❚❚')
 
@@ -1189,7 +1191,7 @@ class MainWindow(QMainWindow):
         self.state.aspect = self.aspect.currentText()
         self.state.export_profile = self.export_profile.currentText()
         self.begin_work("Dışa aktarma hazırlanıyor…")
-        self.worker = TimelineRenderWorker(self.multitrack, path, self.canvas_size())
+        self.worker = TimelineRenderWorker(self.multitrack, path, self.canvas_size(), adjustments=self.render_adjustments())
         self.worker.completed.connect(self.on_exported)
         self.worker.failed.connect(self.on_worker_error)
         self.worker.start()
@@ -1320,7 +1322,7 @@ class MainWindow(QMainWindow):
         scale = min(1, 480/max(w, h))
         size = (max(2, int(w*scale)//2*2), max(2, int(h*scale)//2*2))
         path = str(Path(self.preview_dir.name) / 'frame.png')
-        self.preview_worker = TimelineRenderWorker(self.multitrack, path, size, self.timeline_frame)
+        self.preview_worker = TimelineRenderWorker(self.multitrack, path, size, self.timeline_frame, self.render_adjustments())
         self.preview_worker.completed.connect(self.show_timeline_frame)
         self.preview_worker.failed.connect(self.set_status)
         self.preview_worker.finished.connect(self.next_preview)
@@ -1375,6 +1377,22 @@ class MainWindow(QMainWindow):
         if force or abs(self.preview_audio.position() - position) > 250:
             self.preview_audio.setPosition(position)
         self.preview_audio.play()
+
+    def change_color(self, name, value):
+        setattr(self.state, name, value)
+        if hasattr(self, 'multitrack_view') and duration_frames(self.multitrack):
+            self.seek_timeline(self.timeline_frame)
+
+    def change_speed(self, text):
+        self.state.speed = float(text.replace('×', ''))
+        if hasattr(self, 'play_timer') and self.play_timer.isActive():
+            self.play_timer.setInterval(max(1, round(1000 * self.multitrack.fps_den / self.multitrack.fps_num / self.state.speed)))
+            self.preview_audio.setPlaybackRate(self.state.speed)
+            self.sync_timeline_audio(force=True)
+
+    def render_adjustments(self):
+        return {'brightness': self.state.brightness, 'contrast': self.state.contrast,
+                'saturation': self.state.saturation, 'speed': self.state.speed}
 
     def project_document(self) -> dict:
         return {
