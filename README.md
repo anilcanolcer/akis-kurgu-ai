@@ -3,8 +3,6 @@
 <h1 align="center">Akış Kurgu AI</h1>
 <p align="center">Windows için yerel öncelikli, Türkçe ve İngilizce video düzenleme denemesi</p>
 
-> **Geliştirme durumu:** Proje deneysel aşamadadır. Ana dal erken sürümü içerir; aşağıdaki çok izli özellikler ve görsel [experimental/timeline-render](https://github.com/anilcanolcer/akis-kurgu-ai/tree/experimental/timeline-render) dalına aittir. Önemli çalışmalarınız için kaynak dosyalarınızın yedeğini saklayın.
-
 ## Windows'ta çalıştırma
 
 [Windows için deneysel paketi indir](https://github.com/anilcanolcer/akis-kurgu-ai/releases/download/v0.2.1-experimental/AkisKurguAI-Windows.zip)
