@@ -73,11 +73,11 @@ PyInstaller çıktısı `dist/AkisKurguAI/` klasöründedir. FFmpeg içeren dağ
 
 ## Mimari ve katkı
 
-- `timeline_model.py`: kare tabanlı klip ve izler; `frame_plan.py`: etkin katmanlar.
-- `timeline_service.py`, `timeline_audio.py`: düzenleme, oynatma saati ve temel ses konumu eşleme.
-- `timeline_render.py`, `render_worker.py`, `preview_controller.py`, `media_service.py`: ortak kompozisyon, önizleme iş sırası ve FFmpeg sınırı.
-- `multitrack_widget.py`, `main.py`: zaman çizelgesi arayüzü ve uygulama penceresi. Pencerede hâlâ ayrıştırılabilecek iş akışları vardır.
-- `project_service.py`: proje şeması ve kayıt; `logo.svg`, `logo.png`, `app.ico`: logo ve simge varlıkları.
+- `akis/timeline_model.py`: kare tabanlı klip ve izler; `akis/frame_plan.py`: etkin katmanlar.
+- `akis/timeline_service.py`, `akis/timeline_audio.py`: düzenleme, oynatma saati ve temel ses konumu eşleme.
+- `akis/timeline_render.py`, `akis/render_worker.py`, `akis/preview_controller.py`, `akis/media_service.py`: ortak kompozisyon, önizleme iş sırası ve FFmpeg sınırı.
+- `akis/multitrack_widget.py`, `main.py`: zaman çizelgesi arayüzü ve uygulama penceresi. Pencerede hâlâ ayrıştırılabilecek iş akışları vardır.
+- `akis/project_service.py`: proje şeması ve kayıt; `logo.svg`, `logo.png`, `app.ico`: logo ve simge varlıkları.
 
 Hata bildirirken Windows/Python/FFmpeg sürümlerini ve adımları paylaşın; API anahtarlarını veya kişisel medya dosyalarını depoya eklemeyin. Değişikliklerde mevcut proje dosyalarıyla uyumluluğu koruyun ve testleri çalıştırın.
 
@@ -90,6 +90,8 @@ Hata bildirirken Windows/Python/FFmpeg sürümlerini ve adımları paylaşın; A
 
 Yol haritası hedefleri mevcut özellik değildir.
 
+
+Testler `tests/` klasöründedir; uygulama modülleri `akis/` altında bulunur.
 
 ## AI planları ve yerel konuşma metni
 

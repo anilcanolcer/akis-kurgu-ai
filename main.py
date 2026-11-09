@@ -16,25 +16,25 @@ from pathlib import Path
 if sys.platform == "win32":
     os.environ.setdefault("QT_MEDIA_BACKEND", "windows")
 
-from timeline_model import Timeline, Track
-from multitrack_widget import MultitrackWidget
-import project_service
-from media_service import MediaService
-from timeline_render import duration_frames
-import timeline_service
-from timeline_audio import TimelineAudio
-from render_worker import TimelineRenderWorker
-from preview_controller import PreviewController
-from update_worker import UpdateCheckWorker, UpdateDownloadWorker
-from ai_service import plan_prompt, parse_suggestions, add_plan_markers
-from caption_worker import LocalCaptionWorker
-from tts_worker import TtsWorker
-from ai_workers import AIWorker, TranscriptWorker
-from media_bin import MediaBin
-from caption_service import caption_track
-import ai_providers
-import template_service
-from template_dialog import TemplateDialog
+from akis.timeline_model import Timeline, Track
+from akis.multitrack_widget import MultitrackWidget
+from akis import project_service
+from akis.media_service import MediaService
+from akis.timeline_render import duration_frames
+from akis import timeline_service
+from akis.timeline_audio import TimelineAudio
+from akis.render_worker import TimelineRenderWorker
+from akis.preview_controller import PreviewController
+from akis.update_worker import UpdateCheckWorker, UpdateDownloadWorker
+from akis.ai_service import plan_prompt, parse_suggestions, add_plan_markers
+from akis.caption_worker import LocalCaptionWorker
+from akis.tts_worker import TtsWorker
+from akis.ai_workers import AIWorker, TranscriptWorker
+from akis.media_bin import MediaBin
+from akis.caption_service import caption_track
+from akis import ai_providers
+from akis import template_service
+from akis.template_dialog import TemplateDialog
 
 from PySide6.QtCore import QLocale, QSettings, QSize, QStandardPaths, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QFont, QIcon, QPainter, QPainterPath, QPen, QPixmap
@@ -1558,10 +1558,10 @@ def main() -> int:
 
 if __name__ == "__main__":
     if len(sys.argv) == 3 and sys.argv[1] == '--audio-diagnostic':
-        from audio_diagnostic import diagnose
+        from akis.audio_diagnostic import diagnose
         Path(sys.argv[2]).write_text(json.dumps(diagnose(), ensure_ascii=False, indent=2), encoding='utf-8')
     elif len(sys.argv) == 3 and sys.argv[1] == '--whisper-diagnostic':
-        from whisper_diagnostic import diagnose
+        from akis.whisper_diagnostic import diagnose
         try:
             report = diagnose()
         except Exception as exc:
