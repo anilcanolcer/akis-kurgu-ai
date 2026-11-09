@@ -15,6 +15,7 @@ from pathlib import Path
 from timeline_model import Timeline, Track, Clip
 from multitrack_widget import MultitrackWidget
 import project_service
+from media_service import MediaService
 
 from PySide6.QtCore import QLocale, QSettings, QSize, QStandardPaths, Qt, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QFont, QIcon, QPainter, QPainterPath, QPen, QPixmap
@@ -290,11 +291,7 @@ class AIWorker(QThread):
                 for index, ratio in enumerate(moments):
                     target = Path(temp) / f"frame_{index}.jpg"
                     at = max(0, min(self.duration - 0.05, self.duration * ratio))
-                    result = subprocess.run(
-                        [ffmpeg_path(), "-y", "-ss", str(at), "-i", self.video, "-frames:v", "1", "-vf", "scale=640:-2", "-q:v", "3", str(target)],
-                        capture_output=True,
-                        creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
-                    )
+                    result = MediaService(ffmpeg_path()).extract_frame(self.video, at, target)
                     if result.returncode == 0 and target.exists():
                         frames.append((at, target))
 
@@ -351,11 +348,7 @@ class TranscriptWorker(QThread):
             self.status.emit("Ses parçası hazırlanıyor…")
             with tempfile.TemporaryDirectory(prefix="akis_audio_") as temp:
                 audio = Path(temp) / "audio.mp3"
-                result = subprocess.run(
-                    [ffmpeg_path(), "-y", "-i", self.video, "-vn", "-ac", "1", "-ar", "16000", "-b:a", "64k", str(audio)],
-                    capture_output=True,
-                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
-                )
+                result = MediaService(ffmpeg_path()).extract_audio(self.video, audio)
                 if result.returncode != 0 or not audio.exists():
                     raise RuntimeError("Videodan ses parçası çıkarılamadı.")
                 self.status.emit("Türkçe konuşma metne çevriliyor…")
@@ -466,12 +459,7 @@ class ExportWorker(QThread):
                 "-c:v", "libx264", "-preset", "medium", "-crf", crf, "-pix_fmt", "yuv420p",
                 "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", self.output,
             ])
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
-            )
+            result = MediaService(cmd[0]).run(cmd[1:], text=True)
             if result.returncode != 0:
                 tail = "\n".join(result.stderr.splitlines()[-8:])
                 raise RuntimeError(f"FFmpeg dışa aktarma hatası:\n{tail}")
@@ -1262,13 +1250,11 @@ class MainWindow(QMainWindow):
         if not path:
             return
         # Probe without decoding the file or relying on an additional ffprobe binary.
-        result = subprocess.run([ffmpeg_path(), '-hide_banner', '-i', path], capture_output=True,
-                                text=True, creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
-        match = re.search(r'Duration: (\d+):(\d+):(\d+(?:\.\d+)?)', result.stderr)
-        if not match:
+        try:
+            seconds = MediaService(ffmpeg_path()).duration(path)
+        except ValueError:
             QMessageBox.warning(self, APP_NAME, 'Medya süresi okunamadı.')
             return
-        seconds = int(match.group(1))*3600 + int(match.group(2))*60 + float(match.group(3))
         frames = max(1, round(seconds * self.multitrack.fps_num / self.multitrack.fps_den))
         start = max((c.end for c in track.clips), default=0)
         track.add(Clip(path, start, frames, source_length=frames))
