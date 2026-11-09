@@ -11,6 +11,11 @@ import sys
 import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
+
+# Prefer the native Windows backend; retain an explicit user override.
+if sys.platform == "win32":
+    os.environ.setdefault("QT_MEDIA_BACKEND", "windows")
+
 from timeline_model import Timeline, Track
 from multitrack_widget import MultitrackWidget
 import project_service

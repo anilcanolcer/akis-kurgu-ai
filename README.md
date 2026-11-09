@@ -13,7 +13,7 @@
 2. Çıkarılan klasördeki **AkisKurguAI.exe** dosyasını açın. `_internal` klasörü EXE'nin yanında kalmalıdır.
 3. **Video ekle** ile bir video seçin. İnternet ve API anahtarı temel yerel düzenleme için gerekli değildir.
 
-Paket taşınabilir klasör dağıtımıdır; bir Windows kurulum sihirbazı değildir. Windows 10/11 64-bit hedeflenir. GitHub Actions derlemesinde testler, otomatik açılış ve ses arka ucu kontrolü çalışır. Ses aygıtı bulunmayan ortamlarda gerçek oynatma testi atlanır; farklı cihazlarda ses/görüntü eşzamanlaması henüz doğrulanmamıştır.
+Paket taşınabilir klasör dağıtımıdır; bir Windows kurulum sihirbazı değildir. Windows 10/11 64-bit hedeflenir. GitHub Actions derlemesinde testler, otomatik açılış ve ses arka ucu kontrolü çalışır. Uygulama Windows medya arka ucunu tercih eder. Ses aygıtı bulunmayan ortamlarda gerçek oynatma testi atlanır; farklı cihazlarda ses/görüntü eşzamanlaması henüz doğrulanmamıştır.
 
 ## Uygulama görünümü
 
@@ -80,6 +80,7 @@ PyInstaller çıktısı `dist/AkisKurguAI/` klasöründedir. FFmpeg içeren dağ
 - `timeline_render.py`, `render_worker.py`, `preview_controller.py`, `media_service.py`: ortak kompozisyon, önizleme iş sırası ve FFmpeg sınırı.
 - `multitrack_widget.py`, `main.py`: zaman çizelgesi arayüzü ve uygulama penceresi. Pencerede hâlâ ayrıştırılabilecek iş akışları vardır.
 - `project_service.py`: proje şeması ve kayıt; `logo.svg`, `logo.png`, `app.ico`: logo ve simge varlıkları.
+- `AkisKurguAI-Eski-Kaynak-ve-Ornekler.zip`: eski kaynak ve örnek arşivi; güncel uygulama veya logo kaynak paketi değildir.
 
 Hata bildirirken Windows/Python/FFmpeg sürümlerini ve adımları paylaşın; API anahtarlarını veya kişisel medya dosyalarını depoya eklemeyin. Değişikliklerde mevcut proje dosyalarıyla uyumluluğu koruyun ve testleri çalıştırın.
 
