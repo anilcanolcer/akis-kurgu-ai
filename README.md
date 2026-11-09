@@ -1,4 +1,4 @@
-<p align="center"><img src="logo.svg" width="120" alt="Akış Kurgu AI logosu"></p>
+<p align="center"><img src="docs/banner.svg" alt="Akış Kurgu AI — yerel öncelikli video düzenleyici"></p>
 
 <h1 align="center">Akış Kurgu AI</h1>
 <p align="center">Windows için yerel öncelikli, Türkçe ve İngilizce video düzenleme denemesi</p>
