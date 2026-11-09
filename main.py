@@ -303,6 +303,7 @@ class MainWindow(QMainWindow):
         self.project_path = ""
         self._pending_project: dict | None = None
         self.worker: QThread | None = None
+        self._workers = set()
         self.setWindowTitle(APP_NAME)
         self.setMinimumSize(1180, 760)
         self.resize(1500, 920)
@@ -1024,6 +1025,8 @@ class MainWindow(QMainWindow):
         self.api_key.setEchoMode(QLineEdit.EchoMode.Normal if mode == QLineEdit.EchoMode.Password else QLineEdit.EchoMode.Password)
 
     def run_ai(self) -> None:
+        if not self.can_start_work():
+            return
         if not self.ensure_video():
             return
         credentials = self.api_credentials()
@@ -1035,7 +1038,7 @@ class MainWindow(QMainWindow):
         self.worker.status.connect(self.set_status)
         self.worker.completed.connect(self.on_ai_plan)
         self.worker.failed.connect(self.on_worker_error)
-        self.worker.start()
+        self.start_worker()
 
     def on_ai_plan(self, plans):
         self.ai_suggestions = plans
@@ -1060,6 +1063,8 @@ class MainWindow(QMainWindow):
             self.multitrack_view.update()
 
     def run_transcript(self) -> None:
+        if not self.can_start_work():
+            return
         if not self.ensure_video():
             return
         if self.caption_backend.currentIndex() == 1:
@@ -1084,7 +1089,7 @@ class MainWindow(QMainWindow):
         self.worker.status.connect(self.set_status)
         self.worker.completed.connect(self.on_local_transcript if self.caption_backend.currentIndex() == 1 else self.on_transcript)
         self.worker.failed.connect(self.on_worker_error)
-        self.worker.start()
+        self.start_worker()
 
     def on_local_transcript(self, segments):
         self.caption_segments = segments
@@ -1100,6 +1105,8 @@ class MainWindow(QMainWindow):
         self.set_status(f'{count} altyazı klibi eklendi. / Caption clips added.')
 
     def create_voiceover(self):
+        if not self.can_start_work():
+            return
         text = self.tts_input.toPlainText().strip()
         if not text:
             self.set_status('Önce seslendirme metni girin.')
@@ -1113,7 +1120,7 @@ class MainWindow(QMainWindow):
         self.worker = TtsWorker(text, path)
         self.worker.completed.connect(lambda result: self.finish_work(f'Ses kaydedildi: {result}'))
         self.worker.failed.connect(self.on_worker_error)
-        self.worker.start()
+        self.start_worker()
 
     def on_transcript(self, text: str) -> None:
         self.ai_result.setPlainText("KONUŞMA METNİ\n\n" + text)
@@ -1122,6 +1129,8 @@ class MainWindow(QMainWindow):
         self.finish_work("Türkçe konuşma metni hazır.")
 
     def export_video(self) -> None:
+        if not self.can_start_work():
+            return
         if not self.ensure_video():
             return
         default = safe_filename(self.project_title.text()) + "_akis.mp4"
@@ -1137,7 +1146,7 @@ class MainWindow(QMainWindow):
         self.worker = TimelineRenderWorker(self.multitrack, path, self.canvas_size(), ffmpeg_path(), adjustments=self.render_adjustments())
         self.worker.completed.connect(self.on_exported)
         self.worker.failed.connect(self.on_worker_error)
-        self.worker.start()
+        self.start_worker()
 
     def on_exported(self, path: str) -> None:
         self.finish_work("Dışa aktarma tamamlandı.")
@@ -1164,6 +1173,24 @@ class MainWindow(QMainWindow):
             return False
         return True
 
+    def can_start_work(self) -> bool:
+        if self._workers:
+            self.set_status('Bir işlem devam ediyor; lütfen bitmesini bekleyin.')
+            return False
+        return True
+
+    def start_worker(self) -> None:
+        worker = self.worker
+        self._workers.add(worker)
+        worker.finished.connect(lambda w=worker: self.worker_finished(w))
+        worker.start()
+
+    def worker_finished(self, worker) -> None:
+        self._workers.discard(worker)
+        if self.worker is worker:
+            self.worker = None
+        worker.deleteLater()
+
     def begin_work(self, text: str) -> None:
         self.progress.show()
         self.set_status(text)
@@ -1171,11 +1198,9 @@ class MainWindow(QMainWindow):
     def finish_work(self, text: str) -> None:
         self.progress.hide()
         self.set_status(text)
-        self.worker = None
 
     def on_worker_error(self, message: str) -> None:
         self.progress.hide()
-        self.worker = None
         self.set_status("İşlem tamamlanamadı.")
         QMessageBox.critical(self, APP_NAME, message)
 
@@ -1473,6 +1498,10 @@ class MainWindow(QMainWindow):
         self.set_status("Language changed to English." if code == "en" else "Dil Türkçe olarak değiştirildi.")
 
     def closeEvent(self, event):
+        if self._workers:
+            self.set_status('İşlem devam ediyor; kapatmadan önce bitmesini bekleyin.')
+            event.ignore()
+            return
         self.play_timer.stop()
         self.playback_clock.stop()
         self.timeline_audio.stop()
