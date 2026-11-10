@@ -19,6 +19,8 @@ class Clip:
     text: str = ""
     volume: float = 1.0
     keyframes: dict[str, list[dict]] = field(default_factory=dict)
+    # Optional look: text position/size/colour, annotation shape, or the transition into a video clip.
+    style: dict = field(default_factory=dict)
 
     def __post_init__(self):
         if not 0 <= self.volume <= 1:
@@ -70,7 +72,8 @@ class Track:
             raise ValueError("Split must be inside clip")
         right = Clip(source=clip.source, start=frame, length=clip.length-offset,
                      source_in=clip.source_in+offset, source_length=clip.source_length,
-                     text=clip.text, volume=clip.volume)
+                     text=clip.text, volume=clip.volume,
+                     style={k: v for k, v in clip.style.items() if not k.startswith('transition')})
         for name, points in clip.keyframes.items():
             right.keyframes[name] = [dict(p, frame=p['frame']-offset) for p in points if p['frame'] >= offset]
             clip.keyframes[name] = [p for p in points if p['frame'] < offset]

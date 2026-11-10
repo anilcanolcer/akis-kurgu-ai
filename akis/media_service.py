@@ -35,6 +35,20 @@ class MediaService:
         width, height = int(match.group(1)), int(match.group(2))
         return width - width % 2, height - height % 2
 
+    def silences(self, path, *, noise_db=-35, minimum=0.35):
+        """Silent spans as (start, end) seconds; cheap cut-point evidence for AI editing."""
+        result = self.run(['-hide_banner', '-nostats', '-i', path, '-vn', '-af',
+                           f'silencedetect=noise={noise_db}dB:d={minimum}', '-f', 'null', '-'], text=True)
+        starts = [float(v) for v in re.findall(r'silence_start: (-?\d+(?:\.\d+)?)', result.stderr)]
+        ends = [float(v) for v in re.findall(r'silence_end: (-?\d+(?:\.\d+)?)', result.stderr)]
+        return [(max(0.0, a), b) for a, b in zip(starts, ends) if b > a]
+
+    def scene_changes(self, path, *, threshold=0.3):
+        """Timestamps (seconds) where the picture changes abruptly."""
+        result = self.run(['-hide_banner', '-nostats', '-i', path, '-an', '-vf',
+                           f"scale=320:-2,select='gt(scene,{threshold})',showinfo", '-f', 'null', '-'], text=True)
+        return [float(v) for v in re.findall(r'pts_time:(\d+(?:\.\d+)?)', result.stderr)]
+
     def extract_frame(self, source, seconds, destination):
         return self.run(['-y', '-ss', str(seconds), '-i', source, '-frames:v', '1',
                          '-vf', 'scale=640:-2', '-q:v', '3', destination])
