@@ -4,7 +4,7 @@
 !include "StrFunc.nsh"
 ${StrStr}
 !define PRODUCT_NAME "Akis Kurgu AI"
-!define PRODUCT_VERSION "0.4.0"
+!define PRODUCT_VERSION "0.4.1"
 Name "${PRODUCT_NAME}"
 OutFile "dist\AkisKurguAI-Setup.exe"
 InstallDir "$PROGRAMFILES64\AkisKurguAI"
