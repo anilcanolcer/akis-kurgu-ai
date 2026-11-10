@@ -11,6 +11,8 @@
 2. Kurulum adımlarını tamamlayıp Başlat menüsünden **Akış Kurgu AI** uygulamasını açın.
 3. Yerel Whisper modeli ilk kullanımda internet üzerinden indirilir; sonrasında çevrimdışı kullanılabilir.
 
+**Bilinen kurulum sorunu:** Mevcut 0.3.9 kurucusu dijital olarak imzalı değildir. Windows Akıllı Uygulama Denetimi veya kuruluşun uygulama ilkesi açık olan bilgisayarlarda 4551 hatasıyla engellenebilir. Yeni bir güvenilir imzalı dağıtım hazırlanıp doğrulanana kadar bu sistemlerde çalışacağı garanti edilmez.
+
 GitHub Windows ortamında kurulum, açılış ve yerel modelin indirilip çevrimdışı açılması denetlenmiştir; farklı cihazlarda ses eşzamanlaması değişebilir.
 
 ## Uygulama görünümü
