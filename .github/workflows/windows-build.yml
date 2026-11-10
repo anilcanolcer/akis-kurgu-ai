@@ -112,7 +112,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
         run: |
-          gh release view v0.3.7 *> $null
+          gh release view v0.3.8 *> $null
           if ($LASTEXITCODE -eq 0) { Write-Host 'Release already exists'; exit 0 }
-          gh release create v0.3.7 'package/AkisKurguAI-Setup.exe' --target $env:GITHUB_SHA --title 'Akış Kurgu AI 0.3.7' --notes 'Windows kurucusu. Yerel model ilk kullanımda indirilir.'
+          gh release create v0.3.8 'package/AkisKurguAI-Setup.exe' --target $env:GITHUB_SHA --title 'Akış Kurgu AI 0.3.8' --notes 'Windows kurucusu. Yerel model ilk kullanımda indirilir.'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

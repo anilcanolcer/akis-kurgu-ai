@@ -5,7 +5,7 @@
 
 ## Windows'ta kurulum
 
-[**Windows kurucusunu indir — AkisKurguAI-Setup.exe**](https://github.com/anilcanolcer/akis-kurgu-ai/releases/download/v0.3.7/AkisKurguAI-Setup.exe)
+[**Windows kurucusunu indir — AkisKurguAI-Setup.exe**](https://github.com/anilcanolcer/akis-kurgu-ai/releases/download/v0.3.8/AkisKurguAI-Setup.exe)
 
 1. Kurucu EXE dosyasını indirin ve çalıştırın.
 2. Kurulum adımlarını tamamlayıp Başlat menüsünden **Akış Kurgu AI** uygulamasını açın.
@@ -92,6 +92,8 @@ Yol haritası hedefleri mevcut özellik değildir.
 
 
 Testler `tests/` klasöründedir; uygulama modülleri `akis/` altında bulunur.
+
+Windows kurucusu varsayılan olarak `C:\Program Files\AkisKurguAI` klasörünü kullanır ve yönetici onayı ister. Mevcut kullanıcı klasörü kurulumu otomatik olarak taşınmaz.
 
 ## AI planları ve yerel konuşma metni
 

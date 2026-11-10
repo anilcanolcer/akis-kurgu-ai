@@ -1,13 +1,13 @@
 #define AppName "Akis Kurgu AI"
-#define AppVersion "0.3.7"
+#define AppVersion "0.3.8"
 [Setup]
 AppId={{3F3FE53D-553B-4D25-9169-4493F9AFD241}
 AppName={#AppName}
 AppVersion={#AppVersion}
 DefaultDirName={autopf}\AkisKurguAI
 DefaultGroupName={#AppName}
-PrivilegesRequired=lowest
-PrivilegesRequiredOverridesAllowed=dialog
+PrivilegesRequired=admin
+UsePreviousAppDir=no
 OutputDir=dist
 OutputBaseFilename=AkisKurguAI-Setup
 Compression=lzma2

@@ -5,7 +5,7 @@ import re
 import urllib.request
 from pathlib import Path
 
-VERSION = '0.3.7'
+VERSION = '0.3.8'
 API = 'https://api.github.com/repos/anilcanolcer/akis-kurgu-ai/releases/latest'
 ASSET = 'AkisKurguAI-Setup.exe'
 
