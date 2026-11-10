@@ -864,7 +864,29 @@ class MainWindow(QMainWindow):
     def choose_video(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "Video seç", "", "Video (*.mp4 *.mov *.mkv *.webm *.avi *.m4v)")
         if path:
+            self.add_video(path)
+
+    def add_video(self, path: str) -> None:
+        if not self.state.source:
             self.load_video(path)
+            return
+        file = Path(path)
+        if file.suffix.lower() not in VIDEO_EXTS or not file.is_file():
+            QMessageBox.warning(self, APP_NAME, 'Desteklenen bir video dosyası seçin.')
+            return
+        try:
+            seconds = MediaService(ffmpeg_path()).duration(str(file))
+            timeline_service.append_video(self.multitrack, str(file), seconds, self.multitrack_view.selected_track)
+        except (ValueError, RuntimeError, OSError) as exc:
+            QMessageBox.warning(self, APP_NAME, f'Video eklenemedi: {exc}')
+            return
+        self.media_bin.add(str(file))
+        self.refresh_media_bin()
+        self.multitrack_view.setMinimumHeight(max(210, 40 + 43 * len(self.multitrack.tracks)))
+        self.multitrack_view.refresh_waveforms()
+        self.multitrack_view.update()
+        self.seek_timeline(self.timeline_frame)
+        self.set_status('Video zaman çizelgesine eklendi.')
 
     def load_video(self, path: str) -> None:
         file = Path(path)
@@ -879,6 +901,11 @@ class MainWindow(QMainWindow):
         self.play_timer.stop()
         self.playback_clock.stop()
         self.timeline_audio.stop()
+        if not self._pending_project:
+            self.project_path = ''
+        self.caption_segments = []
+        self.caption_source = ''
+        self.apply_captions_button.setEnabled(False)
         self.state = EditState(source=str(file), aspect=self.aspect.currentText(),
                                brightness=self.brightness.value(), contrast=self.contrast.value(),
                                saturation=self.saturation.value(),
@@ -893,6 +920,7 @@ class MainWindow(QMainWindow):
         self.refresh_media_bin()
         self.on_duration(round(duration * 1000))
         self.set_status("Video hazır. Zaman çizelgesinden aralığı ayarlayabilirsiniz.")
+        return True
 
     def on_duration(self, milliseconds: int) -> None:
         if milliseconds <= 0:
@@ -1420,7 +1448,11 @@ class MainWindow(QMainWindow):
             return
         if not path.lower().endswith(".akis.json"):
             path += ".akis.json"
-        self.write_project(path, snapshot=True)
+        try:
+            self.write_project(path, snapshot=True)
+        except (OSError, ValueError) as exc:
+            QMessageBox.critical(self, APP_NAME, f'Proje kaydedilemedi: {exc}')
+            return
         self.project_path = path
         self.set_status("Proje ve sürüm anlık görüntüsü kaydedildi.")
 
@@ -1432,10 +1464,13 @@ class MainWindow(QMainWindow):
             return
         try:
             document, source_path = project_service.load_with_source(path)
-            self.project_path = path
             self._pending_project = document
-            self.load_video(source_path)
+            if self.load_video(source_path):
+                self.project_path = path
+            else:
+                self._pending_project = None
         except Exception as exc:
+            self._pending_project = None
             QMessageBox.critical(self, APP_NAME, str(exc))
 
     def apply_project_state(self, document: dict) -> None:
@@ -1446,6 +1481,12 @@ class MainWindow(QMainWindow):
         self.state = EditState(**merged)
         self.multitrack = Timeline.from_dict(document['timeline']) if 'timeline' in document else Timeline.from_legacy(merged)
         self.multitrack_view.set_model(self.multitrack)
+        self.multitrack_view.setMinimumHeight(max(210, 40 + 43 * len(self.multitrack.tracks)))
+        for track in self.multitrack.tracks:
+            for clip in track.clips:
+                if clip.source:
+                    self.media_bin.add(clip.source)
+        self.refresh_media_bin()
         self.timeline.set_range(
             self.state.start, min(self.state.end or self.state.duration, self.state.duration), emit=True
         )
@@ -1540,7 +1581,7 @@ class MainWindow(QMainWindow):
     def dropEvent(self, event: QDropEvent) -> None:
         urls = event.mimeData().urls()
         if urls:
-            self.load_video(urls[0].toLocalFile())
+            self.add_video(urls[0].toLocalFile())
             event.acceptProposedAction()
 
 

@@ -5,7 +5,7 @@
 
 ## Windows'ta kurulum
 
-[**Windows kurucusunu indir — AkisKurguAI-Setup.exe**](https://github.com/anilcanolcer/akis-kurgu-ai/releases/download/v0.3.6/AkisKurguAI-Setup.exe)
+[**Windows kurucusunu indir — AkisKurguAI-Setup.exe**](https://github.com/anilcanolcer/akis-kurgu-ai/releases/download/v0.3.7/AkisKurguAI-Setup.exe)
 
 1. Kurucu EXE dosyasını indirin ve çalıştırın.
 2. Kurulum adımlarını tamamlayıp Başlat menüsünden **Akış Kurgu AI** uygulamasını açın.

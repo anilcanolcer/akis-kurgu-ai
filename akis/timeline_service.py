@@ -33,6 +33,17 @@ def append_media(timeline, track_index, path, seconds):
     return clip
 
 
+def append_video(timeline, path, seconds, preferred_track=None):
+    """Append a video to the selected video track or the first available one."""
+    index = preferred_track
+    if index is None or not 0 <= index < len(timeline.tracks) or timeline.tracks[index].kind != 'video':
+        index = next((i for i, track in enumerate(timeline.tracks) if track.kind == 'video'), None)
+    if index is None:
+        timeline.tracks.append(Track('video', 'Video'))
+        index = len(timeline.tracks) - 1
+    return append_media(timeline, index, path, seconds)
+
+
 def canvas_size(aspect, timeline, media):
     if aspect.startswith('16:9'):
         return 1920, 1080
