@@ -3,7 +3,7 @@ import time
 
 from akis.frame_plan import audio_at
 from akis.timeline_model import Clip, Track
-from akis.timeline_render import duration_frames
+from akis.timeline_render import duration_frames, output_overwrites_source
 
 
 def selected_clip(timeline, selection):
@@ -33,6 +33,17 @@ def append_media(timeline, track_index, path, seconds):
     return clip
 
 
+def validate_track_media(media, kind, path):
+    """Prevent audio-only or silent sources from entering incompatible tracks."""
+    if kind in ('video', 'overlay'):
+        try:
+            media.dimensions(path)
+        except ValueError as exc:
+            raise ValueError('Bu iz için görüntü içeren bir dosya seçin.') from exc
+    elif kind == 'audio' and not media.has_audio(path):
+        raise ValueError('Bu iz için ses içeren bir dosya seçin.')
+
+
 def append_video(timeline, path, seconds, preferred_track=None):
     """Append a video to the selected video track or the first available one."""
     index = preferred_track
@@ -57,6 +68,13 @@ def canvas_size(aspect, timeline, media):
                 return media.dimensions(track.clips[0].source)
         raise ValueError('Kaynak video bulunamadı.')
     return 1080, 1920
+
+
+def output_canvas_size(aspect, timeline, media, profile):
+    """Preserve the chosen aspect; 4K profiles double the standard canvas."""
+    width, height = canvas_size(aspect, timeline, media)
+    scale = 2 if profile.startswith('4K') else 1
+    return width * scale, height * scale
 
 
 def audio_target(timeline, frame, speed):

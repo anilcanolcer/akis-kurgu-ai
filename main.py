@@ -59,6 +59,7 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QScrollArea,
+    QScrollBar,
     QSizePolicy,
     QSlider,
     QSplitter,
@@ -167,10 +168,10 @@ class EditState:
     saturation: int = 0
     speed: float = 1.0
     effect: str = "Yok"
-    fade: bool = True
+    fade: bool = False
     export_profile: str = "Reels · 1080×1920"
     noise_reduction: bool = False
-    loudness_normalization: bool = True
+    loudness_normalization: bool = False
     overlay_text: str = ""
     ai_title: str = ""
     ai_caption: str = ""
@@ -563,6 +564,11 @@ class MainWindow(QMainWindow):
         self.track_scroll.setMaximumHeight(240)
         self.track_scroll.setWidget(self.multitrack_view)
         v.addWidget(self.track_scroll)
+        self.horizontal_timeline = QScrollBar(Qt.Orientation.Horizontal)
+        self.horizontal_timeline.setRange(0, 0)
+        self.horizontal_timeline.valueChanged.connect(self.multitrack_view.set_offset)
+        self.multitrack_view.viewport_resized.connect(self.update_timeline_scroll)
+        v.addWidget(self.horizontal_timeline)
         self.timeline = TimelineBar()
         self.timeline.setEnabled(False)
         self.timeline.setToolTip("Eski aralık seçimi ortak timeline çıktısını etkilemez; bölme aracını kullanın.")
@@ -737,7 +743,7 @@ class MainWindow(QMainWindow):
         v.addWidget(self.section("TUVAL ORANI"))
         self.aspect = QComboBox()
         self.aspect.addItems(["9:16 · Reels / Shorts", "16:9 · YouTube", "1:1 · Kare", "4:5 · Instagram gönderisi", "Kaynak oranı"])
-        self.aspect.currentTextChanged.connect(lambda text: setattr(self.state, "aspect", text))
+        self.aspect.currentTextChanged.connect(self.change_aspect)
         v.addWidget(self.aspect)
 
         v.addWidget(self.section("HIZ VE GEÇİŞ"))
@@ -746,8 +752,7 @@ class MainWindow(QMainWindow):
         self.speed.setCurrentText("1.00×")
         self.speed.currentTextChanged.connect(self.change_speed)
         v.addWidget(self.speed)
-        self.fade = QCheckBox("Yumuşak giriş ve çıkış geçişi")
-        self.fade.setChecked(True)
+        self.fade = QCheckBox("Yumuşak giriş ve çıkış geçişi (henüz yok)")
         self.fade.setEnabled(False)
         self.fade.setToolTip("Ortak timeline render yolunda henüz desteklenmiyor.")
         self.fade.toggled.connect(lambda checked: setattr(self.state, "fade", checked))
@@ -816,15 +821,17 @@ class MainWindow(QMainWindow):
             "Reels · 1080×1920", "TikTok · 1080×1920", "YouTube · 1920×1080",
             "4K Dikey · 2160×3840", "4K UHD · 3840×2160",
         ])
-        self.export_profile.currentTextChanged.connect(lambda text: setattr(self.state, "export_profile", text))
+        self.export_profile.currentTextChanged.connect(self.change_export_profile)
         v.addWidget(self.export_profile)
+        profile_hint = QLabel('Profil oranı seçer; 4K seçenekleri seçili oranı iki kat çözünürlükte dışa aktarır.')
+        profile_hint.setWordWrap(True)
+        v.addWidget(profile_hint)
         self.noise_reduction = QCheckBox("Temel gürültü azaltma")
         self.noise_reduction.setEnabled(False)
         self.noise_reduction.setToolTip("Ortak timeline render yolunda henüz desteklenmiyor.")
         self.noise_reduction.toggled.connect(lambda checked: setattr(self.state, "noise_reduction", checked))
         v.addWidget(self.noise_reduction)
-        self.loudness = QCheckBox("Ses yüksekliğini -14 LUFS'a normalleştir")
-        self.loudness.setChecked(True)
+        self.loudness = QCheckBox("Ses yüksekliğini -14 LUFS'a normalleştir (henüz yok)")
         self.loudness.setEnabled(False)
         self.loudness.setToolTip("Ortak timeline render yolunda henüz desteklenmiyor.")
         self.loudness.toggled.connect(lambda checked: setattr(self.state, "loudness_normalization", checked))
@@ -1183,11 +1190,14 @@ class MainWindow(QMainWindow):
             return
         if not path.lower().endswith(".mp4"):
             path += ".mp4"
+        if timeline_service.output_overwrites_source(self.multitrack, path, (self.state.source,)):
+            QMessageBox.warning(self, APP_NAME, 'Çıktı yolu kaynak medya ile aynı olamaz; başka bir dosya adı seçin.')
+            return
         self.state.overlay_text = self.overlay.text()
         self.state.aspect = self.aspect.currentText()
         self.state.export_profile = self.export_profile.currentText()
         self.begin_work("Dışa aktarma hazırlanıyor…")
-        self.worker = TimelineRenderWorker(self.multitrack, path, self.canvas_size(), ffmpeg_path(), adjustments=self.render_adjustments())
+        self.worker = TimelineRenderWorker(self.multitrack, path, self.export_canvas_size(), ffmpeg_path(), adjustments=self.render_adjustments())
         self.worker.completed.connect(self.on_exported)
         self.worker.failed.connect(self.on_worker_error)
         self.start_worker()
@@ -1280,8 +1290,17 @@ class MainWindow(QMainWindow):
         self.status_label.setText(text)
         self.status_label.setToolTip(text)
 
+    def update_timeline_scroll(self):
+        if not hasattr(self, 'horizontal_timeline'):
+            return
+        visible = max(1, self.multitrack_view.width() - 100)
+        length = round(max((clip.end for track in self.multitrack.tracks for clip in track.clips), default=0) * self.multitrack_view.zoom)
+        self.horizontal_timeline.setPageStep(visible)
+        self.horizontal_timeline.setRange(0, min(2147483647, max(0, length-visible+40)))
+
     def timeline_zoom(self, value):
         self.multitrack_view.zoom = value / 10
+        self.update_timeline_scroll()
         self.multitrack_view.update()
 
     def selected_clip(self):
@@ -1302,7 +1321,8 @@ class MainWindow(QMainWindow):
         self.multitrack.tracks.pop(index)
         self.multitrack_view.selected = None
         self.multitrack_view.selected_track = None
-        self.multitrack_view.update()
+        self.multitrack_view.setMinimumHeight(max(210, 40 + 43 * len(self.multitrack.tracks)))
+        self.seek_timeline(self.timeline_frame)
 
     def edit_text_clip(self):
         track, clip = self.selected_clip()
@@ -1329,15 +1349,18 @@ class MainWindow(QMainWindow):
             return
         # Probe without decoding the file or relying on an additional ffprobe binary.
         try:
-            seconds = MediaService(ffmpeg_path()).duration(path)
-        except ValueError:
-            QMessageBox.warning(self, APP_NAME, 'Medya süresi okunamadı.')
+            media = MediaService(ffmpeg_path())
+            seconds = media.duration(path)
+            timeline_service.validate_track_media(media, track.kind, path)
+        except (ValueError, RuntimeError, OSError) as exc:
+            QMessageBox.warning(self, APP_NAME, f'Medya eklenemedi: {exc}')
             return
         timeline_service.append_media(self.multitrack, index, path, seconds)
         self.media_bin.add(path)
         self.refresh_media_bin()
         self.multitrack_view.refresh_waveforms()
-        self.multitrack_view.update()
+        self.update_timeline_scroll()
+        self.seek_timeline(self.timeline_frame)
 
     def split_clip(self):
         track, clip = self.selected_clip()
@@ -1353,11 +1376,16 @@ class MainWindow(QMainWindow):
         if clip:
             track.ripple_delete(clip.id)
             self.multitrack_view.selected = None
-            self.multitrack_view.update()
+            self.update_timeline_scroll()
+            self.seek_timeline(self.timeline_frame)
 
     def seek_timeline(self, frame, *, from_clock=False):
         total = duration_frames(self.multitrack)
+        self.update_timeline_scroll()
         if not total:
+            self.timeline_frame = 0
+            self.time_label.setText('00:00.00 / 00:00.00')
+            self.multitrack_view.update()
             return
         self.timeline_frame = min(max(0, frame), total - 1)
         if not from_clock and self.playback_clock.playing:
@@ -1386,8 +1414,24 @@ class MainWindow(QMainWindow):
         elif frame != self.timeline_frame:
             self.seek_timeline(frame, from_clock=True)
 
+    def change_aspect(self, text):
+        self.state.aspect = text
+        if hasattr(self, 'multitrack_view') and duration_frames(self.multitrack):
+            self.seek_timeline(self.timeline_frame)
+
+    def change_export_profile(self, text):
+        self.state.export_profile = text
+        if text.startswith(('Reels', 'TikTok', '4K Dikey')):
+            self.aspect.setCurrentIndex(0)
+        elif text.startswith(('YouTube', '4K UHD')):
+            self.aspect.setCurrentIndex(1)
+
     def canvas_size(self):
         return timeline_service.canvas_size(self.aspect.currentText(), self.multitrack, MediaService(ffmpeg_path()))
+
+    def export_canvas_size(self):
+        return timeline_service.output_canvas_size(self.aspect.currentText(), self.multitrack,
+                                                   MediaService(ffmpeg_path()), self.export_profile.currentText())
 
     def sync_timeline_audio(self, force=False):
         if self.play_timer.isActive():
@@ -1496,16 +1540,21 @@ class MainWindow(QMainWindow):
         self.saturation.setValue(self.state.saturation)
         self.speed.setCurrentText(f"{self.state.speed:.2f}×")
         self.effect.setCurrentText(self.state.effect)
-        self.fade.setChecked(self.state.fade)
+        self.fade.setChecked(False)
         self.overlay.setText(self.state.overlay_text)
+        self.export_profile.blockSignals(True)
         self.export_profile.setCurrentText(self.state.export_profile)
+        self.export_profile.blockSignals(False)
         self.noise_reduction.setChecked(self.state.noise_reduction)
-        self.loudness.setChecked(self.state.loudness_normalization)
+        self.loudness.setChecked(False)
         publish = document.get("publish", {})
         self.publish_title.setText(publish.get("title", ""))
         self.publish_caption.setPlainText(publish.get("caption", ""))
         self.publish_tags.setPlainText(publish.get("hashtags", ""))
         self.ai_prompt.setPlainText(document.get("ai_prompt", self.ai_prompt.toPlainText()))
+        self.update_timeline_scroll()
+        if duration_frames(self.multitrack):
+            self.seek_timeline(self.timeline_frame)
         self.set_status("Proje açıldı ve son ayarlar geri yüklendi.")
 
     def autosave_project(self) -> None:

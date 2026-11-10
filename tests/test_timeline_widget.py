@@ -29,4 +29,18 @@ class TimelineWidgetTests(unittest.TestCase):
         self.assertEqual(positions[-1], 25)
         widget.close()
 
+    def test_offset_allows_selecting_late_clips(self):
+        clip = Clip('later.mp4', 2400, 300)
+        widget = MultitrackWidget(Timeline(tracks=[Track('video', 'Video', [clip])]))
+        widget.resize(600, 210)
+        widget.set_offset(4600)
+        widget.show()
+        QTest.mouseClick(widget, Qt.MouseButton.LeftButton, pos=QPoint(350, 45))
+        self.assertEqual(widget.selected, (0, clip.id))
+        self.assertEqual(widget.frame_for(widget.x_for(2475)), 2475)
+        QTest.mouseClick(widget, Qt.MouseButton.LeftButton, pos=QPoint(30, 45))
+        self.assertIsNone(widget.selected)
+        self.assertEqual(widget.selected_track, 0)
+        widget.close()
+
 if __name__ == '__main__': unittest.main()

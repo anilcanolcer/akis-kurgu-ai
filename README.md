@@ -5,7 +5,7 @@
 
 ## Windows'ta kurulum
 
-[**Windows kurucusunu indir — AkisKurguAI-Setup.exe**](https://github.com/anilcanolcer/akis-kurgu-ai/releases/download/v0.3.8/AkisKurguAI-Setup.exe)
+[**Windows kurucusunu indir — AkisKurguAI-Setup.exe**](https://github.com/anilcanolcer/akis-kurgu-ai/releases/latest/download/AkisKurguAI-Setup.exe)
 
 1. Kurucu EXE dosyasını indirin ve çalıştırın.
 2. Kurulum adımlarını tamamlayıp Başlat menüsünden **Akış Kurgu AI** uygulamasını açın.
@@ -27,9 +27,11 @@ GitHub Windows ortamında kurulum, açılış ve yerel modelin indirilip çevrim
 
 1. **Video ekle** ile dosya açın. İlk klip Video izinde görünür.
 2. İzdeki klibe tıklayın; cetvel üzerinde tıklayarak veya sürükleyerek oynatma konumunu değiştirin.
-3. Klip seçiliyken oynatma çizgisini klibin içine getirin ve **Böl** düğmesine basın. Klipleri aynı izde sürükleyebilir veya **Ripple sil** ile seçileni silip sonraki klipleri kaydırabilirsiniz.
+3. Klip seçiliyken oynatma çizgisini klibin içine getirin ve **Böl** düğmesine basın. Uzun projelerde zaman çizelgesinin altındaki kaydırma çubuğunu kullanın. Klipleri aynı izde sürükleyebilir veya **Ripple sil** ile seçileni silip aynı izdeki sonraki klipleri kaydırabilirsiniz.
 4. Boş bir izi seçip **Medya** ile video/ses ekleyin; **İz** düğmeleriyle izleri yönetin. ▶ düğmesi oynatma ve duraklatma içindir.
 5. **Düzenle** sekmesinden oran, renk ve hız ayarlayın; **Dışa aktar** ile MP4 oluşturun. Projeyi `.akis.json` olarak kaydedebilirsiniz.
+
+Yayın panelindeki 4K profilleri, seçili oran için standart çıktı çözünürlüğünü ikiye katlar. Çıktı dosyası kaynak medya dosyasıyla aynı seçilemez.
 
 ## Neler çalışıyor?
 
@@ -44,6 +46,7 @@ GitHub Windows ortamında kurulum, açılış ve yerel modelin indirilip çevrim
 ### Bilinen sınırlamalar
 
 - Önizleme her kareyi FFmpeg ile üretir; özellikle yüksek çözünürlükte akıcı gerçek zamanlı oynatma beklenmemelidir. Ses önizlemesi tek kaynak seçer, çok izli miksi canlı çalmaz.
+- Ripple silme yalnızca seçili izdeki klipleri kaydırır; diğer izlerdeki altyazı ve seslerin zamanlamasını ayrıca kontrol edin.
 - Eski aralık seçici, geçiş, görünüm efekti, başlık alanı ve bazı ses işleme kontrolleri yeni render yoluna bağlı olmadıklarından devre dışıdır. Metin izi model ve render düzeyinde desteklenir; tam bir metin düzenleyicisi yoktur.
 - Keyframe düzenleme, proxy, dışa aktarma kuyruğu ve gelişmiş renk araçları yoktur. Çeviriler eksiksiz değildir.
 - Instagram müzik kütüphanesi, hesap eşitleme veya doğrudan yayınlama sunulmaz. Proje Instagram ile bağlantılı değildir.
@@ -55,7 +58,6 @@ Python 3.12, Windows ve PATH üzerinde FFmpeg gerekir:
 ```powershell
 git clone https://github.com/anilcanolcer/akis-kurgu-ai.git
 cd akis-kurgu-ai
-git switch experimental/timeline-render
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
