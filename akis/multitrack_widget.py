@@ -10,6 +10,7 @@ class MultitrackWidget(QWidget):
     seek = Signal(int)
     changed = Signal()
     selection_changed = Signal()
+    clip_activated = Signal(int, str)
     viewport_resized = Signal()
 
     def __init__(self, model, parent=None):
@@ -123,7 +124,7 @@ class MultitrackWidget(QWidget):
                             height = int(peaks[sample] * 14)
                             p.drawLine(px, y + 21 - height, px, y + 21 + height)
                 p.setPen(QColor('white'))
-                p.drawText(left + 5, y + 25, (clip.text or clip.source.replace('\\', '/').split('/')[-1])[:max(0, (right-left) // 7)])
+                p.drawText(left + 5, y + 25, (clip.text or {'circle': '◯ daire', 'arrow': '➜ ok'}.get(clip.style.get('shape')) or clip.source.replace('\\', '/').split('/')[-1])[:max(0, (right-left) // 7)])
         p.setPen(QPen(QColor('#ffcd5a'), 2))
         for marker in self.model.markers:
             x = int(self.x_for(marker.get('frame', 0)))
@@ -161,6 +162,18 @@ class MultitrackWidget(QWidget):
                 self.playhead = frame
                 self.seek.emit(frame)
             self.update()
+
+    def mouseDoubleClickEvent(self, event):
+        x, y = event.position().x(), event.position().y()
+        ti = int((y - 30) // 43)
+        if x >= 100 and y >= 30 and 0 <= ti < len(self.model.tracks):
+            frame = self.frame_for(x)
+            clip = next((c for c in self.model.tracks[ti].clips if c.start <= frame < c.end), None)
+            if clip:
+                self.drag_mode = None
+                self.selected, self.selected_track = (ti, clip.id), ti
+                self.update()
+                self.clip_activated.emit(ti, clip.id)
 
     def mouseMoveEvent(self, event):
         if self.drag_mode == 'scrub':

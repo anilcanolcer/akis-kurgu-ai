@@ -25,11 +25,14 @@ from akis import timeline_service
 from akis.timeline_audio import TimelineAudio
 from akis.render_worker import TimelineRenderWorker
 from akis.preview_controller import PreviewController
+from akis.preview_widget import PreviewView, ProxyPlayback, timeline_signature
+from akis.shape_art import default_tail
 from akis.update_worker import UpdateCheckWorker, UpdateDownloadWorker
 from akis.ai_service import plan_prompt, parse_suggestions, add_plan_markers
 from akis.caption_worker import LocalCaptionWorker
 from akis.tts_worker import TtsWorker
-from akis.ai_workers import AIWorker, TranscriptWorker
+from akis.ai_workers import AIWorker, PromptEditWorker, TranscriptWorker
+from akis import edit_plan
 from akis.media_bin import MediaBin
 from akis.caption_service import caption_track
 from akis import ai_providers, update_service
@@ -87,6 +90,14 @@ EN_UI = {
     "Başlangıç": "Start", "Bitiş": "End", "Aralığı sıfırla": "Reset range",
     "✦ AI Kurgu": "✦ AI Edit", "Düzenle": "Edit", "Yayın": "Publish",
     "Videonu anlat.\nAkış gerisini planlasın.": "Describe your video.\nLet Akış plan the rest.",
+    "Ne istediğini yaz.\nAkış kurgulasın.": "Say what you want.\nAkış edits it.",
+    "Videoyu keser, yeniden dizer; geçiş, ok ve daire, yazı, renk ve hız ekler. Beğenmezseniz tek tıkla geri alın.":
+        "Cuts and reorders the video; adds transitions, arrows and circles, text, colour and speed. Undo in one click.",
+    "İSTEĞİNİZ / PROMPT": "YOUR PROMPT", "✦  Prompt ile kurgula": "✦  Edit from prompt",
+    "↶  AI kurgusunu geri al": "↶  Undo AI edit", "Öneri al": "Get suggestions",
+    "ÖNERİ MODU (KESMEDEN)": "SUGGESTION MODE (NO CUTS)", "KONUŞMA METNİ VE SESLENDİRME": "TRANSCRIPT & VOICEOVER",
+    "Konuşmayı da çözümle (yerel Whisper, daha yavaş)": "Also analyse speech (local Whisper, slower)",
+    "Yapılan kurgunun özeti burada görünecek.": "A summary of the edit will appear here.",
     "Temsilci kareleri analiz eder; en güçlü bölüm, başlık, açıklama ve kurgu ritmi önerir.":
         "Analyzes representative frames and suggests the strongest section, title, caption and pacing.",
     "YAPAY ZEKÂ HEDEFİ": "AI GOAL", "OPENAI AYARLARI": "OPENAI SETTINGS",
@@ -300,6 +311,18 @@ class MainWindow(QMainWindow):
         self.preview.failed.connect(self.set_status)
         self.play_timer = QTimer(self)
         self.play_timer.timeout.connect(self.advance_timeline)
+        self.proxy = ProxyPlayback(ffmpeg_path, self)
+        self.proxy.image_ready.connect(lambda image: self.video.set_image(image))
+        self.proxy.frame_changed.connect(self.on_proxy_frame)
+        self.proxy.ready.connect(self.on_proxy_ready)
+        self.proxy.ended.connect(self.on_proxy_ended)
+        self.proxy.failed.connect(self.on_proxy_failed)
+        self.proxy_enabled = True
+        self._play_when_ready = False
+        self.proxy_timer = QTimer(self)
+        self.proxy_timer.setSingleShot(True)
+        self.proxy_timer.setInterval(900)
+        self.proxy_timer.timeout.connect(self.prepare_proxy)
         self.settings = QSettings(ORG_NAME, APP_NAME)
         self.project_path = ""
         self._pending_project: dict | None = None
@@ -457,6 +480,8 @@ class MainWindow(QMainWindow):
         header.addStretch()
         self.status_label = QLabel()
         self.status_label.setObjectName("statusPill")
+        self.status_label.setWordWrap(True)
+        self.status_label.setMinimumWidth(300)
         header.addWidget(self.status_label)
         open_project = QPushButton("Proje aç")
         open_project.setObjectName("ghost")
@@ -493,11 +518,12 @@ class MainWindow(QMainWindow):
         v.setContentsMargins(14, 14, 14, 14)
         v.setSpacing(12)
 
-        self.video = QLabel('Video ekleyin / Add a video')
+        self.video = PreviewView('Video ekleyin / Add a video')
         self.video.setObjectName("video")
         self.video.setMinimumSize(320, 200)
         self.video.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
-        self.video.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.video.setToolTip('Ctrl + tekerlek: yakınlaştır · sürükle: kaydır · orta tuş: sıfırla · çift tık: yazı/işaret düzenle')
+        self.video.double_clicked.connect(self.edit_at)
         v.addWidget(self.video, 1)
 
         controls = QHBoxLayout()
@@ -527,6 +553,7 @@ class MainWindow(QMainWindow):
         timeline_header.addStretch()
         self.selection_label = QLabel("Seçim: —")
         self.selection_label.setObjectName("muted")
+        self.selection_label.hide()
         timeline_header.addWidget(self.selection_label)
         v.addLayout(timeline_header)
         tool_container = QWidget()
@@ -556,12 +583,13 @@ class MainWindow(QMainWindow):
         self.multitrack_view.waveform_executable = ffmpeg_path
         self.multitrack_view.seek.connect(self.seek_timeline)
         self.multitrack_view.changed.connect(lambda: self.seek_timeline(self.timeline_frame))
+        self.multitrack_view.clip_activated.connect(self.edit_clip)
         self.track_scroll = QScrollArea()
         self.track_scroll.setWidgetResizable(True)
         self.track_scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.track_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.track_scroll.setMinimumHeight(160)
-        self.track_scroll.setMaximumHeight(240)
+        self.track_scroll.setMinimumHeight(218)
+        self.track_scroll.setMaximumHeight(380)
         self.track_scroll.setWidget(self.multitrack_view)
         v.addWidget(self.track_scroll)
         self.horizontal_timeline = QScrollBar(Qt.Orientation.Horizontal)
@@ -575,8 +603,11 @@ class MainWindow(QMainWindow):
         self.timeline.range_changed.connect(self.on_timeline_range)
         self.timeline.seek_requested.connect(lambda sec: self.seek_timeline(round(sec * self.multitrack.fps_num / self.multitrack.fps_den)))
         v.addWidget(self.timeline)
+        self.timeline.hide()
 
-        trims = QHBoxLayout()
+        trim_row = QWidget()
+        trims = QHBoxLayout(trim_row)
+        trims.setContentsMargins(0, 0, 0, 0)
         trims.addWidget(QLabel("Başlangıç"))
         self.start_spin = QDoubleSpinBox()
         self.start_spin.setEnabled(False)
@@ -597,7 +628,8 @@ class MainWindow(QMainWindow):
         reset.setObjectName("ghost")
         reset.clicked.connect(self.reset_range)
         trims.addWidget(reset)
-        v.addLayout(trims)
+        v.addWidget(trim_row)
+        trim_row.hide()
         return area
 
     def build_inspector(self) -> QWidget:
@@ -626,30 +658,39 @@ class MainWindow(QMainWindow):
         v.setContentsMargins(16, 18, 16, 18)
         v.setSpacing(12)
 
-        hero = QLabel("Videonu anlat.\nAkış gerisini planlasın.")
+        hero = QLabel("Ne istediğini yaz.\nAkış kurgulasın.")
         hero.setObjectName("aiHero")
         v.addWidget(hero)
-        desc = QLabel("Temsilci kareleri analiz eder; en güçlü bölüm, başlık, açıklama ve kurgu ritmi önerir.")
+        desc = QLabel("Videoyu keser, yeniden dizer; geçiş, ok ve daire, yazı, renk ve hız ekler. Beğenmezseniz tek tıkla geri alın.")
         desc.setWordWrap(True)
         desc.setObjectName("muted")
         v.addWidget(desc)
 
-        v.addWidget(self.section("KURGU TERCİHLERİ / EDIT OPTIONS"))
-        options = QFormLayout()
-        self.ai_platform = QComboBox(); self.ai_platform.addItems(['Reels', 'TikTok', 'YouTube Shorts', 'General'])
-        self.ai_tempo = QComboBox(); self.ai_tempo.addItems(['Slow', 'Medium', 'Fast', 'Dynamic'])
-        self.ai_style = QComboBox(); self.ai_style.addItems(['Cinematic', 'Energetic', 'Minimal', 'Educational', 'Storytelling'])
-        self.ai_focus = QComboBox(); self.ai_focus.addItems(['Hook first', 'Highlights', 'Full story', 'Product', 'Tutorial'])
-        for label, widget in [('Platform', self.ai_platform), ('Tempo', self.ai_tempo), ('Stil / Style', self.ai_style), ('Odak / Focus', self.ai_focus)]:
-            options.addRow(label, widget)
-        v.addLayout(options)
-        v.addWidget(self.section("YAPAY ZEKÂ HEDEFİ"))
+        v.addWidget(self.section("İSTEĞİNİZ / PROMPT"))
         self.ai_prompt = QPlainTextEdit()
-        self.ai_prompt.setPlaceholderText("Örn. İlk 2 saniyesi güçlü, dinamik bir Reels kurgusu. Ürün net görünsün, ton güven veren olsun.")
-        self.ai_prompt.setPlainText("İlk saniyeleri güçlü, tempolu ve profesyonel bir Reels kurgusu oluştur. En ilgi çekici bölümü öne çıkar.")
+        self.ai_prompt.setPlaceholderText("Örn. Sessizlikleri at, sahneler arasına geçiş koy, en komik ana ok ve daire ekle, başa dikkat çekici bir yazı yaz.")
         self.ai_prompt.setFixedHeight(112)
         v.addWidget(self.ai_prompt)
 
+        prompt_edit = QPushButton("✦  Prompt ile kurgula")
+        prompt_edit.setObjectName("primaryLarge")
+        prompt_edit.setToolTip("Yazdığınız isteğe göre videoyu gerçekten keser, dizer ve ayarlar.")
+        prompt_edit.clicked.connect(self.run_prompt_edit)
+        v.addWidget(prompt_edit)
+        self.undo_edit_button = QPushButton("↶  AI kurgusunu geri al")
+        self.undo_edit_button.setObjectName("secondary")
+        self.undo_edit_button.setEnabled(False)
+        self.undo_edit_button.clicked.connect(self.undo_prompt_edit)
+        v.addWidget(self.undo_edit_button)
+        self._edit_undo = []
+        self.ai_result = QPlainTextEdit()
+        self.ai_result.setReadOnly(True)
+        self.ai_result.setPlaceholderText("Yapılan kurgunun özeti burada görünecek.")
+        self.ai_result.setMinimumHeight(150)
+        v.addWidget(self.ai_result)
+        self.use_speech = QCheckBox("Konuşmayı da çözümle (yerel Whisper, daha yavaş)")
+        self.use_speech.setToolTip("Model önbellekte yoksa bu adım atlanır; kurgu kare, sessizlik ve sahne bilgisiyle yapılır.")
+        v.addWidget(self.use_speech)
         v.addWidget(self.section("AI SAĞLAYICI / PROVIDER"))
         self.provider = QComboBox()
         self.provider.addItems(ai_providers.PROVIDERS)
@@ -675,8 +716,19 @@ class MainWindow(QMainWindow):
         save_key.clicked.connect(lambda: self.save_key(self.api_key.text().strip()))
         v.addWidget(save_key)
 
-        analyze = QPushButton("✦  AI ile kurguyu planla")
-        analyze.setObjectName("primaryLarge")
+
+        v.addWidget(self.section("ÖNERİ MODU (KESMEDEN)"))
+        options = QFormLayout()
+        self.ai_platform = QComboBox(); self.ai_platform.addItems(['Reels', 'TikTok', 'YouTube Shorts', 'General'])
+        self.ai_tempo = QComboBox(); self.ai_tempo.addItems(['Slow', 'Medium', 'Fast', 'Dynamic'])
+        self.ai_style = QComboBox(); self.ai_style.addItems(['Cinematic', 'Energetic', 'Minimal', 'Educational', 'Storytelling'])
+        self.ai_focus = QComboBox(); self.ai_focus.addItems(['Hook first', 'Highlights', 'Full story', 'Product', 'Tutorial'])
+        for label, widget in [('Platform', self.ai_platform), ('Tempo', self.ai_tempo), ('Stil / Style', self.ai_style), ('Odak / Focus', self.ai_focus)]:
+            options.addRow(label, widget)
+        v.addLayout(options)
+
+        analyze = QPushButton("Öneri al")
+        analyze.setObjectName("secondary")
         analyze.clicked.connect(self.run_ai)
         v.addWidget(analyze)
         self.ai_suggestions = []
@@ -686,6 +738,7 @@ class MainWindow(QMainWindow):
         apply_plan = QPushButton('Seçili öneriyi işaretlere uygula / Apply markers')
         apply_plan.clicked.connect(self.apply_ai_suggestion)
         v.addWidget(apply_plan)
+        v.addWidget(self.section("KONUŞMA METNİ VE SESLENDİRME"))
         self.caption_backend = QComboBox()
         self.caption_backend.addItems(['OpenAI', 'Yerel / Local Whisper', 'xAI', 'Gemini'])
         v.addWidget(self.caption_backend)
@@ -722,11 +775,6 @@ class MainWindow(QMainWindow):
         tts_hint.setWordWrap(True)
         v.addWidget(tts_hint)
 
-        self.ai_result = QPlainTextEdit()
-        self.ai_result.setReadOnly(True)
-        self.ai_result.setPlaceholderText("AI kurgu planı burada görünecek.")
-        self.ai_result.setMinimumHeight(190)
-        v.addWidget(self.ai_result)
         v.addStretch()
         return self.scroll_page(content)
 
@@ -890,6 +938,7 @@ class MainWindow(QMainWindow):
         self.media_bin.add(str(file))
         self.refresh_media_bin()
         self.multitrack_view.setMinimumHeight(max(210, 40 + 43 * len(self.multitrack.tracks)))
+        self.track_scroll.setMinimumHeight(max(160, min(360, 46 + 43 * len(self.multitrack.tracks))))
         self.multitrack_view.refresh_waveforms()
         self.multitrack_view.update()
         self.seek_timeline(self.timeline_frame)
@@ -926,7 +975,7 @@ class MainWindow(QMainWindow):
         self.media_bin.add(str(file))
         self.refresh_media_bin()
         self.on_duration(round(duration * 1000))
-        self.set_status("Video hazır. Zaman çizelgesinden aralığı ayarlayabilirsiniz.")
+        self.set_status("Video hazır. Sağdaki kutuya isteğinizi yazıp kurgulatabilirsiniz.")
         return True
 
     def on_duration(self, milliseconds: int) -> None:
@@ -965,7 +1014,9 @@ class MainWindow(QMainWindow):
         if not self.state.source:
             self.choose_video()
             return
-        if self.play_timer.isActive():
+        if self._play_when_ready or self.proxy.playing:
+            self.stop_proxy_playback()
+        elif self.play_timer.isActive():
             self.play_timer.stop()
             self.playback_clock.stop()
             self.timeline_audio.stop()
@@ -973,10 +1024,76 @@ class MainWindow(QMainWindow):
         else:
             if not duration_frames(self.multitrack):
                 return
+            if self.proxy_enabled and self.proxy.available:
+                if self.timeline_frame >= duration_frames(self.multitrack) - 1:
+                    self.seek_timeline(0)
+                self.play_button.setText('❚❚')
+                if self.proxy.is_ready(self.proxy_signature()):
+                    self.proxy.play(self.timeline_frame, self.state.speed, self.master_volume)
+                else:
+                    self._play_when_ready = True
+                    self.set_status('Akıcı önizleme hazırlanıyor…')
+                    self.progress.show()
+                    self.prepare_proxy()
+                return
             self.playback_clock.start(self.timeline_frame, self.state.speed)
             self.play_timer.start(15)
             self.sync_timeline_audio(force=True)
             self.play_button.setText('❚❚')
+
+    def proxy_signature(self):
+        adjustments = {k: v for k, v in self.render_adjustments().items() if k != 'speed'}
+        return timeline_signature(self.multitrack, self.canvas_size(), adjustments)
+
+    def prepare_proxy(self):
+        """Render the smooth-playback copy in the background whenever the edit has changed."""
+        if not self.proxy_enabled or not self.proxy.available or not duration_frames(self.multitrack):
+            return
+        try:
+            adjustments = {k: v for k, v in self.render_adjustments().items() if k != 'speed'}
+            self.proxy.prepare(self.multitrack, self.canvas_size(), adjustments, self.proxy_signature())
+        except Exception as exc:
+            self.on_proxy_failed(str(exc))
+
+    def on_proxy_ready(self):
+        if self.proxy.is_ready(self.proxy_signature()):
+            if self._play_when_ready:
+                self._play_when_ready = False
+                self.progress.hide()
+                self.set_status('Oynatılıyor.')
+                self.proxy.play(self.timeline_frame, self.state.speed, self.master_volume)
+        else:  # the edit changed while rendering
+            self.prepare_proxy()
+
+    def on_proxy_frame(self, frame):
+        total = duration_frames(self.multitrack)
+        if not total:
+            return
+        self.timeline_frame = min(max(0, frame), total - 1)
+        self.multitrack_view.playhead = self.timeline_frame
+        self.multitrack_view.update()
+        fps = self.multitrack.fps_num / self.multitrack.fps_den
+        self.time_label.setText(f'{format_time(self.timeline_frame/fps)} / {format_time(total/fps)}')
+
+    def stop_proxy_playback(self, refresh=True):
+        was_active = self._play_when_ready or self.proxy.playing
+        self._play_when_ready = False
+        self.proxy.pause()
+        self.progress.hide()
+        self.play_button.setText('▶')
+        if was_active:
+            self.set_status('Duraklatıldı.')
+        if was_active and refresh:
+            self.seek_timeline(self.timeline_frame)  # exact full-quality still for the paused frame
+
+    def on_proxy_ended(self):
+        self.stop_proxy_playback()
+
+    def on_proxy_failed(self, message):
+        """Fall back to frame-by-frame preview rather than leaving playback broken."""
+        self.proxy_enabled = False
+        self.stop_proxy_playback(refresh=False)
+        self.set_status(f'Akıcı önizleme kullanılamadı, kare kare önizlemeye geçildi: {message[:120]}')
 
     def on_timeline_range(self, start: float, end: float) -> None:
         self.state.start, self.state.end = start, end
@@ -1066,6 +1183,7 @@ class MainWindow(QMainWindow):
             self.speed.setCurrentText(template_service.TEMPOS[tempo])
             self.multitrack_view.set_model(self.multitrack)
             self.multitrack_view.setMinimumHeight(max(210, 40 + 43 * len(self.multitrack.tracks)))
+            self.track_scroll.setMinimumHeight(max(160, min(360, 46 + 43 * len(self.multitrack.tracks))))
             self.multitrack_view.update()
             if duration_frames(self.multitrack):
                 self.seek_timeline(self.timeline_frame)
@@ -1090,6 +1208,106 @@ class MainWindow(QMainWindow):
         self.worker.completed.connect(self.on_ai_plan)
         self.worker.failed.connect(self.on_worker_error)
         self.start_worker()
+
+    def edit_sources(self):
+        """Every video on the timeline (then the loaded one), in a stable order with durations."""
+        paths = []
+        for track in self.multitrack.tracks:
+            if track.kind == 'video':
+                for clip in sorted(track.clips, key=lambda c: c.start):
+                    if clip.source and clip.source not in paths:
+                        paths.append(clip.source)
+        if self.state.source and self.state.source not in paths:
+            paths.append(self.state.source)
+        media = MediaService(ffmpeg_path())
+        return [(path, media.duration(path)) for path in paths if Path(path).is_file()]
+
+    def run_prompt_edit(self) -> None:
+        if not self.can_start_work() or not self.ensure_video():
+            return
+        request = self.ai_prompt.toPlainText().strip()
+        if not request:
+            QMessageBox.information(self, APP_NAME, "Önce videoyu nasıl kurgulamak istediğinizi yazın.")
+            return
+        credentials = self.api_credentials()
+        if not credentials:
+            return
+        key, model = credentials
+        try:
+            sources = self.edit_sources()
+        except (ValueError, RuntimeError, OSError) as exc:
+            QMessageBox.warning(self, APP_NAME, f'Video okunamadı: {exc}')
+            return
+        if not sources:
+            QMessageBox.warning(self, APP_NAME, 'Kurgulanacak video dosyası bulunamadı.')
+            return
+        transcripts = {self.caption_source: self.caption_segments} if self.caption_source and self.caption_segments else {}
+        self.begin_work("Prompt kurgusu başlatılıyor…")
+        self.worker = PromptEditWorker(key, model, self.provider.currentText(), request, self.multitrack, sources,
+                                       ffmpeg_path(), transcripts,
+                                       self.local_model.currentText() if self.use_speech.isChecked() else None)
+        self.worker.status.connect(self.set_status)
+        self.worker.completed.connect(self.on_prompt_edit)
+        self.worker.failed.connect(self.on_worker_error)
+        self.start_worker()
+
+    def edit_snapshot(self):
+        return {'timeline': self.multitrack, 'aspect': self.aspect.currentText(), 'speed': self.speed.currentText(),
+                'color': (self.brightness.value(), self.contrast.value(), self.saturation.value()),
+                'publish': (self.publish_title.text(), self.publish_caption.toPlainText(), self.publish_tags.toPlainText())}
+
+    def show_timeline(self, timeline):
+        self.stop_proxy_playback(refresh=False)
+        self.play_timer.stop()
+        self.playback_clock.stop()
+        self.timeline_audio.stop()
+        self.multitrack = timeline
+        self.multitrack_view.set_model(timeline)
+        self.multitrack_view.setMinimumHeight(max(210, 40 + 43 * len(timeline.tracks)))
+        self.track_scroll.setMinimumHeight(max(160, min(360, 46 + 43 * len(timeline.tracks))))
+        self.seek_timeline(0)
+
+    def on_prompt_edit(self, plan, sources):
+        try:
+            aspect_text = self.aspect.itemText(edit_plan.ASPECTS.index(plan['aspect'])) if 'aspect' in plan else self.aspect.currentText()
+            canvas = timeline_service.canvas_size(aspect_text, self.multitrack, MediaService(ffmpeg_path()))
+            timeline = edit_plan.apply_plan(self.multitrack, sources, plan, canvas)
+        except Exception as exc:
+            self.on_worker_error(f'Kurgu planı uygulanamadı: {exc}')
+            return
+        self._edit_undo.append(self.edit_snapshot())
+        self.undo_edit_button.setEnabled(True)
+        if 'aspect' in plan:
+            self.aspect.setCurrentIndex(edit_plan.ASPECTS.index(plan['aspect']))
+        if 'speed' in plan:
+            self.speed.setCurrentText(f"{plan['speed']:.2f}×")
+        if 'color' in plan:
+            self.apply_preset(plan['color']['brightness'], plan['color']['contrast'], plan['color']['saturation'])
+        if 'title' in plan:
+            self.publish_title.setText(plan['title'])
+        if 'caption' in plan:
+            self.publish_caption.setPlainText(plan['caption'])
+        if 'hashtags' in plan:
+            self.publish_tags.setPlainText(' '.join(t if t.startswith('#') else '#' + t for t in plan['hashtags']))
+        self.show_timeline(timeline)
+        self.ai_result.setPlainText(edit_plan.describe(plan, timeline))
+        self.finish_work('AI kurgusu uygulandı. Beğenmezseniz geri alabilir veya yeni bir istek yazabilirsiniz.')
+
+    def undo_prompt_edit(self):
+        if not self._edit_undo or not self.can_start_work():
+            return
+        snapshot = self._edit_undo.pop()
+        self.undo_edit_button.setEnabled(bool(self._edit_undo))
+        self.aspect.setCurrentText(snapshot['aspect'])
+        self.speed.setCurrentText(snapshot['speed'])
+        self.apply_preset(*snapshot['color'])
+        title, caption, tags = snapshot['publish']
+        self.publish_title.setText(title)
+        self.publish_caption.setPlainText(caption)
+        self.publish_tags.setPlainText(tags)
+        self.show_timeline(snapshot['timeline'])
+        self.ai_result.setPlainText('')
+        self.set_status('AI kurgusu geri alındı.')
 
     def on_ai_plan(self, plans):
         self.ai_suggestions = plans
@@ -1151,6 +1369,7 @@ class MainWindow(QMainWindow):
     def apply_local_captions(self):
         count = caption_track(self.multitrack, self.caption_source, self.caption_segments)
         self.multitrack_view.setMinimumHeight(max(210, 40 + 43 * len(self.multitrack.tracks)))
+        self.track_scroll.setMinimumHeight(max(160, min(360, 46 + 43 * len(self.multitrack.tracks))))
         self.multitrack_view.update()
         self.seek_timeline(self.timeline_frame)
         self.set_status(f'{count} altyazı klibi eklendi. / Caption clips added.')
@@ -1297,6 +1516,7 @@ class MainWindow(QMainWindow):
         length = round(max((clip.end for track in self.multitrack.tracks for clip in track.clips), default=0) * self.multitrack_view.zoom)
         self.horizontal_timeline.setPageStep(visible)
         self.horizontal_timeline.setRange(0, min(2147483647, max(0, length-visible+40)))
+        self.horizontal_timeline.setVisible(self.horizontal_timeline.maximum() > 0)
 
     def timeline_zoom(self, value):
         self.multitrack_view.zoom = value / 10
@@ -1311,6 +1531,7 @@ class MainWindow(QMainWindow):
         if ok:
             self.multitrack.tracks.append(Track(kind, f'{kind.title()} {len(self.multitrack.tracks)+1}'))
             self.multitrack_view.setMinimumHeight(max(210, 40 + 43 * len(self.multitrack.tracks)))
+            self.track_scroll.setMinimumHeight(max(160, min(360, 46 + 43 * len(self.multitrack.tracks))))
             self.multitrack_view.update()
 
     def remove_track(self):
@@ -1322,6 +1543,7 @@ class MainWindow(QMainWindow):
         self.multitrack_view.selected = None
         self.multitrack_view.selected_track = None
         self.multitrack_view.setMinimumHeight(max(210, 40 + 43 * len(self.multitrack.tracks)))
+        self.track_scroll.setMinimumHeight(max(160, min(360, 46 + 43 * len(self.multitrack.tracks))))
         self.seek_timeline(self.timeline_frame)
 
     def edit_text_clip(self):
@@ -1329,11 +1551,81 @@ class MainWindow(QMainWindow):
         if not clip or track.kind != 'text':
             self.set_status('Önce bir metin klibi seçin.')
             return
-        value, ok = QInputDialog.getMultiLineText(self, 'Metni düzenle', 'Başlık / altyazı', clip.text)
-        if ok:
-            clip.text = value
-            self.multitrack_view.update()
-            self.seek_timeline(self.timeline_frame)
+        self.edit_clip(self.multitrack_view.selected[0], clip.id)
+
+    MARK_COLOURS = {'Kırmızı': 'red', 'Sarı': 'yellow', 'Beyaz': 'white', 'Yeşil': 'green', 'Mavi': 'blue', 'Pembe': 'pink'}
+
+    def edit_clip(self, track_index, clip_id):
+        """Open the editor for a text or mark clip (double-click in the preview or on the timeline)."""
+        if not 0 <= track_index < len(self.multitrack.tracks):
+            return
+        track = self.multitrack.tracks[track_index]
+        clip = next((c for c in track.clips if c.id == clip_id), None)
+        if clip is None or track.kind != 'text':
+            return
+        self.stop_proxy_playback(refresh=False)
+        self.multitrack_view.selected, self.multitrack_view.selected_track = (track_index, clip.id), track_index
+        if clip.style.get('shape'):
+            names = list(self.MARK_COLOURS) + ['Sil / Delete']
+            current = next((i for i, n in enumerate(self.MARK_COLOURS) if self.MARK_COLOURS[n] == clip.style.get('color')), 0)
+            choice, ok = QInputDialog.getItem(self, 'İşareti düzenle', 'Renk seçin veya işareti silin', names, current, False)
+            if not ok:
+                return
+            if choice in self.MARK_COLOURS:
+                clip.style['color'] = self.MARK_COLOURS[choice]
+            else:
+                track.clips.remove(clip)
+                self.multitrack_view.selected = None
+        else:
+            value, ok = QInputDialog.getMultiLineText(self, 'Metni düzenle', 'Başlık / altyazı', clip.text)
+            if not ok:
+                return
+            if value.strip():
+                clip.text = value.strip()
+            else:
+                track.clips.remove(clip)
+                self.multitrack_view.selected = None
+        self.multitrack_view.update()
+        self.seek_timeline(self.timeline_frame)
+
+    def element_at(self, x, y):
+        """(track_index, clip) of the text or mark drawn nearest to a point of the picture, or None."""
+        width, height = self.canvas_size()
+        best = None
+        for index, track in enumerate(self.multitrack.tracks):
+            if track.kind != 'text' or track.muted:
+                continue
+            for clip in track.clips:
+                if not clip.start <= self.timeline_frame < clip.end:
+                    continue
+                cx, cy = float(clip.style.get('x', 0.5)), float(clip.style.get('y', 0.78))
+                if clip.style.get('shape') == 'circle':
+                    reach = float(clip.style.get('size', 0.3)) / 2 + 0.04
+                    distance = math.hypot(x - cx, (y - cy) * height / width)
+                    hit = distance <= reach
+                elif clip.style.get('shape') == 'arrow':
+                    tail = default_tail(cx, cy)
+                    tx, ty = float(clip.style.get('x2', tail[0])), float(clip.style.get('y2', tail[1]))
+                    span = (tx - cx) ** 2 + ((ty - cy) * height / width) ** 2 or 1e-9
+                    along = max(0.0, min(1.0, ((x - cx) * (tx - cx) + (y - cy) * (ty - cy) * (height / width) ** 2) / span))
+                    distance = math.hypot(x - (cx + along * (tx - cx)), (y - (cy + along * (ty - cy))) * height / width)
+                    hit = distance <= 0.07
+                elif clip.text:
+                    lines = max(1, math.ceil(len(clip.text) / 20))
+                    distance = math.hypot((x - cx) * 0.3, y - cy)  # text is wide: be generous sideways
+                    hit = abs(x - cx) <= 0.48 and abs(y - cy) <= 0.035 * lines + 0.03
+                else:
+                    continue
+                if hit and (best is None or distance < best[0]):
+                    best = (distance, index, clip)
+        return (best[1], best[2]) if best else None
+
+    def edit_at(self, x, y):
+        found = self.element_at(x, y)
+        if found:
+            self.edit_clip(found[0], found[1].id)
+        else:
+            self.set_status('Burada düzenlenecek bir yazı veya işaret yok. Çift tıklamayı bir yazının ya da işaretin üstünde deneyin.')
 
     def add_timeline_media(self):
         index = self.multitrack_view.selected_track
@@ -1388,6 +1680,14 @@ class MainWindow(QMainWindow):
             self.multitrack_view.update()
             return
         self.timeline_frame = min(max(0, frame), total - 1)
+        if self.proxy.playing:
+            if self.proxy.is_ready(self.proxy_signature()):
+                self.proxy.seek(self.timeline_frame)
+                self.multitrack_view.playhead = self.timeline_frame
+                self.multitrack_view.update()
+                return
+            self.stop_proxy_playback(refresh=False)  # the edit changed under the playing copy
+        self.proxy_timer.start()
         if not from_clock and self.playback_clock.playing:
             self.playback_clock.seek(self.timeline_frame)
         self.sync_timeline_audio(force=not from_clock)
@@ -1398,8 +1698,8 @@ class MainWindow(QMainWindow):
         self.preview.request(self.multitrack, self.timeline_frame, self.canvas_size(), self.render_adjustments())
 
     def show_timeline_frame(self, path):
-        pixmap = QPixmap(path)
-        self.video.setPixmap(pixmap.scaled(self.video.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        if not self.proxy.playing:
+            self.video.set_image(QPixmap(path))
 
     def advance_timeline(self):
         total = duration_frames(self.multitrack)
@@ -1440,6 +1740,7 @@ class MainWindow(QMainWindow):
 
     def change_master_volume(self, value):
         self.master_volume = value / 100
+        self.proxy.set_volume(self.master_volume)
         self.sync_timeline_audio()
 
     def set_clip_volume(self):
@@ -1460,6 +1761,8 @@ class MainWindow(QMainWindow):
 
     def change_speed(self, text):
         self.state.speed = float(text.replace('×', ''))
+        if hasattr(self, 'proxy'):
+            self.proxy.set_speed(self.state.speed)
         if hasattr(self, 'play_timer') and self.play_timer.isActive():
             self.playback_clock.set_speed(self.multitrack, self.state.speed)
             self.sync_timeline_audio(force=True)
@@ -1526,6 +1829,7 @@ class MainWindow(QMainWindow):
         self.multitrack = Timeline.from_dict(document['timeline']) if 'timeline' in document else Timeline.from_legacy(merged)
         self.multitrack_view.set_model(self.multitrack)
         self.multitrack_view.setMinimumHeight(max(210, 40 + 43 * len(self.multitrack.tracks)))
+        self.track_scroll.setMinimumHeight(max(160, min(360, 46 + 43 * len(self.multitrack.tracks))))
         for track in self.multitrack.tracks:
             for clip in track.clips:
                 if clip.source:
@@ -1618,6 +1922,8 @@ class MainWindow(QMainWindow):
             self.update_download.wait()
         if self.update_check and self.update_check.isRunning():
             self.update_check.wait()
+        self.proxy_timer.stop()
+        self.proxy.close()
         self.preview.close()
         self.multitrack_view.stop_waveforms()
         super().closeEvent(event)

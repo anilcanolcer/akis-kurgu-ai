@@ -6,11 +6,35 @@ from urllib.error import HTTPError
 
 PROVIDERS = {
     'OpenAI': ('gpt-4o', 'gpt-5'),
-    'Anthropic': ('claude-sonnet-4-6', 'claude-opus-4-6'),
+    'Anthropic': ('claude-sonnet-5-5', 'claude-opus-5-5'),
     'xAI': ('grok-4.7', 'grok-4.6'),
-    'Gemini': ('gemini-2.5-flash', 'gemini-2.5-pro'),
+    'Gemini': ('gemini-3.6-flash', 'gemini-flash-latest'),
 }
 TRANSCRIPTION_MODELS = {'OpenAI': ('gpt-4o-mini-transcribe', 'gpt-4o-transcribe', 'whisper-1'), 'xAI': ('grok-voice-transcribe-2.0', 'grok-voice-transcribe-1.0'), 'Gemini': ('gemini-2.5-flash', 'gemini-2.5-pro')}
+
+def post_json(provider, url, body, headers, timeout, *, opener=None, sleep=None):
+    """POST and decode JSON. Busy providers are retried; failures carry the provider's own explanation."""
+    import time
+    opener, sleep = opener or urlopen, sleep or time.sleep
+    for wait in (4, 10, None):
+        try:
+            with opener(Request(url, data=body, headers=headers, method='POST'), timeout=timeout) as response:
+                return json.load(response)
+        except HTTPError as exc:
+            if exc.code in (429, 500, 503) and wait is not None:
+                sleep(wait)
+                continue
+            detail = ''
+            try:
+                payload = json.loads(exc.read().decode('utf-8', 'replace'))
+                error = payload.get('error', payload) if isinstance(payload, dict) else {}
+                detail = str(error.get('message', '') if isinstance(error, dict) else error)[:300]
+            except Exception:
+                pass
+            raise RuntimeError(f'{provider} API hatası: HTTP {exc.code}' + (f' — {detail}' if detail else '')) from exc
+        except TimeoutError as exc:
+            raise RuntimeError(f'{provider} {timeout} saniyede yanıt vermedi. Başka bir model deneyin veya tekrar deneyin.') from exc
+
 
 def save_key(service, provider, key):
     import keyring
@@ -20,12 +44,12 @@ def load_key(service, provider):
     import keyring
     return keyring.get_password(service, provider.lower() + '_api_key') or ''
 
-def request_plan(provider, key, model, prompt, frames, transport=None):
+def request_plan(provider, key, model, prompt, frames, transport=None, instruction=None):
     """Send ordered JPEG frames to the selected provider. transport enables isolated tests."""
     if provider not in PROVIDERS or not key or not model:
         raise ValueError('Sağlayıcı, API anahtarı ve model gereklidir.')
     encoded = [(at, base64.b64encode(data).decode('ascii')) for at, data in frames]
-    instruction = 'Kısa video kurgusunda uzman, ölçülü ve pratik bir Türkçe kreatif direktörsün.'
+    instruction = instruction or 'Kısa video kurgusunda uzman, ölçülü ve pratik bir Türkçe kreatif direktörsün.'
     headers = {'Content-Type': 'application/json'}
     if provider == 'OpenAI':
         url = 'https://api.openai.com/v1/responses'
@@ -40,7 +64,7 @@ def request_plan(provider, key, model, prompt, frames, transport=None):
         content = [{'type': 'text', 'text': prompt}]
         for at, img in encoded:
             content.extend([{'type': 'text', 'text': f'{at:.2f}. saniye'}, {'type': 'image', 'source': {'type': 'base64', 'media_type': 'image/jpeg', 'data': img}}])
-        body = {'model': model, 'max_tokens': 2048, 'system': instruction, 'messages': [{'role': 'user', 'content': content}]}
+        body = {'model': model, 'max_tokens': 8192, 'system': instruction, 'messages': [{'role': 'user', 'content': content}]}
     elif provider == 'xAI':
         url = 'https://api.x.ai/v1/chat/completions'
         headers['Authorization'] = 'Bearer ' + key
@@ -59,11 +83,7 @@ def request_plan(provider, key, model, prompt, frames, transport=None):
     if transport:
         result = transport(url, headers, body)
     else:
-        try:
-            with urlopen(Request(url, data=json.dumps(body).encode(), headers=headers, method='POST'), timeout=120) as response:
-                result = json.load(response)
-        except HTTPError as exc:
-            raise RuntimeError(f'{provider} API hatası: HTTP {exc.code}') from exc
+        result = post_json(provider, url, json.dumps(body).encode(), headers, 120)
     if provider == 'OpenAI':
         return ''.join(part.get('text', '') for item in result.get('output', []) for part in item.get('content', []) if part.get('type') == 'output_text')
     if provider == 'Anthropic':
@@ -96,11 +116,7 @@ def transcribe(provider, key, model, audio):
         url = 'https://api.x.ai/v1/stt'
     else:
         raise ValueError('Bu sağlayıcı için transkripsiyon desteklenmiyor.')
-    try:
-        with urlopen(Request(url, data=body, headers=headers, method='POST'), timeout=180) as response:
-            result = json.load(response)
-    except HTTPError as exc:
-        raise RuntimeError(f'{provider} API hatası: HTTP {exc.code}') from exc
+    result = post_json(provider, url, body, headers, 180)
     if provider == 'xAI':
         return result['text']
     return ''.join(part.get('text', '') for part in result['candidates'][0]['content']['parts'])
