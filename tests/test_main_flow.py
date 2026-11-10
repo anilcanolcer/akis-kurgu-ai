@@ -5,6 +5,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import QPoint, Qt
+from PySide6.QtTest import QTest
+from akis.timeline_model import Timeline, Track, Clip
 from main import MainWindow
 
 app = QApplication.instance() or QApplication([])
@@ -62,6 +65,50 @@ class MainWindowFlowTests(unittest.TestCase):
                 with patch('main.QFileDialog.getOpenFileName', return_value=(str(project), '')):
                     window.open_project()
                 self.assertEqual(window.media_bin.paths, [str(first), str(second)])
+            window.close()
+
+    def test_long_timeline_scroll_reaches_late_clip(self):
+        window = MainWindow()
+        clip = Clip('late.mp4', 2400, 300)
+        window.multitrack = Timeline(tracks=[Track('video', 'Video', [clip])])
+        window.multitrack_view.set_model(window.multitrack)
+        window.show(); app.processEvents()
+        window.update_timeline_scroll()
+        self.assertGreater(window.horizontal_timeline.maximum(), 0)
+        window.horizontal_timeline.setValue(window.horizontal_timeline.maximum())
+        app.processEvents()
+        x = int(window.multitrack_view.x_for(clip.end - 30))
+        self.assertGreaterEqual(x, 100)
+        self.assertLess(x, window.multitrack_view.width())
+        QTest.mouseClick(window.multitrack_view, Qt.MouseButton.LeftButton, pos=QPoint(x, 45))
+        self.assertEqual(window.multitrack_view.selected, (0, clip.id))
+        window.close()
+
+    def test_profile_changes_real_export_size_and_aspect(self):
+        window = MainWindow()
+        window.export_profile.setCurrentText('4K UHD · 3840×2160')
+        self.assertTrue(window.aspect.currentText().startswith('16:9'))
+        self.assertEqual(window.export_canvas_size(), (3840, 2160))
+        window.aspect.setCurrentIndex(2)
+        self.assertEqual(window.export_canvas_size(), (2160, 2160))
+        self.assertEqual(window.canvas_size(), (1080, 1080))
+        window.export_profile.setCurrentText('Reels · 1080×1920')
+        self.assertEqual(window.export_canvas_size(), (1080, 1920))
+        window.close()
+
+    def test_export_refuses_to_replace_source_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / 'source.mp4'
+            source.write_bytes(b'original')
+            window = MainWindow()
+            window.state.source = str(source); window.state.duration = 1
+            window.multitrack = Timeline(tracks=[Track('video', 'Video', [Clip(str(source), 0, 30)])])
+            with patch('main.QFileDialog.getSaveFileName', return_value=(str(source), '')), \
+                 patch('main.QMessageBox.warning') as warning, \
+                 patch('main.TimelineRenderWorker') as worker:
+                window.export_video()
+                warning.assert_called_once(); worker.assert_not_called()
+                self.assertEqual(source.read_bytes(), b'original')
             window.close()
 
     def test_save_failure_is_reported_without_setting_path(self):

@@ -14,6 +14,7 @@ class TimelineAudio(QObject):
         self.source = None
         self.pending = None
         self.active = False
+        self.rate = None
         self.unavailable_reported = False
         player.mediaStatusChanged.connect(self._status_changed)
         if hasattr(player, "errorOccurred"):
@@ -39,14 +40,17 @@ class TimelineAudio(QObject):
             self.source = None
             return
         source, position, rate = target
-        self.pending = position
-        self.player.setPlaybackRate(rate)
+        if rate != self.rate:
+            self.player.setPlaybackRate(rate)
+            self.rate = rate
         if source != self.source:
             self.source = source
+            self.pending = position
             self.player.setSource(QUrl.fromLocalFile(source))
             # Windows media loads asynchronously. Seek only after LoadedMedia.
             return
         if self.player.mediaStatus() in (QMediaPlayer.MediaStatus.LoadingMedia, QMediaPlayer.MediaStatus.NoMedia):
+            self.pending = position
             return
         if force or abs(self.player.position() - position) > 120:
             self.player.setPosition(position)

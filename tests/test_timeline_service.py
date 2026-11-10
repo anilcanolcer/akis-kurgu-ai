@@ -5,7 +5,7 @@ from PySide6.QtCore import QObject, Signal
 from PySide6.QtMultimedia import QMediaPlayer
 from akis.timeline_audio import TimelineAudio
 from akis.timeline_model import Clip, Timeline, Track
-from akis.timeline_service import PlaybackClock, audio_target, selected_clip, split_selected
+from akis.timeline_service import PlaybackClock, audio_target, selected_clip, split_selected, validate_track_media
 
 
 class FakePlayer(QObject):
@@ -42,6 +42,18 @@ class TimelineServiceTests(unittest.TestCase):
         self.clip = Clip('video.mp4', 10, 60, source_in=30)
         self.audio = Clip('audio.wav', 20, 30, source_in=10)
         self.timeline = Timeline(fps_num=30, tracks=[Track('video', 'Video', [self.clip]), Track('audio', 'Audio', [self.audio])])
+
+    def test_rejects_incompatible_media_streams(self):
+        from unittest.mock import Mock
+        media = Mock()
+        media.dimensions.side_effect = ValueError('no video')
+        with self.assertRaisesRegex(ValueError, 'görüntü'):
+            validate_track_media(media, 'video', 'sound.wav')
+        media.has_audio.return_value = False
+        with self.assertRaisesRegex(ValueError, 'ses'):
+            validate_track_media(media, 'audio', 'silent.mp4')
+        media.has_audio.return_value = True
+        validate_track_media(media, 'audio', 'audio.wav')
 
     def test_selection_and_split(self):
         selection = (0, self.clip.id)

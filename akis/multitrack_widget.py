@@ -10,6 +10,7 @@ class MultitrackWidget(QWidget):
     seek = Signal(int)
     changed = Signal()
     selection_changed = Signal()
+    viewport_resized = Signal()
 
     def __init__(self, model, parent=None):
         super().__init__(parent)
@@ -18,6 +19,7 @@ class MultitrackWidget(QWidget):
         self.waveform_worker = None
         self.waveform_executable = None
         self.zoom = 2.0
+        self.offset = 0
         self.playhead = 0
         self.selected = None
         self.selected_track = None
@@ -66,11 +68,19 @@ class MultitrackWidget(QWidget):
             self.waveform_worker.wait()
             self.waveform_worker = None
 
+    def set_offset(self, pixels):
+        self.offset = max(0, pixels)
+        self.update()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.viewport_resized.emit()
+
     def x_for(self, frame):
-        return 100 + frame * self.zoom
+        return 100 + frame * self.zoom - self.offset
 
     def frame_for(self, x):
-        return max(0, round((x - 100) / self.zoom))
+        return max(0, round((x - 100 + self.offset) / self.zoom))
 
     def paintEvent(self, event):
         p = QPainter(self)
@@ -79,8 +89,11 @@ class MultitrackWidget(QWidget):
         p.drawText(8, 20, 'TRACK / İZ')
         fps = self.model.fps_num / self.model.fps_den
         step = max(1, round(fps * max(1, 80 / (fps * self.zoom))))
-        for frame in range(0, self.frame_for(self.width()) + step, step):
+        first_frame = (self.frame_for(100) // step) * step
+        for frame in range(first_frame, self.frame_for(self.width()) + step, step):
             x = int(self.x_for(frame))
+            if x < 100:
+                continue
             p.drawText(x + 2, 18, f'{frame / fps:.1f}s')
             p.setPen(QColor('#292c37'))
             p.drawLine(x, 24, x, self.height())
@@ -93,33 +106,40 @@ class MultitrackWidget(QWidget):
             p.drawText(6, y + 25, track.name[:14])
             for clip in track.clips:
                 x, w = int(self.x_for(clip.start)), max(2, int(clip.length * self.zoom))
+                if x + w <= 100 or x >= self.width():
+                    continue
+                left = max(100, x)
+                right = min(self.width(), x + w)
                 p.setBrush(QColor(colors[track.kind]))
                 p.setPen(QPen(QColor('#ffffff' if self.selected == (ti, clip.id) else '#282a37'), 2))
-                p.drawRoundedRect(x, y + 3, w, 34, 5, 5)
+                p.drawRoundedRect(left, y + 3, max(2, right-left), 34, 5, 5)
                 peaks = self.waveforms.get(clip.source)
                 if peaks and track.kind in ('audio', 'video'):
                     p.setPen(QColor('#a4e3db'))
-                    for px in range(max(0, x), min(self.width(), x + w), 2):
+                    for px in range(left, right, 2):
                         source_frame = clip.source_in + (px - x) / self.zoom
                         sample = int(source_frame / fps * SAMPLE_RATE / WINDOW)
                         if 0 <= sample < len(peaks):
                             height = int(peaks[sample] * 14)
                             p.drawLine(px, y + 21 - height, px, y + 21 + height)
                 p.setPen(QColor('white'))
-                p.drawText(x + 5, y + 25, (clip.text or clip.source.replace('\\', '/').split('/')[-1])[:max(0, w // 7)])
+                p.drawText(left + 5, y + 25, (clip.text or clip.source.replace('\\', '/').split('/')[-1])[:max(0, (right-left) // 7)])
         p.setPen(QPen(QColor('#ffcd5a'), 2))
         for marker in self.model.markers:
             x = int(self.x_for(marker.get('frame', 0)))
+            if x < 100 or x > self.width():
+                continue
             p.drawLine(x, 20, x, self.height())
             p.drawText(x + 3, 28, str(marker.get('label', ''))[:24])
         p.setPen(QPen(QColor('#ff4fa3'), 2))
         x = int(self.x_for(self.playhead))
-        p.drawLine(x, 20, x, self.height())
+        if 100 <= x <= self.width():
+            p.drawLine(x, 20, x, self.height())
 
     def mousePressEvent(self, event):
         x, y = event.position().x(), event.position().y()
         frame = self.frame_for(x)
-        if y < 30:
+        if y < 30 and x >= 100:
             self.drag_mode = 'scrub'
             frame = snap_frame(self.model, frame, max(1, round(8 / self.zoom)))
             self.playhead = frame
@@ -130,14 +150,14 @@ class MultitrackWidget(QWidget):
         if 0 <= ti < len(self.model.tracks):
             self.selected_track = ti
             track = self.model.tracks[ti]
-            clip = next((c for c in track.clips if c.start <= frame < c.end), None)
+            clip = next((c for c in track.clips if c.start <= frame < c.end), None) if x >= 100 else None
             self.selected = (ti, clip.id) if clip else None
             self.selection_changed.emit()
             if clip:
                 self.drag_mode = 'trim' if abs(x - self.x_for(clip.end)) < 9 else 'move'
                 self.drag_anchor = frame
                 self.original = (clip.start, clip.length)
-            else:
+            elif x >= 100:
                 self.playhead = frame
                 self.seek.emit(frame)
             self.update()

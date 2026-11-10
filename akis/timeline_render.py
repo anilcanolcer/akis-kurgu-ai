@@ -20,6 +20,25 @@ def duration_frames(timeline):
     return max((clip.end for track in timeline.tracks if not track.muted for clip in track.clips), default=0)
 
 
+def output_overwrites_source(timeline, output, extra_sources=()):
+    """Reject outputs resolving to a media source, including hard links."""
+    target = Path(output)
+    target_key = os.path.normcase(str(target.resolve()))
+    sources = list(extra_sources) + [clip.source for track in timeline.tracks for clip in track.clips]
+    for name in sources:
+        if not name:
+            continue
+        source = Path(name)
+        if target_key == os.path.normcase(str(source.resolve())):
+            return True
+        try:
+            if target.exists() and source.exists() and os.path.samefile(target, source):
+                return True
+        except OSError:
+            continue
+    return False
+
+
 def _escape_filter_path(path):
     return str(path).replace('\\', '/').replace(':', r'\:').replace("'", r"\'")
 
@@ -128,4 +147,6 @@ class TimelineRenderer:
         return self._render(timeline, output, frame=frame)
 
     def export(self, timeline, output):
+        if output_overwrites_source(timeline, output):
+            raise ValueError('Çıktı dosyası kaynak medyayla aynı olamaz.')
         return self._render(timeline, output)

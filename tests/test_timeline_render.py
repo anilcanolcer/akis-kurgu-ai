@@ -16,6 +16,14 @@ class RenderTests(unittest.TestCase):
         self.assertEqual([(kind, source_frame) for kind, _, source_frame in active], [('video', 8)])
         self.assertEqual(active_clips(timeline, 30), [])
 
+    def test_renderer_refuses_source_overwrite(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / 'source.mp4'; source.write_bytes(b'original')
+            timeline = Timeline(tracks=[Track('video', 'Video', [Clip(str(source), 0, 30)])])
+            with self.assertRaisesRegex(ValueError, 'kaynak'):
+                TimelineRenderer(Mock(), (160, 90)).export(timeline, source)
+            self.assertEqual(source.read_bytes(), b'original')
+
     def test_real_multitrack_preview_and_export(self):
         import main
         media = MediaService(main.ffmpeg_path())
