@@ -1,10 +1,15 @@
-"""Safe GitHub release checks and verified installer downloads.
+"""Safe GitHub release checks, verified installer downloads and the install hand-over.
 
 Flow: check_update() reads the release metadata only. The caller asks the user, then download()
 fetches the installer into one fixed folder (update_dir) as `<name>.part`, verifies its SHA-256 and
-only then renames it into place. launch_installer() verifies the hash again right before spawning the
-helper, and the PowerShell helper verifies it once more right before Start-Process, holding the file
-open without write/delete sharing so it cannot be swapped between that check and the launch.
+only then renames it into place; nothing in the install folder is touched until then. Before the
+install the caller checks free space (space_shortfall / required_install_space). launch_installer()
+verifies the hash again and starts the installer directly in its visible /UPDATE mode: no helper
+process and no PowerShell, which security products treat as an attack pattern.
+
+The installer itself waits for the app to exit, moves the old AkisKurguAI.exe and _internal aside
+(`.old`), extracts the new files, rolls back on any error (exit codes in INSTALLER_EXIT_CODES),
+tells the user in Turkish when it failed and restarts the app, new or old.
 """
 import hashlib
 import json
@@ -28,6 +33,21 @@ CHUNK_SIZE = 256 * 1024
 READ_TIMEOUT = 20  # seconds per socket operation; bounds how long a stalled download ignores cancellation
 VERIFY_FAILED = ('Güncelleme dosyasının SHA-256 doğrulaması başarısız; dosya indirildikten sonra değişmiş '
                  'olabilir. Kurulum başlatılmadı, güncellemeyi yeniden indirin.')
+APP_EXE = 'AkisKurguAI.exe'
+APP_LIBS = '_internal'  # PyInstaller onedir: the install folder holds only APP_EXE and APP_LIBS
+MIN_INSTALL_SPACE = 1024 ** 3
+DOWNLOAD_SPACE_MARGIN = 64 * 1024 ** 2
+INSTALL_LOG_LIMIT = 1024 ** 2  # the installer and helper append; a log past this size is started afresh
+# Exit codes of installer.nsi besides 0; the helper shows the matching text.
+INSTALLER_EXIT_CODES = {
+    1: 'Kurulum iptal edildi; önceki sürüm değişmedi.',
+    2: 'Kurulum yarıda kesildi.',
+    10: 'Uygulama dosyaları kullanımda olduğu için hiçbir dosya değiştirilmedi.',
+    11: 'Yeni dosyalar yazılamadı (disk dolu olabilir); önceki sürüm geri yüklendi.',
+    12: 'Yeni dosyalar yazılamadı ve önceki sürüm otomatik olarak geri yüklenemedi.',
+    13: 'Kurulumun son adımı başarısız oldu; önceki sürüm geri yüklendi.',
+    14: 'Yarım kalmış önceki bir güncelleme onarılamadı.',
+}
 
 
 class DownloadCancelled(Exception):
@@ -102,8 +122,14 @@ def cleanup_update_dir(folder, keep=None):
         return removed
     for entry in entries:
         name = entry.name.lower()
-        if name == keep_name or name == INSTALL_LOG:
+        if name == keep_name:
             continue
+        if name == INSTALL_LOG:
+            try:
+                if entry.stat().st_size <= INSTALL_LOG_LIMIT:
+                    continue
+            except OSError:
+                continue
         try:
             if entry.is_file() and not entry.is_symlink():
                 entry.unlink()
@@ -132,6 +158,65 @@ def cleanup_legacy_temp(root=None, *, now=None, max_age=24 * 3600):
         except OSError:
             continue
     return removed
+
+
+def folder_size(path):
+    """Total bytes of the files under `path` (or of `path` itself); 0 when it cannot be read. Never raises."""
+    path = Path(path)
+    try:
+        if path.is_file():
+            return path.stat().st_size
+        total = 0
+        for root, _dirs, files in os.walk(path):
+            for name in files:
+                try:
+                    total += os.lstat(os.path.join(root, name)).st_size
+                except OSError:
+                    continue
+        return total
+    except OSError:
+        return 0
+
+
+def install_size(directory):
+    """Bytes taken by the installed application (its exe and _internal folder) in `directory`."""
+    directory = Path(directory)
+    return folder_size(directory / APP_EXE) + folder_size(directory / APP_LIBS)
+
+
+def required_install_space(directory):
+    """Free bytes the install drive needs for an update.
+
+    The old copy is only renamed aside (no extra space on the same drive), so the new files are what
+    needs room: about the current install size. Half again on top covers a larger new version, the
+    installer's own temporary files and file-system slack; 1 GiB is the floor when the current size is
+    small or unreadable (a typical install is ~0.5 GB).
+    """
+    return max(int(install_size(directory) * 1.5), MIN_INSTALL_SPACE)
+
+
+def free_space(path, usage=shutil.disk_usage):
+    """Free bytes on the drive of `path` (its nearest existing parent), or None when unknown."""
+    path = Path(path)
+    for candidate in (path, *path.parents):
+        try:
+            if candidate.exists():
+                return usage(candidate).free
+        except OSError:
+            return None
+    return None
+
+
+def space_shortfall(path, needed, usage=shutil.disk_usage):
+    """(needed, free) when the drive of `path` has less than `needed` bytes free, else None (also when unknown)."""
+    free = free_space(path, usage)
+    if free is None or free >= needed:
+        return None
+    return needed, free
+
+
+def download_space_needed(update):
+    return (update.get('size') or 200 * 1024 ** 2) + DOWNLOAD_SPACE_MARGIN
 
 
 def download(update, destination, *, should_stop=None, progress=None, opener=None):
@@ -179,67 +264,41 @@ def download(update, destination, *, should_stop=None, progress=None, opener=Non
         raise
 
 
-def launch_installer(installer, app, pid, *, sha256, popen=None):
-    """Run the verified installer after the application exits; report failures visibly.
+UAC_DECLINED = 'Kurulum için izin verilmedi; güncelleme kurulmadı.'
+SE_ERR_ACCESSDENIED = 5  # ShellExecute's answer when the UAC prompt is declined
 
-    The SHA-256 is checked here immediately before spawning the helper, and again by the helper
-    immediately before it starts the (possibly elevated) installer.
+
+def installer_arguments(app, log):
+    """The installer's update mode: it waits for the app to exit, swaps the files with rollback, shows its
+    own progress window and restarts the app. No helper process is involved."""
+    return f'/UPDATE /DIR="{Path(app).parent}" /LOG="{log}"'
+
+
+def _shell_execute(path, arguments, directory):
+    """Start a program through the shell (UAC is raised by the installer's own manifest). > 32 means started."""
+    import ctypes
+    return int(ctypes.windll.shell32.ShellExecuteW(None, 'open', str(path), arguments, str(directory), 1))
+
+
+def launch_installer(installer, app, pid=None, *, sha256, start=None):
+    """Verify the downloaded installer once more and start it in update mode.
+
+    Raises PermissionError when the user declined the elevation prompt and OSError when the installer could
+    not be started; in both cases nothing was changed and the application must keep running. `pid` is unused
+    (the installer waits for the application's files itself) and kept for older callers.
     """
-    import base64
-    import subprocess
-    if popen is None:
-        popen = subprocess.Popen
     if not re.fullmatch(r'[0-9a-fA-F]{64}', str(sha256 or '')):
         raise ValueError('Güncelleme dosyasının beklenen SHA-256 değeri geçersiz.')
     installer_path_ = Path(installer).resolve()
     app_path = Path(app).resolve()
-    if not installer_path_.is_file() or not app_path.is_file() or int(pid) <= 0:
+    if not installer_path_.is_file() or not app_path.is_file():
         raise ValueError('Güncelleme dosyası veya uygulama yolu bulunamadı.')
     if not matches(installer_path_, sha256):
         raise ValueError(VERIFY_FAILED)
-    payload = base64.b64encode(json.dumps({
-        'pid': int(pid), 'installer': str(installer_path_), 'app': str(app_path), 'sha256': sha256.lower(),
-        'directory': str(app_path.parent), 'log': str(installer_path_.parent / INSTALL_LOG),
-    }, ensure_ascii=False).encode('utf-8')).decode('ascii')
-    script = r'''
-$ErrorActionPreference = 'Stop'
-$d = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('PAYLOAD')) | ConvertFrom-Json
-$verified = $false
-$lock = $null
-try {
-    Wait-Process -Id $d.pid -ErrorAction SilentlyContinue
-    # Verify right before running: the file stays open without write/delete sharing until the installer is done.
-    $lock = [IO.File]::Open($d.installer, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
-    $sha = [Security.Cryptography.SHA256]::Create()
-    $actual = ([BitConverter]::ToString($sha.ComputeHash($lock))).Replace('-', '')
-    if (-not $actual.Equals([string]$d.sha256, [StringComparison]::OrdinalIgnoreCase)) {
-        throw 'VERIFY_FAILED'
-    }
-    $verified = $true
-    $arguments = @('/VERYSILENT', '/NORESTART', '/SP-', ('/DIR="' + $d.directory + '"'), ('/LOG="' + $d.log + '"'))
-    $protected = @($env:ProgramFiles, ${env:ProgramFiles(x86)}) | Where-Object { $_ -and ($d.directory.Equals($_, [StringComparison]::OrdinalIgnoreCase) -or $d.directory.StartsWith($_ + '\', [StringComparison]::OrdinalIgnoreCase)) }
-    if ($protected) {
-        $p = Start-Process -FilePath $d.installer -ArgumentList $arguments -Verb RunAs -Wait -PassThru
-    } else {
-        $p = Start-Process -FilePath $d.installer -ArgumentList $arguments -Wait -PassThru
-    }
-    $lock.Dispose(); $lock = $null
-    if ($p.ExitCode -ne 0) { throw ("Kurucu hata kodu: " + $p.ExitCode) }
-    Start-Process -FilePath $d.app
-} catch {
-    if ($lock) { $lock.Dispose(); $lock = $null }
-    if ($verified) {
-        $text = "Güncelleme tamamlanamadı: " + $_.Exception.Message + "`nKayıt: " + $d.log + "`nİndirilen Setup dosyasını elle çalıştırabilirsiniz: " + $d.installer
-    } else {
-        $text = "Güncelleme tamamlanamadı: " + $_.Exception.Message
-        Remove-Item -LiteralPath $d.installer -Force -ErrorAction SilentlyContinue
-    }
-    Add-Type -AssemblyName System.Windows.Forms
-    [System.Windows.Forms.MessageBox]::Show($text, 'Akış Kurgu AI') | Out-Null
-    if (Test-Path -LiteralPath $d.app) { Start-Process -FilePath $d.app -ErrorAction SilentlyContinue }
-    exit 1
-}
-'''.replace("'VERIFY_FAILED'", "'" + VERIFY_FAILED.replace("'", "''") + "'").replace('PAYLOAD', payload)
-    encoded = base64.b64encode(script.encode('utf-16le')).decode('ascii')
-    return popen(['powershell.exe', '-NoProfile', '-NonInteractive', '-EncodedCommand', encoded],
-                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
+    arguments = installer_arguments(app_path, installer_path_.parent / INSTALL_LOG)
+    code = (start or _shell_execute)(installer_path_, arguments, installer_path_.parent)
+    if code <= 32:
+        if code == SE_ERR_ACCESSDENIED:
+            raise PermissionError(UAC_DECLINED)
+        raise OSError(f'Kurulum başlatılamadı (kod {code}).')
+    return code

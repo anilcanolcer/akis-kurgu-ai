@@ -12,8 +12,17 @@ PROVIDERS = {
     'OpenAI': ('gpt-4o', 'gpt-5'),
     'Anthropic': ('claude-sonnet-5-5', 'claude-opus-5-5'),
     'xAI': ('grok-4.7', 'grok-4.6'),
-    'Gemini': ('gemini-3.6-flash', 'gemini-flash-latest'),
+    'Gemini': ('gemini-3.8-flash', 'gemini-4-argon', 'gemini-3.6-flash', 'gemini-flash-latest'),
 }
+# Text models tried in order when the chosen one is overloaded, missing, timed out or not on this tier.
+# Never used for image or video (each attempt there costs money).
+GEMINI_TEXT_FALLBACKS = {
+    'gemini-4-argon': ('gemini-3.8-flash', 'gemini-3.6-flash'),
+    'gemini-4-carbon': ('gemini-3.8-flash', 'gemini-3.6-flash'),
+    'gemini-3.8-flash': ('gemini-3.6-flash',),
+}
+GEMINI_PLAN_THINKING = 'medium'   # planning needs real reasoning about timing, but not the slowest level
+GEMINI_PLAN_MAX_TOKENS = 32768    # includes thinking tokens; the non-streaming cap
 TRANSCRIPTION_MODELS = {'OpenAI': ('gpt-4o-mini-transcribe', 'gpt-4o-transcribe', 'whisper-1'), 'xAI': ('grok-voice-transcribe-2.0', 'grok-voice-transcribe-1.0'), 'Gemini': ('gemini-2.5-flash', 'gemini-2.5-pro')}
 
 PLAN_TIMEOUT = 300           # image-heavy planning calls can take minutes
@@ -42,6 +51,40 @@ class ResponseTruncatedError(ProviderResponseError):
 
 class EmptyResponseError(ProviderResponseError):
     """The provider returned no text at all."""
+
+
+class ProviderHTTPError(RuntimeError):
+    """An HTTP failure after retries; ``code`` is the HTTP status."""
+
+    def __init__(self, message, code=0):
+        super().__init__(message)
+        self.code = code
+
+
+class FreeTierUnavailableError(ProviderHTTPError):
+    """The model has a quota of 0 on this (free) tier: retrying is pointless."""
+
+
+_FREE_TIER_ZERO = re.compile(r'limit:\s*0\b', re.I)
+_FREE_TIER = re.compile(r'free[\s_-]*tier', re.I)
+
+
+def is_free_tier_zero(detail):
+    return bool(detail and _FREE_TIER_ZERO.search(detail) and _FREE_TIER.search(detail))
+
+
+def is_fallback_error(exc):
+    """Worth trying another text model: overloaded/busy, model missing, timed out, or not on this tier."""
+    if isinstance(exc, FreeTierUnavailableError):
+        return True
+    if isinstance(exc, ProviderHTTPError):
+        return exc.code in (404, 429, 500, 502, 503, 504, 529)
+    seen = exc
+    while seen is not None:
+        if isinstance(seen, TimeoutError) or isinstance(getattr(seen, 'reason', None), TimeoutError):
+            return True
+        seen = seen.__cause__
+    return False
 
 
 _SECRET_HEADERS = ('authorization', 'x-api-key', 'x-goog-api-key', 'api-key')
@@ -109,13 +152,15 @@ def _is_transient_connection_error(exc):
     return isinstance(reason, (ConnectionResetError, ConnectionAbortedError, BrokenPipeError))
 
 
-def post_json(provider, url, body, headers, timeout, *, opener=None, sleep=None, rand=None, backoff=BACKOFF, max_wait=MAX_WAIT):
+def post_json(provider, url, body, headers, timeout, *, opener=None, sleep=None, rand=None, backoff=BACKOFF,
+              max_wait=MAX_WAIT, retry_timeout=True):
     """POST and decode JSON.
 
     Busy/transient failures (408, 409, 429, 5xx, 529, dropped connections) are retried with exponential
     backoff and jitter, honouring Retry-After up to ``max_wait``; a timed-out attempt is retried once
-    immediately. Failures carry a Turkish explanation and the provider's own message, never the key.
-    ``sleep``/``rand`` are injectable; an injected ``sleep`` without ``rand`` means no jitter (deterministic).
+    immediately unless ``retry_timeout`` is False. A 429 saying the model's free-tier limit is 0 is never
+    retried (FreeTierUnavailableError). Failures carry a Turkish explanation and the provider's own message,
+    never the key. ``sleep``/``rand`` are injectable; an injected ``sleep`` without ``rand`` means no jitter.
     """
     opener = opener or urlopen
     if rand is None:
@@ -128,6 +173,12 @@ def post_json(provider, url, body, headers, timeout, *, opener=None, sleep=None,
             with opener(Request(url, data=body, headers=headers, method='POST'), timeout=timeout) as response:
                 return json.load(response)
         except HTTPError as exc:
+            raw_detail = _http_detail(exc) if exc.code == 429 else None
+            if raw_detail is not None and is_free_tier_zero(raw_detail):
+                detail = _scrub(raw_detail, headers)
+                hint = ("Bu model ücretsiz katmanda kullanılamıyor; Google AI Studio'da faturalandırmayı etkinleştirin."
+                        if provider == 'Gemini' else 'Bu model hesabınızın katmanında kullanılamıyor.')
+                raise FreeTierUnavailableError(f'{hint}\n({provider} HTTP 429 — {detail})', 429) from exc
             if exc.code in RETRY_STATUS and waits:
                 requested = _retry_after(exc.headers)
                 base = waits.pop(0)
@@ -140,14 +191,14 @@ def post_json(provider, url, body, headers, timeout, *, opener=None, sleep=None,
                 if delay is not None:
                     sleep(delay)
                     continue
-            detail = _scrub(_http_detail(exc), headers)
+            detail = _scrub(raw_detail if raw_detail is not None else _http_detail(exc), headers)
             hint = _http_hint(provider, exc.code)
             message = f'{provider} API hatası: HTTP {exc.code}' + (f' — {detail}' if detail else '')
-            raise RuntimeError(message + (f'\n{hint}' if hint else '')) from exc
+            raise ProviderHTTPError(message + (f'\n{hint}' if hint else ''), exc.code) from exc
         except (TimeoutError, URLError, ConnectionError) as exc:
             is_timeout = isinstance(exc, TimeoutError) or isinstance(getattr(exc, 'reason', None), TimeoutError)
             if is_timeout:
-                if not timed_out and waits:
+                if retry_timeout and not timed_out and waits:
                     timed_out = True  # The timeout itself was the wait; try once more straight away.
                     waits.pop(0)
                     continue
@@ -309,7 +360,29 @@ def request_plan(provider, key, model, prompt, frames, transport=None, instructi
         parts = [{'text': prompt}]
         for label, img in encoded:
             parts.extend([{'text': label}, {'inline_data': {'mime_type': 'image/jpeg', 'data': img}}])
-        body = {'systemInstruction': {'parts': [{'text': instruction}]}, 'contents': [{'role': 'user', 'parts': parts}]}
+        # No temperature/top_p/top_k: Gemini 3.6+/4 ignore them and warn. Thinking level is explicit
+        # (the default spends many tokens) and the output cap leaves room for thinking + the JSON plan.
+        body = {'systemInstruction': {'parts': [{'text': instruction}]}, 'contents': [{'role': 'user', 'parts': parts}],
+                'generationConfig': {'maxOutputTokens': GEMINI_PLAN_MAX_TOKENS,
+                                     'thinkingConfig': {'thinkingLevel': GEMINI_PLAN_THINKING}}}
+        if model.startswith('gemini-2'):  # older models know thinkingBudget only
+            del body['generationConfig']['thinkingConfig']
+        chain = [model] + [m for m in GEMINI_TEXT_FALLBACKS.get(model, ()) if m != model]
+        for index, candidate in enumerate(chain):
+            url = 'https://generativelanguage.googleapis.com/v1beta/models/' + quote(candidate, safe='') + ':generateContent'
+            try:
+                if transport:
+                    result = transport(url, headers, body)
+                else:
+                    result = post_json(provider, url, json.dumps(body).encode(), headers, timeout,
+                                       retry_timeout=index == len(chain) - 1)
+                break
+            except Exception as exc:
+                if index == len(chain) - 1 or not is_fallback_error(exc):
+                    raise
+        if not isinstance(result, dict):
+            raise ProviderResponseError(f'{provider} beklenmeyen bir yanıt döndürdü; daha sonra tekrar deneyin.')
+        return _gemini_text(provider, result)
     if transport:
         result = transport(url, headers, body)
     else:

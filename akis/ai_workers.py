@@ -74,10 +74,15 @@ class AIWorker(CancellableWorker):
                 prompt = (
                     "Aşağıdaki kareler aynı videodan zamana göre sıralıdır. Türkçe yanıt ver. "
                     f"Video süresi {self.duration:.2f} saniye. Kullanıcı hedefi: {self.prompt}\n"
-                    "Yalnızca geçerli JSON döndür. Şema: "
-                    '{"suggestions":[{"summary":"", "title":"", "caption":"", "hashtags":[""], '
-                    '"trim_start":0.0, "trim_end":0.0, "pacing":"", "filter":"natural|vivid|cinematic", '
-                    '"notes":[""]}]} Üç farklı öneri ver. Zamanlar video sınırları içinde olsun.'
+                    "Tam olarak 3 farklı kurgu önerisi ver. Yalnızca geçerli JSON döndür; açıklama, başlık veya kod bloğu ekleme. "
+                    "Şema: "
+                    '{"suggestions":[{"summary":"", "title":"", "caption":"", "hashtags":["",""], '
+                    '"trim_start":2.5, "trim_end":18.0, "pacing":"", "filter":"natural|vivid|cinematic", '
+                    '"notes":["",""]}]}\n'
+                    f"Kurallar: trim_start ve trim_end saniye cinsinden sayıdır; trim_end her zaman trim_start'tan büyük "
+                    f"ve en fazla {self.duration:.2f} olmalıdır; kesit en az 3 saniye sürsün. "
+                    "Şemadaki 2.5 ve 18.0 yalnızca örnektir; değerleri bu videoya göre kendin belirle. "
+                    "filter yalnızca natural, vivid veya cinematic olsun; hashtags # işaretsiz kelimeler olsun."
                 )
                 self.check_cancelled()
                 self.status.emit("AI kurgu planı hazırlanıyor…")

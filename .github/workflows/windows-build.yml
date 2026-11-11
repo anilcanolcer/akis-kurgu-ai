@@ -11,7 +11,7 @@ permissions:
 jobs:
   windows:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
@@ -90,7 +90,13 @@ jobs:
           $setup = (Resolve-Path 'dist/AkisKurguAI-Setup.exe').Path
           $proc = Start-Process -FilePath $setup -ArgumentList @('/S',"/D=$destination") -WindowStyle Hidden -Wait -PassThru
           if ($proc.ExitCode -ne 0 -or -not (Test-Path (Join-Path $destination 'AkisKurguAI.exe'))) { throw 'Installer verification failed' }
-      - name: Verify in-place update helper
+      - name: Verify installer scenarios with a fake application
+        shell: pwsh
+        run: |
+          $nsis = "${env:ProgramFiles(x86)}\NSIS\makensis.exe"
+          pwsh -NoProfile -File scripts/installer-scenarios.ps1 -MakeNsis $nsis
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify in-place update with the real installer
         shell: pwsh
         run: |
           $destination = Join-Path $env:RUNNER_TEMP 'AkisInstallerTest'
@@ -98,7 +104,9 @@ jobs:
           $env:QT_QPA_PLATFORM = 'offscreen'
           python update_smoke.py $setup $destination
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Start-Sleep -Seconds 3
           Get-Process AkisKurguAI -ErrorAction SilentlyContinue | Stop-Process -Force
+          Start-Sleep -Seconds 2
       - name: Verify uninstall preserves user files
         shell: pwsh
         run: |

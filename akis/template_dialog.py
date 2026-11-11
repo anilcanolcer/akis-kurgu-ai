@@ -4,10 +4,13 @@ from akis.template_service import TEMPLATES, STYLES, TEMPOS
 class TemplateDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle('İlham / Şablonlar')
+        self.setWindowTitle('Şablonlar')
         self.resize(600, 540)
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel('Bir başlangıç seçin; medyanızı ilgili izlere ekleyin.'))
+        intro = QLabel('Seçtiğiniz şablon, mevcut projeye adlandırılmış izleri, en-boy oranını, renk stilini ve tempoyu ekler. '
+                       'Medyanızı ilgili izlere kendiniz yerleştirirsiniz.')
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
         self.list = QListWidget()
         self.list.addItems([f'{t.name}  ·  {t.ratio}  ·  ~{t.seconds} sn' for t in TEMPLATES])
         layout.addWidget(self.list)

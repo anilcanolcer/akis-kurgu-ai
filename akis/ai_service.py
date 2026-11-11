@@ -42,8 +42,66 @@ def _seconds(item, name, default):
         raise ValueError(f'Önerideki "{name}" değeri sayı değil: {str(value)[:40]}') from None
 
 
+MIN_SUGGESTION_SECONDS = 0.5
+FILTERS = ('natural', 'vivid', 'cinematic')
+
+
+def _text(value):
+    return value.strip() if isinstance(value, str) else ('' if value is None else str(value).strip())
+
+
+def _text_list(value):
+    if value is None:
+        return []
+    if isinstance(value, str):
+        value = re.split(r'[\n,;]+', value) if value.strip() else []
+    if not isinstance(value, (list, tuple)):
+        value = [value]
+    return [text for text in (_text(v) for v in value if not isinstance(v, (dict, list))) if text]
+
+
+def _hashtags(value):
+    seen, result = set(), []
+    for raw in _text_list(value):
+        for part in raw.split():
+            tag = part.lstrip('#').strip()
+            if tag and tag.casefold() not in seen:
+                seen.add(tag.casefold())
+                result.append(tag)
+    return result
+
+
+def _normalise_suggestion(item, duration):
+    """One tolerant, normalised suggestion or None when unusable."""
+    if not isinstance(item, dict):
+        return None
+    try:
+        a = _seconds(item, 'trim_start', 0)
+        b = _seconds(item, 'trim_end', duration)
+    except ValueError:
+        return None
+    if not math.isfinite(a):
+        return None
+    if not math.isfinite(b) or b <= 0:
+        b = duration
+    a = min(max(a, 0.0), duration)
+    b = min(max(b, 0.0), duration)
+    if b < a:
+        a, b = b, a
+    if b - a < MIN_SUGGESTION_SECONDS:
+        return None
+    filter_name = _text(item.get('filter')).casefold()
+    return dict(item, trim_start=a, trim_end=b,
+                title=_text(item.get('title')), summary=_text(item.get('summary')),
+                caption=_text(item.get('caption')), pacing=_text(item.get('pacing')),
+                hashtags=_hashtags(item.get('hashtags')), notes=_text_list(item.get('notes')),
+                filter=filter_name if filter_name in FILTERS else 'natural')
+
+
 def parse_suggestions(text, duration):
-    """Validate the older 'suggestions' answer. Tolerates code fences, surrounding prose and a top-level list."""
+    """Tolerantly read the 'suggestions' answer (code fences, prose and a top-level list allowed).
+
+    Each suggestion is clamped into the video; unusable ones are dropped. Fails only when none is usable."""
     plans = found = None
     for data in _json_values(text if isinstance(text, str) else ''):
         found = True
@@ -55,17 +113,40 @@ def parse_suggestions(text, duration):
             break
     if not found:
         raise ValueError('AI yanıtında geçerli JSON bulunamadı.')
-    if not isinstance(plans, list) or len(plans) < 2:
-        raise ValueError('AI en az iki öneri döndürmelidir.')
-    result = []
-    for item in plans[:3]:
-        if not isinstance(item, dict):
-            raise ValueError('Geçersiz öneri.')
-        a, b = _seconds(item, 'trim_start', 0), _seconds(item, 'trim_end', duration)
-        if not math.isfinite(a) or not math.isfinite(b) or not 0 <= a < b <= duration:
-            raise ValueError('Önerinin zaman aralığı video dışında.')
-        result.append(dict(item, trim_start=a, trim_end=b))
-    return result
+    result = [] if not isinstance(plans, list) else [p for p in (_normalise_suggestion(i, duration) for i in plans) if p]
+    if not result:
+        raise ValueError('AI kullanılabilir bir öneri döndürmedi; lütfen tekrar deneyin.')
+    return result[:3]
+
+
+def _clock(seconds):
+    total = int(round(seconds))
+    return f'{total // 60}:{total % 60:02d}'
+
+
+def format_suggestion(plan):
+    """Readable Turkish summary of one suggestion."""
+    start, end = float(plan.get('trim_start', 0)), float(plan.get('trim_end', 0))
+    lines = []
+    title = _text(plan.get('title'))
+    if title:
+        lines += [title, '']
+    if _text(plan.get('summary')):
+        lines += [_text(plan.get('summary')), '']
+    lines.append(f'Kesim: {_clock(start)} – {_clock(end)} ({round(end - start)} sn)')
+    if _text(plan.get('pacing')):
+        lines.append(f'Tempo: {_text(plan.get("pacing"))}')
+    if _text(plan.get('filter')):
+        lines.append(f'Filtre: {_text(plan.get("filter"))}')
+    if _text(plan.get('caption')):
+        lines += ['', 'Açıklama:', _text(plan.get('caption'))]
+    tags = _hashtags(plan.get('hashtags'))
+    if tags:
+        lines += ['', 'Etiketler: ' + ' '.join('#' + t for t in tags)]
+    notes = _text_list(plan.get('notes'))
+    if notes:
+        lines += ['', 'Notlar:'] + [f'• {n}' for n in notes]
+    return '\n'.join(lines).strip()
 
 
 def add_plan_markers(timeline, plan):
