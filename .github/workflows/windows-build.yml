@@ -116,13 +116,30 @@ jobs:
           $uninstaller = Join-Path $destination 'Uninstall-Akis.exe'
           $proc = Start-Process -FilePath $uninstaller -ArgumentList @('/S', "_?=$destination") -WindowStyle Hidden -Wait -PassThru
           if ($proc.ExitCode -ne 0 -or (Test-Path (Join-Path $destination 'AkisKurguAI.exe')) -or -not (Test-Path -LiteralPath $sentinel)) { throw 'Uninstall verification failed' }
+      # The artifact service occasionally answers with an error page; one failed upload must not lose a
+      # 25-minute build, so wait and try once more before failing the job.
       - name: Upload Windows package
+        id: upload
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: AkisKurguAI-Windows-experimental
           path: dist/AkisKurguAI-Setup.exe
           if-no-files-found: error
           retention-days: 14
+      - name: Wait before retrying the upload
+        if: steps.upload.outcome == 'failure'
+        shell: pwsh
+        run: Start-Sleep -Seconds 90
+      - name: Upload Windows package (second attempt)
+        if: steps.upload.outcome == 'failure'
+        uses: actions/upload-artifact@v7
+        with:
+          name: AkisKurguAI-Windows-experimental
+          path: dist/AkisKurguAI-Setup.exe
+          if-no-files-found: error
+          retention-days: 14
+          overwrite: true
 
 
   release:
