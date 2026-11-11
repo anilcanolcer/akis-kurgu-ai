@@ -25,13 +25,14 @@ class ProviderTests(unittest.TestCase):
             'Anthropic': {'content': [{'type': 'text', 'text': 'ok'}]},
             'xAI': {'choices': [{'message': {'content': 'ok'}}]},
             'Gemini': {'candidates': [{'content': {'parts': [{'text': 'ok'}]}}]},
+            'Cloudflare': {'choices': [{'message': {'content': 'ok'}}]},
         }
         for provider, models in PROVIDERS.items():
             with self.subTest(provider=provider):
                 calls=[]
                 def transport(url, headers, body):
                     calls.append((url, headers, body)); return responses[provider]
-                self.assertEqual(request_plan(provider, 'secret', models[0], 'prompt', [(0, b'jpeg')], transport), 'ok')
+                self.assertEqual(request_plan(provider, '0' * 32 + ':secret' if provider == 'Cloudflare' else 'secret', models[0], 'prompt', [(0, b'jpeg')], transport), 'ok')
                 self.assertEqual(calls[0][2].get('model', models[0]), models[0])
                 self.assertNotIn('secret', calls[0][0])
         self.assertEqual(set(TRANSCRIPTION_MODELS), {'OpenAI', 'xAI', 'Gemini'})
