@@ -4,6 +4,7 @@ All positions are integer frames. Source paths are references; edits never modif
 """
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import asdict, dataclass, field
 from uuid import uuid4
 
@@ -143,6 +144,41 @@ class Timeline:
 
     def to_dict(self):
         return asdict(self)
+
+    def ripple_delete(self, track_index: int, clip_id: str):
+        """Delete a clip and close the gap on every track and on the markers.
+
+        A clip on another track that spans the removed range stays put; if shifting a track's
+        later clips would make it overlap, that track is left unchanged. Rolls back on error.
+        """
+        snapshot = deepcopy((self.tracks, self.markers))
+        try:
+            track = self.tracks[track_index]
+            clip = track.find(clip_id)
+            start, end, length = clip.start, clip.end, clip.length
+            track.clips.remove(clip)
+            for other_track in self.tracks:
+                if other_track is not track and any(c.start < end and c.end > start for c in other_track.clips):
+                    # Spanning clip: shifting later clips could collide with it, so keep this track as is.
+                    shifted = sorted((c for c in other_track.clips if c.start >= end), key=lambda c: c.start)
+                    kept = [c for c in other_track.clips if c.start < end]
+                    if any(c.start - length < max((k.end for k in kept), default=0) for c in shifted):
+                        continue
+                for c in other_track.clips:
+                    if c.start >= end:
+                        c.start -= length
+            for marker in self.markers:
+                frame = marker.get('frame', 0)
+                if frame >= end:
+                    marker['frame'] = frame - length
+                elif frame >= start:
+                    marker['frame'] = start
+            for t in self.tracks:
+                t.validate()
+        except ValueError:
+            tracks, markers = snapshot
+            self.tracks, self.markers = tracks, markers
+            raise
 
     @classmethod
     def from_dict(cls, data):

@@ -23,7 +23,7 @@ def synthesize(text, destination, runner=subprocess.run):
     if not text.strip():
         raise ValueError('Konuşma metni boş olamaz.')
     payload = base64.b64encode(json.dumps({'text': text, 'path': str(Path(destination).resolve())}, ensure_ascii=False).encode('utf-8')).decode('ascii')
-    result = runner(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', _SCRIPT], input=payload, capture_output=True, text=True, timeout=300, creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
+    result = runner(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', _SCRIPT], input=payload, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=300, creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
     if result.returncode != 0 or not Path(destination).is_file():
         raise RuntimeError('Windows ses üretimi başarısız: ' + result.stderr[-1000:])
     return str(destination)

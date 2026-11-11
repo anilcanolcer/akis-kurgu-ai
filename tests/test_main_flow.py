@@ -45,7 +45,7 @@ class MainWindowFlowTests(unittest.TestCase):
         window = MainWindow()
         window.project_path = 'existing.akis.json'
         with patch('main.QFileDialog.getOpenFileName', return_value=('broken.akis.json', '')), \
-             patch('main.project_service.load_with_source', return_value=({'state': {}}, 'bad.mp4')), \
+             patch('main.project_service.load_project', return_value=({'state': {}}, 'bad.mp4', [])), \
              patch.object(window, 'load_video', return_value=None):
             window.open_project()
             self.assertEqual(window.project_path, 'existing.akis.json')

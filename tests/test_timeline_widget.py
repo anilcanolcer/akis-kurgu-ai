@@ -43,4 +43,21 @@ class TimelineWidgetTests(unittest.TestCase):
         self.assertEqual(widget.selected_track, 0)
         widget.close()
 
+    def test_plain_click_does_not_emit_changed_but_drag_does(self):
+        clip = Clip('demo.mp4', 0, 60)
+        widget = MultitrackWidget(Timeline(tracks=[Track('video', 'Video', [clip])]))
+        widget.resize(600, 210)
+        widget.show()
+        emitted = []
+        widget.changed.connect(lambda: emitted.append(1))
+        QTest.mouseClick(widget, Qt.MouseButton.LeftButton, pos=QPoint(150, 45))
+        self.assertEqual(widget.selected, (0, clip.id))
+        self.assertEqual(emitted, [])
+        QTest.mousePress(widget, Qt.MouseButton.LeftButton, pos=QPoint(150, 45))
+        QTest.mouseMove(widget, QPoint(210, 45))
+        QTest.mouseRelease(widget, Qt.MouseButton.LeftButton, pos=QPoint(210, 45))
+        self.assertGreater(clip.start, 0)
+        self.assertEqual(emitted, [1])
+        widget.close()
+
 if __name__ == '__main__': unittest.main()

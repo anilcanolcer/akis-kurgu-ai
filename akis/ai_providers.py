@@ -1,6 +1,10 @@
 """Provider-specific multimodal planning and credential storage."""
 import base64
 import json
+import random
+import re
+import time
+from email.utils import parsedate_to_datetime
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 
@@ -12,33 +16,149 @@ PROVIDERS = {
 }
 TRANSCRIPTION_MODELS = {'OpenAI': ('gpt-4o-mini-transcribe', 'gpt-4o-transcribe', 'whisper-1'), 'xAI': ('grok-voice-transcribe-2.0', 'grok-voice-transcribe-1.0'), 'Gemini': ('gemini-2.5-flash', 'gemini-2.5-pro')}
 
-def post_json(provider, url, body, headers, timeout, *, opener=None, sleep=None):
-    """POST and decode JSON. Busy providers are retried; failures carry the provider's own explanation."""
-    import time
-    opener, sleep = opener or urlopen, sleep or time.sleep
-    for wait in (4, 10, None):
+PLAN_TIMEOUT = 300           # image-heavy planning calls can take minutes
+TRANSCRIBE_TIMEOUT = 180
+ANTHROPIC_MAX_TOKENS = 16384
+RETRY_STATUS = frozenset({408, 409, 429, 500, 502, 503, 504, 529})
+BACKOFF = (4, 10)            # base waits between attempts; len + 1 attempts in total
+MAX_WAIT = 60                # never wait longer than this for one retry (Retry-After included)
+
+
+class ProviderResponseError(RuntimeError):
+    """The provider answered, but not with usable text."""
+
+
+class ResponseBlockedError(ProviderResponseError):
+    """The request or the answer was blocked/refused by the provider's safety system."""
+
+
+class ResponseTruncatedError(ProviderResponseError):
+    """The answer hit the output token limit; ``partial`` holds what arrived."""
+
+    def __init__(self, message, partial=''):
+        super().__init__(message)
+        self.partial = partial
+
+
+class EmptyResponseError(ProviderResponseError):
+    """The provider returned no text at all."""
+
+
+_SECRET_HEADERS = ('authorization', 'x-api-key', 'x-goog-api-key', 'api-key')
+_KEY_PATTERN = re.compile(r'(sk-[A-Za-z0-9_\-*]{6,}|xai-[A-Za-z0-9_\-*]{6,}|AIza[A-Za-z0-9_\-]{10,})')
+
+
+def _scrub(text, headers):
+    """Remove anything that looks like a credential from text shown to the user."""
+    for name, value in (headers or {}).items():
+        if name.lower() in _SECRET_HEADERS and value:
+            secret = str(value)
+            for part in {secret, secret.removeprefix('Bearer ').strip()}:
+                if len(part) >= 4:
+                    text = text.replace(part, '***')
+    return _KEY_PATTERN.sub('***', text)
+
+
+def _retry_after(headers):
+    """Seconds requested by Retry-After / retry-after-ms, or None."""
+    if not headers:
+        return None
+    try:
+        found = {str(k).lower(): v for k, v in headers.items()}
+        value = found.get('retry-after-ms')
+        if value is not None:
+            return max(0.0, float(value) / 1000)
+        value = found.get('retry-after')
+        if value is None:
+            return None
+        value = str(value).strip()
+        try:
+            return max(0.0, float(value))
+        except ValueError:
+            moment = parsedate_to_datetime(value)
+            return max(0.0, moment.timestamp() - time.time())
+    except Exception:
+        return None
+
+
+def _http_detail(exc):
+    try:
+        payload = json.loads(exc.read().decode('utf-8', 'replace'))
+        error = payload.get('error', payload) if isinstance(payload, dict) else {}
+        return str(error.get('message', '') if isinstance(error, dict) else error)[:300]
+    except Exception:
+        return ''
+
+
+def _http_hint(provider, code):
+    if code in (401, 403):
+        return f'{provider} API anahtarı geçersiz ya da bu işlem için yetkisi yok. Ayarlardan anahtarı kontrol edin.'
+    if code == 404:
+        return f'Model bulunamadı ya da bu anahtarla kullanılamıyor. Listeden başka bir {provider} modeli seçin.'
+    if code == 429:
+        return 'İstek sınırına veya kotaya ulaşıldı. Birkaç dakika bekleyip tekrar deneyin ya da hesabınızın kota/ödeme durumunu kontrol edin.'
+    if code in (500, 502, 503, 504, 529):
+        return f'{provider} şu anda yoğun ya da geçici olarak hizmet veremiyor. Biraz sonra tekrar deneyin.'
+    if code == 413:
+        return 'İstek çok büyük; daha kısa ya da daha az video ile deneyin.'
+    return ''
+
+
+def _is_transient_connection_error(exc):
+    reason = exc.reason if isinstance(exc, URLError) else exc
+    return isinstance(reason, (ConnectionResetError, ConnectionAbortedError, BrokenPipeError))
+
+
+def post_json(provider, url, body, headers, timeout, *, opener=None, sleep=None, rand=None, backoff=BACKOFF, max_wait=MAX_WAIT):
+    """POST and decode JSON.
+
+    Busy/transient failures (408, 409, 429, 5xx, 529, dropped connections) are retried with exponential
+    backoff and jitter, honouring Retry-After up to ``max_wait``; a timed-out attempt is retried once
+    immediately. Failures carry a Turkish explanation and the provider's own message, never the key.
+    ``sleep``/``rand`` are injectable; an injected ``sleep`` without ``rand`` means no jitter (deterministic).
+    """
+    opener = opener or urlopen
+    if rand is None:
+        rand = random.random if sleep is None else (lambda: 0.0)
+    sleep = sleep or time.sleep
+    waits = list(backoff)
+    timed_out = False
+    while True:
         try:
             with opener(Request(url, data=body, headers=headers, method='POST'), timeout=timeout) as response:
                 return json.load(response)
         except HTTPError as exc:
-            if exc.code in (429, 500, 503) and wait is not None:
-                sleep(wait)
-                continue
-            detail = ''
-            try:
-                payload = json.loads(exc.read().decode('utf-8', 'replace'))
-                error = payload.get('error', payload) if isinstance(payload, dict) else {}
-                detail = str(error.get('message', '') if isinstance(error, dict) else error)[:300]
-            except Exception:
-                pass
-            raise RuntimeError(f'{provider} API hatası: HTTP {exc.code}' + (f' — {detail}' if detail else '')) from exc
-        except TimeoutError as exc:
-            raise RuntimeError(f'{provider} {timeout} saniyede yanıt vermedi. Başka bir model deneyin veya tekrar deneyin.') from exc
-        except URLError as exc:  # DNS, proxy, firewall or no connection at all
-            if isinstance(exc.reason, TimeoutError):
+            if exc.code in RETRY_STATUS and waits:
+                requested = _retry_after(exc.headers)
+                base = waits.pop(0)
+                if requested is None:
+                    delay = min(max_wait, base + base * 0.25 * rand())
+                elif requested <= max_wait:
+                    delay = requested + 0.5 * rand()
+                else:
+                    delay = None  # Provider asks for a long pause (quota); report it instead of hanging.
+                if delay is not None:
+                    sleep(delay)
+                    continue
+            detail = _scrub(_http_detail(exc), headers)
+            hint = _http_hint(provider, exc.code)
+            message = f'{provider} API hatası: HTTP {exc.code}' + (f' — {detail}' if detail else '')
+            raise RuntimeError(message + (f'\n{hint}' if hint else '')) from exc
+        except (TimeoutError, URLError, ConnectionError) as exc:
+            is_timeout = isinstance(exc, TimeoutError) or isinstance(getattr(exc, 'reason', None), TimeoutError)
+            if is_timeout:
+                if not timed_out and waits:
+                    timed_out = True  # The timeout itself was the wait; try once more straight away.
+                    waits.pop(0)
+                    continue
                 raise RuntimeError(f'{provider} {timeout} saniyede yanıt vermedi. Başka bir model deneyin veya tekrar deneyin.') from exc
-            raise RuntimeError(f'{provider} sunucusuna bağlanılamadı. İnternet bağlantınızı kontrol edin. ({exc.reason})') from exc
-        except json.JSONDecodeError as exc:
+            if _is_transient_connection_error(exc) and waits:
+                base = waits.pop(0)
+                sleep(min(max_wait, base + base * 0.25 * rand()))
+                continue
+            reason = _scrub(str(getattr(exc, 'reason', exc)), headers)
+            raise RuntimeError(f'{provider} sunucusuna bağlanılamadı. İnternet bağlantınızı kontrol edin. ({reason})') from exc
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
             raise RuntimeError(f'{provider} beklenmeyen bir yanıt döndürdü; daha sonra tekrar deneyin.') from exc
 
 
@@ -50,53 +170,159 @@ def load_key(service, provider):
     import keyring
     return keyring.get_password(service, provider.lower() + '_api_key') or ''
 
-def request_plan(provider, key, model, prompt, frames, transport=None, instruction=None):
-    """Send ordered JPEG frames to the selected provider. transport enables isolated tests."""
+
+def _label(at):
+    """Frame label: callers may pass their own text (e.g. 'K1 @ 12.50s') or a plain second."""
+    return at if isinstance(at, str) else f'{at:.2f}. saniye'
+
+
+def _blocked(provider, why=''):
+    return ResponseBlockedError(f'{provider} bu isteği güvenlik/içerik politikası nedeniyle engelledi veya yanıtlamayı reddetti'
+                                + (f' ({why})' if why else '') + '. İsteği farklı ifade edip tekrar deneyin.')
+
+
+def _truncated(provider, partial):
+    return ResponseTruncatedError(f'{provider} yanıtı çıktı sınırına takıldı ve yarıda kesildi. '
+                                  'Daha kısa bir istekle, daha az videoyla ya da başka bir modelle tekrar deneyin.', partial)
+
+
+def _empty(provider, why=''):
+    return EmptyResponseError(f'{provider} boş yanıt döndürdü' + (f' ({why})' if why else '') + '. Tekrar deneyin ya da başka bir model seçin.')
+
+
+def _done(provider, text):
+    if not text.strip():
+        raise _empty(provider)
+    return text
+
+
+def _openai_text(provider, result):
+    status = result.get('status')
+    if status == 'failed':
+        error = result.get('error') or {}
+        raise ProviderResponseError(f'{provider} yanıt üretemedi: {error.get("message", "bilinmeyen hata") if isinstance(error, dict) else error}')
+    texts, refusals = [], []
+    for item in result.get('output') or []:
+        for part in (item.get('content') or []) if isinstance(item, dict) else []:
+            if part.get('type') == 'output_text':
+                texts.append(part.get('text') or '')
+            elif part.get('type') == 'refusal':
+                refusals.append(part.get('refusal') or '')
+    text = ''.join(texts)
+    if status == 'incomplete':
+        reason = (result.get('incomplete_details') or {}).get('reason', '')
+        if reason == 'content_filter':
+            raise _blocked(provider, 'içerik filtresi')
+        raise _truncated(provider, text)
+    if refusals and not text.strip():
+        raise _blocked(provider, refusals[0][:200])
+    return _done(provider, text)
+
+
+def _anthropic_text(provider, result):
+    text = ''.join(p.get('text', '') for p in result.get('content') or [] if isinstance(p, dict) and p.get('type') == 'text')
+    stop = result.get('stop_reason')
+    if stop == 'refusal':
+        raise _blocked(provider)
+    if stop == 'max_tokens':
+        raise _truncated(provider, text)
+    return _done(provider, text)
+
+
+def _chat_text(provider, result):
+    choices = result.get('choices') or []
+    if not choices:
+        raise _empty(provider)
+    choice = choices[0] or {}
+    message = choice.get('message') or {}
+    content = message.get('content')
+    if isinstance(content, list):  # some compatible APIs return content parts
+        content = ''.join(p.get('text', '') for p in content if isinstance(p, dict))
+    content = content or ''
+    finish = choice.get('finish_reason')
+    if finish == 'content_filter':
+        raise _blocked(provider, 'içerik filtresi')
+    if message.get('refusal') and not content.strip():
+        raise _blocked(provider, str(message['refusal'])[:200])
+    if finish == 'length':
+        raise _truncated(provider, content)
+    return _done(provider, content)
+
+
+_GEMINI_BLOCKED = {'SAFETY', 'RECITATION', 'BLOCKLIST', 'PROHIBITED_CONTENT', 'SPII', 'IMAGE_SAFETY'}
+
+
+def _gemini_text(provider, result):
+    feedback = result.get('promptFeedback') or {}
+    if feedback.get('blockReason'):
+        raise _blocked(provider, feedback['blockReason'])
+    candidates = result.get('candidates') or []
+    if not candidates:
+        raise _empty(provider)
+    candidate = candidates[0] or {}
+    parts = (candidate.get('content') or {}).get('parts') or []
+    text = ''.join(p.get('text', '') for p in parts if isinstance(p, dict) and not p.get('thought'))
+    finish = candidate.get('finishReason')
+    if finish in _GEMINI_BLOCKED:
+        raise _blocked(provider, finish)
+    if finish == 'MAX_TOKENS':
+        raise _truncated(provider, text)
+    return _done(provider, text)
+
+
+def request_plan(provider, key, model, prompt, frames, transport=None, instruction=None, *, timeout=PLAN_TIMEOUT):
+    """Send ordered JPEG frames to the selected provider. transport enables isolated tests.
+
+    frames: [(label, jpeg_bytes)] where label is a number of seconds or a ready-made text label.
+    Raises ResponseBlockedError / ResponseTruncatedError / EmptyResponseError (all RuntimeError).
+    """
     if provider not in PROVIDERS or not key or not model:
         raise ValueError('Sağlayıcı, API anahtarı ve model gereklidir.')
-    encoded = [(at, base64.b64encode(data).decode('ascii')) for at, data in frames]
+    encoded = [(_label(at), base64.b64encode(data).decode('ascii')) for at, data in frames]
     instruction = instruction or 'Kısa video kurgusunda uzman, ölçülü ve pratik bir Türkçe kreatif direktörsün.'
     headers = {'Content-Type': 'application/json'}
     if provider == 'OpenAI':
         url = 'https://api.openai.com/v1/responses'
         headers['Authorization'] = 'Bearer ' + key
         content = [{'type': 'input_text', 'text': prompt}]
-        for at, img in encoded:
-            content.extend([{'type': 'input_text', 'text': f'{at:.2f}. saniye'}, {'type': 'input_image', 'image_url': 'data:image/jpeg;base64,' + img}])
+        for label, img in encoded:
+            content.extend([{'type': 'input_text', 'text': label}, {'type': 'input_image', 'image_url': 'data:image/jpeg;base64,' + img}])
         body = {'model': model, 'instructions': instruction, 'input': [{'role': 'user', 'content': content}]}
     elif provider == 'Anthropic':
         url = 'https://api.anthropic.com/v1/messages'
         headers.update({'x-api-key': key, 'anthropic-version': '2023-06-01'})
         content = [{'type': 'text', 'text': prompt}]
-        for at, img in encoded:
-            content.extend([{'type': 'text', 'text': f'{at:.2f}. saniye'}, {'type': 'image', 'source': {'type': 'base64', 'media_type': 'image/jpeg', 'data': img}}])
-        body = {'model': model, 'max_tokens': 8192, 'system': instruction, 'messages': [{'role': 'user', 'content': content}]}
+        for label, img in encoded:
+            content.extend([{'type': 'text', 'text': label}, {'type': 'image', 'source': {'type': 'base64', 'media_type': 'image/jpeg', 'data': img}}])
+        body = {'model': model, 'max_tokens': ANTHROPIC_MAX_TOKENS, 'system': instruction, 'messages': [{'role': 'user', 'content': content}]}
     elif provider == 'xAI':
         url = 'https://api.x.ai/v1/chat/completions'
         headers['Authorization'] = 'Bearer ' + key
         content = [{'type': 'text', 'text': prompt}]
-        for at, img in encoded:
-            content.extend([{'type': 'text', 'text': f'{at:.2f}. saniye'}, {'type': 'image_url', 'image_url': {'url': 'data:image/jpeg;base64,' + img}}])
+        for label, img in encoded:
+            content.extend([{'type': 'text', 'text': label}, {'type': 'image_url', 'image_url': {'url': 'data:image/jpeg;base64,' + img}}])
         body = {'model': model, 'messages': [{'role': 'system', 'content': instruction}, {'role': 'user', 'content': content}]}
     else:
         from urllib.parse import quote
         url = 'https://generativelanguage.googleapis.com/v1beta/models/' + quote(model, safe='') + ':generateContent'
         headers['x-goog-api-key'] = key
-        parts = [{'text': instruction + '\n' + prompt}]
-        for at, img in encoded:
-            parts.extend([{'text': f'{at:.2f}. saniye'}, {'inline_data': {'mime_type': 'image/jpeg', 'data': img}}])
-        body = {'contents': [{'parts': parts}]}
+        parts = [{'text': prompt}]
+        for label, img in encoded:
+            parts.extend([{'text': label}, {'inline_data': {'mime_type': 'image/jpeg', 'data': img}}])
+        body = {'systemInstruction': {'parts': [{'text': instruction}]}, 'contents': [{'role': 'user', 'parts': parts}]}
     if transport:
         result = transport(url, headers, body)
     else:
-        result = post_json(provider, url, json.dumps(body).encode(), headers, 120)
+        result = post_json(provider, url, json.dumps(body).encode(), headers, timeout)
+    if not isinstance(result, dict):
+        raise ProviderResponseError(f'{provider} beklenmeyen bir yanıt döndürdü; daha sonra tekrar deneyin.')
     if provider == 'OpenAI':
-        return ''.join(part.get('text', '') for item in result.get('output', []) for part in item.get('content', []) if part.get('type') == 'output_text')
+        return _openai_text(provider, result)
     if provider == 'Anthropic':
-        return ''.join(p.get('text', '') for p in result['content'] if p.get('type') == 'text')
+        return _anthropic_text(provider, result)
     if provider == 'xAI':
-        return result['choices'][0]['message']['content']
-    return ''.join(p.get('text', '') for p in result['candidates'][0]['content']['parts'])
+        return _chat_text(provider, result)
+    return _gemini_text(provider, result)
 
 
 def transcribe(provider, key, model, audio):
@@ -122,7 +348,12 @@ def transcribe(provider, key, model, audio):
         url = 'https://api.x.ai/v1/stt'
     else:
         raise ValueError('Bu sağlayıcı için transkripsiyon desteklenmiyor.')
-    result = post_json(provider, url, body, headers, 180)
+    result = post_json(provider, url, body, headers, TRANSCRIBE_TIMEOUT)
+    if not isinstance(result, dict):
+        raise ProviderResponseError(f'{provider} beklenmeyen bir yanıt döndürdü; daha sonra tekrar deneyin.')
     if provider == 'xAI':
-        return result['text']
-    return ''.join(part.get('text', '') for part in result['candidates'][0]['content']['parts'])
+        text = result.get('text')
+        if not isinstance(text, str) or not text.strip():
+            raise _empty(provider, 'konuşma metni yok')
+        return text
+    return _gemini_text(provider, result)

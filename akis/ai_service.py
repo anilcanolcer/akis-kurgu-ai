@@ -1,25 +1,67 @@
 """Planning validation and optional local transcription services."""
 import json
 import math
+import re
 
 
 def plan_prompt(goal, platform, tempo, style, focus):
     return f'Hedef: {goal}\nPlatform: {platform}\nTempo: {tempo}\nStil: {style}\nOdak: {focus}'
 
 
+def _json_values(text):
+    """Yield JSON objects/arrays found in text: the whole text first, then each embedded value (code fences and prose allowed)."""
+    text = (text or '').strip()
+    fenced = re.findall(r'```(?:json|JSON)?\s*(.*?)```', text, re.DOTALL)
+    candidates = [*fenced, text]
+    decoder = json.JSONDecoder()
+    for candidate in candidates:
+        candidate = candidate.strip()
+        try:
+            yield json.loads(candidate)
+            continue
+        except ValueError:
+            pass
+        for match in re.finditer(r'[{\[]', candidate):
+            try:
+                value, _ = decoder.raw_decode(candidate, match.start())
+            except ValueError:
+                continue
+            if isinstance(value, (dict, list)):
+                yield value
+
+
+def _seconds(item, name, default):
+    value = item.get(name, default)
+    if value is None:
+        value = default
+    if isinstance(value, bool):
+        raise ValueError(f'Önerideki "{name}" değeri sayı değil.')
+    try:
+        return float(str(value).strip().removesuffix('s').strip().replace(',', '.')) if isinstance(value, str) else float(value)
+    except (TypeError, ValueError):
+        raise ValueError(f'Önerideki "{name}" değeri sayı değil: {str(value)[:40]}') from None
+
+
 def parse_suggestions(text, duration):
-    start, end = text.find('{'), text.rfind('}')
-    if start < 0 or end < start:
+    """Validate the older 'suggestions' answer. Tolerates code fences, surrounding prose and a top-level list."""
+    plans = found = None
+    for data in _json_values(text if isinstance(text, str) else ''):
+        found = True
+        if isinstance(data, dict) and isinstance(data.get('suggestions'), list):
+            plans = data['suggestions']
+        elif isinstance(data, list) and data and all(isinstance(item, dict) for item in data):
+            plans = data
+        if plans is not None:
+            break
+    if not found:
         raise ValueError('AI yanıtında geçerli JSON bulunamadı.')
-    data = json.loads(text[start:end + 1])
-    plans = data.get('suggestions')
     if not isinstance(plans, list) or len(plans) < 2:
         raise ValueError('AI en az iki öneri döndürmelidir.')
     result = []
     for item in plans[:3]:
         if not isinstance(item, dict):
             raise ValueError('Geçersiz öneri.')
-        a, b = float(item.get('trim_start', 0)), float(item.get('trim_end', duration))
+        a, b = _seconds(item, 'trim_start', 0), _seconds(item, 'trim_end', duration)
         if not math.isfinite(a) or not math.isfinite(b) or not 0 <= a < b <= duration:
             raise ValueError('Önerinin zaman aralığı video dışında.')
         result.append(dict(item, trim_start=a, trim_end=b))

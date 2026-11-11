@@ -19,6 +19,45 @@ class TimelineTests(unittest.TestCase):
             track.slip(a.id, -1)
         self.assertEqual(a.source_in, 0)
 
+    def _timeline(self):
+        video = Track('video', 'Video', [Clip('a', 0, 30), Clip('b', 30, 20), Clip('c', 50, 40)])
+        text = Track('text', 'Text', [Clip('', 35, 10, text='x'), Clip('', 70, 10, text='y')])
+        timeline = Timeline(tracks=[video, text], markers=[{'frame': 10, 'label': 'm1'}, {'frame': 40, 'label': 'm2'},
+                                                          {'frame': 70, 'label': 'm3'}])
+        return timeline, video.clips[1]
+
+    def test_timeline_ripple_delete_shifts_all_tracks_and_markers(self):
+        timeline, b = self._timeline()
+        timeline.ripple_delete(0, b.id)
+        self.assertEqual([c.start for c in timeline.tracks[0].clips], [0, 30])
+        self.assertEqual([c.start for c in timeline.tracks[1].clips], [35, 50])
+        self.assertEqual([m['frame'] for m in timeline.markers], [10, 30, 50])
+        self.assertEqual(timeline.markers[0]['label'], 'm1')
+
+    def test_timeline_ripple_delete_keeps_track_with_spanning_clip(self):
+        timeline, b = self._timeline()
+        music = Track('audio', 'Music', [Clip('m.mp3', 0, 60), Clip('n.mp3', 60, 10)])
+        timeline.tracks.append(music)
+        timeline.ripple_delete(0, b.id)
+        self.assertEqual([c.start for c in music.clips], [0, 60])
+        self.assertEqual([c.start for c in timeline.tracks[0].clips], [0, 30])
+
+    def test_timeline_ripple_delete_rolls_back(self):
+        timeline, b = self._timeline()
+        before = timeline.to_dict()
+        original = Track.validate
+        calls = []
+        def failing(track):
+            calls.append(1)
+            raise ValueError('boom')
+        Track.validate = failing
+        try:
+            with self.assertRaises(ValueError):
+                timeline.ripple_delete(0, b.id)
+        finally:
+            Track.validate = original
+        self.assertEqual(timeline.to_dict(), before)
+
     def test_legacy_conversion(self):
         timeline = Timeline.from_legacy({'source': 'x.mp4', 'start': 1, 'end': 3})
         self.assertEqual((timeline.tracks[0].clips[0].source_in, timeline.tracks[0].clips[0].length), (30, 60))
