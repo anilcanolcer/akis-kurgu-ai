@@ -272,7 +272,7 @@ class CanvasErrorTests(WindowCase):
         w.multitrack = Timeline(tracks=[Track('video', 'Video'), Track('text', 'Text', [Clip('', 0, 30, text='Merhaba')])])
         w.multitrack_view.set_model(w.multitrack)
         blocked = w.aspect.blockSignals(True)
-        w.aspect.setCurrentText('Kaynak oranı')
+        w.select_choice(w.aspect, 'Kaynak oranı')
         w.aspect.blockSignals(blocked)
 
     def test_export_reports_instead_of_raising(self):

@@ -127,3 +127,26 @@ Uygulama açılışta yeni sürümü kontrol eder ve indirdiği kurucunun SHA-25
 ### İlham / Şablonlar
 
 Sol menüde İlham veya Şablonlar ile sekiz başlangıç düzeninden birini seçin. Kart listesinde önerilen oran, süre, izler ve düzenlenebilir başlık görülür. Stil renk ayarlarını, tempo ise tüm projenin oynatma/dışa aktarma hızını değiştirir. Uygulama mevcut klipleri koruyarak iz ve üç saniyelik başlık ekler; başlık klibini seçip “Metni düzenle” düğmesiyle değiştirebilirsiniz; medyayı izlere kendiniz ekleyin. Boş projede önce şablonu seçip ardından video ekleyebilirsiniz. Önerilen süre otomatik kesme yapmaz. Slideshow için bu sürümün desteklediği video dosyalarını kullanın. Şablonlar genel kurgu fikirlerinden esinlenen özgün tanımlardır; üçüncü taraf varlık içermez.
+
+## Lisans
+
+Akış Kurgu AI, [GNU General Public License v3.0](LICENSE) ile yayımlanan özgür bir yazılımdır. Kurulum paketine eklenen FFmpeg, kendi lisansı (GPL) ile ayrı bir program olarak dağıtılır; diğer bağımlılıklar (PySide6/Qt — LGPL, faster-whisper ve diğerleri) kendi açık kaynak lisanslarını taşır.
+
+## Gizlilik / Privacy policy
+
+Uygulama hesap gerektirmez, telemetri veya kullanım istatistiği toplamaz ve projelerinizi hiçbir yere göndermez. Ağ bağlantısı yalnızca şu durumlarda kurulur:
+
+- **Güncelleme denetimi:** açılışta GitHub'ın sürüm bilgisi okunur (`api.github.com`). Bu istekte size ait veri gönderilmez; indirme ve kurulum yalnızca siz onaylarsanız yapılır.
+- **AI özellikleri:** yalnızca siz kendi API anahtarınızı girip bir AI işlemi başlattığınızda, seçtiğiniz sağlayıcıya (OpenAI, Anthropic, xAI veya Google Gemini) isteğiniz, videodan seçilen kareler ve varsa konuşma dökümü gönderilir. Bu veriler ilgili sağlayıcının gizlilik koşullarına tabidir. API anahtarları Windows Kimlik Bilgileri Yöneticisi'nde saklanır.
+- **Yerel Whisper modeli:** "Modeli indir" seçeneğini işaretlediğinizde model dosyaları Hugging Face üzerinden indirilir.
+
+Bunların dışında uygulama, kullanıcı ya da uygulamayı kuran kişi özellikle istemedikçe başka sistemlere bilgi aktarmaz. Kaldırmak için Windows "Uygulamalar" listesindeki **Akis Kurgu AI** girdisini veya kurulum klasöründeki `Uninstall-Akis.exe` dosyasını kullanın.
+
+## Kod imzalama politikası / Code signing policy
+
+Sürümler şu anda dijital olarak imzalı değildir. Açık kaynak projeler için ücretsiz kod imzalama sağlayan SignPath Foundation'a başvuru hazırlanmaktadır; onaylandığında bu bölüm şu ifadeyle güncellenecektir: *Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org).*
+
+- **Derleme:** yayımlanan tüm dosyalar, bu depodaki kaynak koddan GitHub Actions üzerinde (`.github/workflows/windows-build.yml`) GitHub'ın barındırdığı makinelerde derlenir.
+- **Committers and reviewers:** [@anilcanolcer](https://github.com/anilcanolcer)
+- **Approvers:** [@anilcanolcer](https://github.com/anilcanolcer)
+- Her sürümün kurucusunun SHA-256 değeri sürüm sayfasında yer alır; ayrıntılar: [docs/kod-imzalama.md](docs/kod-imzalama.md).

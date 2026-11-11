@@ -106,7 +106,7 @@ class ProjectOpenTests(unittest.TestCase):
         self.assertTrue(any('Önizleme oluşturulamadı' in call.args[0] for call in status.call_args_list))
         self.assertEqual(self.window.project_path, str(project_b))
         self.assertEqual(self.window.state.source, str(video_b))
-        self.assertEqual(self.window.aspect.currentText(), 'Kaynak oranı')
+        self.assertEqual(self.window.aspect.currentData(), 'Kaynak oranı')
         self.assertFalse(self.window.has_unsaved_changes())
 
     def test_successful_open_switches_target_and_clears_undo_history(self):
@@ -117,7 +117,7 @@ class ProjectOpenTests(unittest.TestCase):
         self.assertEqual(w.project_path, str(project_b))
         self.assertEqual(w.state.source, str(video_b))
         self.assertEqual(w.state.brightness, 3)
-        self.assertEqual(w.aspect.currentText(), '16:9 · YouTube')
+        self.assertEqual(w.aspect.currentData(), '16:9 · YouTube')
         self.assertEqual([c.source for t in w.multitrack.tracks for c in t.clips], [str(video_b)])
         self.assertIs(w.multitrack_view.model, w.multitrack)
         self.assertEqual(w.media_bin.paths, [str(video_b)])
