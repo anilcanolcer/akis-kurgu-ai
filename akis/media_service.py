@@ -4,20 +4,76 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import threading
 from pathlib import Path
 
 
 _PROBES = {}  # (executable, path, size, mtime) -> ffmpeg's stream report; files are probed once
+PROBE_TIMEOUT = 30  # seconds; a stalled network share must not hang a probe forever
+
+
+class RenderCancelled(RuntimeError):
+    """FFmpeg was stopped on request (MediaService.cancel); not a failure."""
 
 
 class MediaService:
-    def __init__(self, executable, runner=None):
+    def __init__(self, executable, runner=None, *, low_priority=False):
         self.executable = str(executable)
         self.runner = runner or subprocess.run
+        self.low_priority = low_priority  # background work (playback proxy) yields to still previews
+        self._lock = threading.Lock()
+        self._process = None
+        self._cancelled = False
 
-    def run(self, arguments, *, text=False):
-        return self.runner([self.executable, *map(str, arguments)], capture_output=True,
-                           text=text, creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
+    @property
+    def cancelled(self):
+        return self._cancelled
+
+    def cancel(self):
+        """Stop the running FFmpeg (if any) and refuse further runs. Safe from any thread."""
+        with self._lock:
+            self._cancelled = True
+            process = self._process
+        if process is not None:
+            try:
+                process.kill()
+            except OSError:  # already exited
+                pass
+
+    def run(self, arguments, *, text=False, timeout=None):
+        # FFmpeg prints UTF-8; the locale codec (cp1254 on Turkish Windows) cannot decode every file name.
+        decoding = {'text': True, 'encoding': 'utf-8', 'errors': 'replace'} if text else {}
+        command = [self.executable, *map(str, arguments)]
+        flags = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+        if self._cancelled:
+            raise RenderCancelled('İşlem iptal edildi.')
+        if self.runner is not subprocess.run:  # injected fake: called exactly as before
+            return self.runner(command, capture_output=True, **decoding, creationflags=flags)
+        if self.low_priority and os.name == 'nt':
+            flags |= subprocess.BELOW_NORMAL_PRIORITY_CLASS
+        with self._lock:
+            if self._cancelled:
+                raise RenderCancelled('İşlem iptal edildi.')
+            process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                       stderr=subprocess.PIPE, creationflags=flags, **decoding)
+            self._process = process
+        try:
+            try:
+                stdout, stderr = process.communicate(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                stdout, stderr = process.communicate()
+                raise subprocess.TimeoutExpired(command, timeout, stdout, stderr) from None
+            except BaseException:
+                process.kill()
+                process.wait()
+                raise
+        finally:
+            with self._lock:
+                self._process = None
+        if self._cancelled:
+            raise RenderCancelled('İşlem iptal edildi.')
+        return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
 
     def probe(self, path):
         """FFmpeg's description of a file. Real files are cached by size and modification time,
@@ -31,7 +87,10 @@ class MediaService:
                 pass
         if key in _PROBES:
             return _PROBES[key]
-        report = self.run(['-hide_banner', '-i', path], text=True).stderr or ''
+        try:
+            report = self.run(['-hide_banner', '-i', path], text=True, timeout=PROBE_TIMEOUT).stderr or ''
+        except subprocess.TimeoutExpired:
+            return ''  # unreadable in time: callers treat it as "no duration / no audio"
         if key is not None and 'Duration:' in report:
             if len(_PROBES) > 256:
                 _PROBES.clear()

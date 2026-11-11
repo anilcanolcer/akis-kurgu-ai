@@ -157,6 +157,7 @@ class ProxyPlayback(QObject):
         self.path = None
         self.rendering = None       # signature being rendered
         self.worker = None
+        self.pending = None         # newest request waiting for a cancelled render to stop
         self.fps = 30.0
         self.closing = False
         self._start_at = None
@@ -189,9 +190,32 @@ class ProxyPlayback(QObject):
         return self.signature == signature and self.path is not None
 
     def prepare(self, timeline, size, adjustments, signature):
-        """Render the proxy for this signature unless it exists or is already on its way."""
-        if self.closing or self.is_ready(signature) or self.rendering == signature or self.worker is not None:
+        """Render the proxy for this signature unless it exists or is already on its way.
+
+        A render still running for an outdated signature is cancelled and this one starts as soon
+        as it has stopped; `ready` follows once the newest requested signature is rendered.
+        """
+        if self.closing or self.rendering == signature:  # rendering is None once cancelled
             return
+        if self.is_ready(signature):
+            self.pending = None
+            if self.worker is not None:
+                self._cancel_worker()
+            return
+        if self.worker is not None:
+            # Snapshot now: the caller keeps editing the live timeline, the signature is for this state.
+            self.pending = (type(timeline).from_dict(timeline.to_dict()), size, dict(adjustments), signature)
+            self._cancel_worker()
+            return
+        self._start(timeline, size, adjustments, signature)
+
+    def _cancel_worker(self):
+        self.rendering = None  # whatever it still produces is outdated
+        cancel = getattr(self.worker, 'cancel', None)
+        if cancel is not None:
+            cancel()
+
+    def _start(self, timeline, size, adjustments, signature):
         self.counter += 1
         output = str(Path(self.directory.name) / f'proxy_{self.counter}.mp4')
         executable = self.executable() if callable(self.executable) else self.executable
@@ -205,6 +229,9 @@ class ProxyPlayback(QObject):
         self.worker.start()
 
     def _rendered(self, path):
+        if self.rendering is None:  # cancelled as outdated but finished anyway
+            self._discard(path)
+            return
         previous = self.path
         self.signature, self.path = self.rendering, path
         if previous and previous != path and self.player.source() != QUrl.fromLocalFile(previous):
@@ -225,7 +252,16 @@ class ProxyPlayback(QObject):
     def _worker_finished(self):
         self.worker = None
         self.rendering = None
-        if not self.closing and self.path:
+        if self.closing:
+            return
+        if self.pending is not None:
+            request, self.pending = self.pending, None
+            try:
+                self._start(*request)
+            except Exception as exc:
+                self.failed.emit(str(exc))
+            return
+        if self.path:
             self.ready.emit()
 
     def play(self, frame, speed, volume):
@@ -271,7 +307,9 @@ class ProxyPlayback(QObject):
         self.closing = True
         self.player.stop()
         self.player.setSource(QUrl())  # release the file before the folder is removed
+        self.pending = None
         if self.worker is not None:
+            self._cancel_worker()  # closing must not wait for a whole proxy render
             self.worker.wait()
             self.worker = None
         try:

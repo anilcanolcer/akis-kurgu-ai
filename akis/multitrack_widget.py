@@ -199,6 +199,10 @@ class MultitrackWidget(QWidget):
         self.update()
 
     def mouseReleaseEvent(self, event):
-        if self.drag_mode in ('move', 'trim'):
-            self.changed.emit()
+        if self.drag_mode in ('move', 'trim') and self.original and self.selected:
+            ti, clip_id = self.selected
+            clip = next((c for c in self.model.tracks[ti].clips if c.id == clip_id), None)
+            if clip and (clip.start, clip.length) != self.original:
+                self.changed.emit()
+        self.original = None
         self.drag_mode = None

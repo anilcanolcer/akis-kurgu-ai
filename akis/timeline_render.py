@@ -6,6 +6,7 @@ centered near the bottom. Audio tracks are mixed; muted tracks are ignored.
 from __future__ import annotations
 
 import os
+import re
 import tempfile
 import textwrap
 import zlib
@@ -13,6 +14,7 @@ from pathlib import Path
 from akis.frame_plan import plan_frame, plan_segments
 
 TRANSITIONS = ('fade', 'flash', 'dip', 'slide_left', 'slide_right', 'slide_up', 'slide_down')
+AUDIO_PREROLL = 0.5  # seconds decoded before a cut so the audio decoder has settled at the cut
 TEXT_SCALE = {'small': 0.75, 'medium': 1.0, 'large': 1.5}
 TEXT_WRAP = {'small': 30, 'medium': 22, 'large': 15}
 TEXT_COLORS = {'white': 'white', 'yellow': '#FFDD00', 'red': '#FF2D2D', 'green': '#39FF5A',
@@ -64,7 +66,29 @@ def output_overwrites_source(timeline, output, extra_sources=()):
 
 
 def _escape_filter_path(path):
-    return str(path).replace('\\', '/').replace(':', r'\:').replace("'", r"\'")
+    """A path as an unquoted filter option value, escaped for both parsing levels.
+
+    The option parser treats \\ ' : specially; the graph parser (also for -/filter_complex
+    scripts, checked with ffmpeg 9) additionally \\ ' [ ] , ;. Inside '...' quoting there is
+    no way to write an apostrophe, so a user folder like O'Neil needs backslashes instead.
+    """
+    value = re.sub(r"([\\':])", r'\\\1', str(path).replace('\\', '/'))
+    return re.sub(r"([\\'\[\],;])", r'\\\1', value)
+
+
+def _text_lines(text, width=None):
+    """The user's own line breaks kept (any of CRLF/CR/LF), each paragraph wrapped on its own."""
+    paragraphs = str(text).replace('\r\n', '\n').replace('\r', '\n').rstrip('\n').split('\n')
+    if width is None:
+        return '\n'.join(paragraphs)
+    return '\n'.join('\n'.join(textwrap.wrap(p, width)) or p for p in paragraphs)
+
+
+def partial_output_path(output):
+    """Sibling name an export is written to before it replaces the target; keeps the extension
+    so FFmpeg still picks the container from it."""
+    target = Path(output)
+    return target.with_name(f'{target.stem}.part{target.suffix or ".mp4"}')
 
 
 class TimelineRenderer:
@@ -81,21 +105,27 @@ class TimelineRenderer:
             raise ValueError('Color adjustment out of range')
         self.brightness, self.contrast, self.saturation, self.speed = brightness, contrast, saturation, speed
 
+    @staticmethod
+    def _open_input(args, source, position, with_audio):
+        """Adds a source input seeked to `position` seconds; returns how far before `position` the
+        seek lands, for the trim filter to drop.
+
+        Input seeking (accurate by default when transcoding) replaces decoding the whole source up
+        to the cut and trimming there. Audio decoders need a few packets of history (an AAC frame
+        overlaps the previous one; Opus asks for 80 ms), so inputs whose sound is used start a
+        little early; the picture is unaffected because video decoding restarts at a keyframe.
+        """
+        lead = min(position, AUDIO_PREROLL) if with_audio else 0.0
+        if position - lead > 0:
+            args += ['-ss', f'{position - lead:.9f}']
+        args += ['-i', source]
+        return lead
+
+    @staticmethod
+    def _trim(name, lead, duration):
+        return f'{name}=start={lead:.9f}:duration={duration:.9f}' if lead else f'{name}=duration={duration:.9f}'
+
     def _render(self, timeline, output, *, frame=None):
-        if frame is None and self.speed != 1.0:
-            with tempfile.TemporaryDirectory(prefix='akis_speed_') as tmp:
-                intermediate = str(Path(tmp) / 'composition.mp4')
-                TimelineRenderer(self.media, (self.width, self.height), self.font,
-                                 brightness=self.brightness, contrast=self.contrast,
-                                 saturation=self.saturation).export(timeline, intermediate)
-                args = ['-y', '-i', intermediate, '-vf', f'setpts=PTS/{self.speed:.6f}']
-                if self.media.has_audio(intermediate):
-                    args += ['-af', f'atempo={self.speed:.6f}', '-c:a', 'aac', '-b:a', '192k']
-                args += ['-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', str(output)]
-                result = self.media.run(args, text=True)
-                if result.returncode or not Path(output).is_file():
-                    raise RuntimeError('\n'.join(result.stderr.splitlines()[-12:]))
-                return str(output)
         total = duration_frames(timeline)
         if total <= 0:
             raise ValueError('Timeline is empty')
@@ -143,14 +173,10 @@ class TimelineRenderer:
                             raise FileNotFoundError(clip.source)
                         layer += 1
                         hold = outgoing_hold(track, clip) / fps
-                        if frame is None:
-                            args += ['-i', clip.source]
-                            chain = f'[{index}:v]trim=start={source_in:.9f}:duration={length:.9f},setpts=PTS-STARTPTS'
-                        else:
-                            if source_in + skip > 0:
-                                args += ['-ss', f'{source_in + skip:.9f}']
-                            args += ['-i', clip.source]
-                            chain = f'[{index}:v]trim=duration={length - skip:.9f},setpts=PTS-STARTPTS'
+                        # Each clip has its own input, seeked (not decoded from the source's start);
+                        # the clip's audio below reads the same seeked input.
+                        lead = self._open_input(args, clip.source, source_in + skip, frame is None)
+                        chain = f'[{index}:v]{self._trim("trim", lead, length - skip)},setpts=PTS-STARTPTS'
                         if hold:
                             chain += f',tpad=stop_mode=clone:stop_duration={hold:.9f}'
                         chain += (f',scale={self.width}:{self.height}:force_original_aspect_ratio=decrease,'
@@ -176,7 +202,7 @@ class TimelineRenderer:
                         base = f'base{layer}'
                         if track.kind == 'video' and frame is None and self.media.has_audio(clip.source):
                             delay = round(start * 1000)
-                            graph.append(f'[{index}:a]atrim=start={source_in:.9f}:duration={length:.9f},asetpts=PTS-STARTPTS,volume={clip.volume:.6f},adelay={delay}:all=1[a{index}]')
+                            graph.append(f'[{index}:a]{self._trim("atrim", lead, length)},asetpts=PTS-STARTPTS,volume={clip.volume:.6f},adelay={delay}:all=1[a{index}]')
                             audio.append(f'[a{index}]')
                         index += 1
                     elif track.kind == 'audio':
@@ -184,9 +210,9 @@ class TimelineRenderer:
                             continue
                         if not Path(clip.source).is_file():
                             raise FileNotFoundError(clip.source)
-                        args += ['-i', clip.source]
+                        lead = self._open_input(args, clip.source, source_in, True)
                         delay = round(start * 1000)
-                        graph.append(f'[{index}:a]atrim=start={source_in:.9f}:duration={length:.9f},asetpts=PTS-STARTPTS,volume={clip.volume:.6f},adelay={delay}:all=1[a{index}]')
+                        graph.append(f'[{index}:a]{self._trim("atrim", lead, length)},asetpts=PTS-STARTPTS,volume={clip.volume:.6f},adelay={delay}:all=1[a{index}]')
                         audio.append(f'[a{index}]')
                         index += 1
                     elif track.kind == 'text' and clip.style.get('shape'):
@@ -206,35 +232,49 @@ class TimelineRenderer:
                         textfile = Path(tmp) / f'text{layer}.txt'
                         layer += 1
                         visible = f'enable=\'gte(t,{on:.9f})*lt(t,{off:.9f})\''
-                        common = f'[{base}]drawtext=textfile=\'{_escape_filter_path(textfile)}\':expansion=none'
+                        common = f'[{base}]drawtext=textfile={_escape_filter_path(textfile)}:expansion=none'
+                        # Always LF: drawtext draws the CR of a CRLF as an extra blank line.
                         if clip.style:
                             size = clip.style.get('size') if clip.style.get('size') in TEXT_SCALE else 'medium'
-                            textfile.write_text('\n'.join(textwrap.wrap(clip.text, TEXT_WRAP[size])) or clip.text,
-                                                encoding='utf-8', newline='\n')  # CRLF would render as a blank line
+                            textfile.write_text(_text_lines(clip.text, TEXT_WRAP[size]), encoding='utf-8', newline='\n')
                             x, y = float(clip.style.get('x', 0.5)), float(clip.style.get('y', 0.78))
                             bold = Path(self.font).with_name('arialbd.ttf')
                             font = bold if bold.is_file() else self.font
                             colour = TEXT_COLORS.get(clip.style.get('color'), 'white')
-                            graph.append(f'{common}:fontfile=\'{_escape_filter_path(font)}\':text_align=C:line_spacing=6'
+                            graph.append(f'{common}:fontfile={_escape_filter_path(font)}:text_align=C:line_spacing=6'
                                          f':fontcolor={colour}:fontsize=h/18*{TEXT_SCALE[size]}:borderw={max(2, round(self.height / 300))}:bordercolor=black'
                                          f':x=\'max(10,min(w-text_w-10,w*{x:.4f}-text_w/2))\''
                                          f':y=\'max(10,min(h-text_h-10,h*{y:.4f}-text_h/2))\':{visible}[base{layer}]')
                         else:
-                            textfile.write_text(clip.text, encoding='utf-8')
-                            graph.append(f'{common}:fontfile=\'{_escape_filter_path(self.font)}\':fontcolor=white:fontsize=h/18'
+                            textfile.write_text(_text_lines(clip.text), encoding='utf-8', newline='\n')
+                            graph.append(f'{common}:fontfile={_escape_filter_path(self.font)}:fontcolor=white:fontsize=h/18'
                                          f':x=(w-text_w)/2:y=h*0.78:box=1:boxcolor=black@0.5:boxborderw=12:{visible}[base{layer}]')
                         base = f'base{layer}'
             graph.append(f'[{base}]eq=brightness={self.brightness/100:.3f}:contrast={1+self.contrast/100:.3f}:saturation={1+self.saturation/50:.3f}[graded]')
             base = 'graded'
+            # Playback speed is part of the one export graph (one encode): retime the finished
+            # picture, then the finished mix. atempo takes 0.5-2.0 per instance, the allowed range.
+            speed = self.speed if frame is None else 1.0
+            if speed != 1.0:
+                graph.append(f'[{base}]setpts=PTS/{speed:.6f}[timed]')
+                base = 'timed'
             if audio:
-                graph.append(''.join(audio) + f'amix=inputs={len(audio)}:duration=longest:normalize=0[aout]')
-            args += ['-filter_complex', ';'.join(graph), '-map', f'[{base}]']
+                tempo = f',atempo={speed:.6f}' if speed != 1.0 else ''
+                graph.append(''.join(audio) + f'amix=inputs={len(audio)}:duration=longest:normalize=0{tempo}[aout]')
+            # The graph grows with every clip; passed inline it overflows the Windows command line
+            # (32,767 chars). ffmpeg >= 7 reads it from a file via -/filter_complex. The temp dir
+            # outlives the ffmpeg call below.
+            script = Path(tmp) / 'graph.txt'
+            script.write_text(';\n'.join(graph), encoding='utf-8', newline='\n')
+            args += ['-/filter_complex', str(script), '-map', f'[{base}]']
             if frame is not None:
                 args += ['-frames:v', '1', '-an', str(output)]
             else:
                 if audio:
                     args += ['-map', '[aout]', '-c:a', 'aac', '-b:a', '192k']
                 quality = ['-preset', 'ultrafast', '-crf', '24', '-g', '15'] if self.fast else []
+                if speed != 1.0:  # retimed frames would otherwise round up to an extra frame or two
+                    args += ['-t', f'{total / fps / speed:.9f}']
                 args += ['-r', f'{timeline.fps_num}/{timeline.fps_den}', '-c:v', 'libx264', *quality, '-pix_fmt', 'yuv420p', '-movflags', '+faststart', str(output)]
             result = self.media.run(args, text=True)
             if result.returncode:
@@ -247,6 +287,18 @@ class TimelineRenderer:
         return self._render(timeline, output, frame=frame)
 
     def export(self, timeline, output):
-        if output_overwrites_source(timeline, output):
+        """Renders next to the target and moves it into place only when complete, so a failed or
+        cancelled export (RenderCancelled from the media service) leaves an existing file intact."""
+        partial = partial_output_path(output)
+        if output_overwrites_source(timeline, output) or output_overwrites_source(timeline, partial):
             raise ValueError('Çıktı dosyası kaynak medyayla aynı olamaz.')
-        return self._render(timeline, output)
+        try:
+            self._render(timeline, partial)
+            os.replace(partial, output)
+        except BaseException:
+            try:
+                partial.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise
+        return str(output)

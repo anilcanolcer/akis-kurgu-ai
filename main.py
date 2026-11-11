@@ -1,15 +1,19 @@
 from __future__ import annotations
 
-import base64
+import copy
+import faulthandler
 import hashlib
 import json
+import logging
+import logging.handlers
 import math
 import os
+import traceback
 import re
 import shutil
-import subprocess
 import sys
-import tempfile
+import threading
+import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -29,7 +33,7 @@ from akis.preview_controller import PreviewController
 from akis.preview_widget import PreviewView, ProxyPlayback, timeline_signature
 from akis.shape_art import default_tail
 from akis.update_worker import UpdateCheckWorker, UpdateDownloadWorker
-from akis.ai_service import plan_prompt, parse_suggestions, add_plan_markers
+from akis.ai_service import plan_prompt, add_plan_markers
 from akis.caption_worker import LocalCaptionWorker
 from akis.tts_worker import TtsWorker
 from akis.ai_workers import AIWorker, PromptEditWorker, TranscriptWorker
@@ -38,16 +42,16 @@ from akis.media_bin import MediaBin
 from akis.caption_service import caption_track
 from akis import ai_providers, update_service
 from akis import template_service
+from akis import i18n
 from akis.template_dialog import TemplateDialog
 
-from PySide6.QtCore import QLocale, QSettings, QSize, QStandardPaths, Qt, QThread, QTimer, Signal
-from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QFont, QIcon, QPainter, QPainterPath, QPen, QPixmap
+from PySide6.QtCore import QLocale, QLockFile, QSettings, QStandardPaths, Qt, QThread, QTimer
+from PySide6.QtGui import QDragEnterEvent, QDropEvent, QIcon, QPixmap
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
-    QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
     QFrame,
@@ -67,7 +71,6 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QSlider,
     QSplitter,
-    QStackedWidget,
     QTabWidget,
     QToolButton,
     QVBoxLayout,
@@ -78,54 +81,6 @@ from PySide6.QtWidgets import (
 APP_NAME = "Akış Kurgu AI"
 ORG_NAME = "AkisStudio"
 VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v"}
-
-EN_UI = {
-    "Projeler": "Projects", "İlham": "Inspiration", "Şablonlar": "Templates",
-    "Dışa aktarımlar": "Exports", "PROJE MEDYASI": "PROJECT MEDIA",
-    "＋  Video ekle": "＋  Add video", "●  Yerel işleme": "●  Local processing",
-    "Dışa aktarma bilgisayarınızda yapılır. AI yalnızca siz başlatınca çalışır.":
-        "Export runs on your computer. AI only runs when you start it.",
-    "Yeni proje": "New project", "Video ekleyerek başlayın": "Start by adding a video",
-    "Proje aç": "Open project", "Projeyi kaydet": "Save project", "Dışa aktar  ↗": "Export  ↗",
-    "Ses": "Audio", "Zaman çizelgesi": "Timeline", "Seçim: —": "Selection: —",
-    "Başlangıç": "Start", "Bitiş": "End", "Aralığı sıfırla": "Reset range",
-    "✦ AI Kurgu": "✦ AI Edit", "Düzenle": "Edit", "Yayın": "Publish",
-    "Videonu anlat.\nAkış gerisini planlasın.": "Describe your video.\nLet Akış plan the rest.",
-    "Ne istediğini yaz.\nAkış kurgulasın.": "Say what you want.\nAkış edits it.",
-    "Videoyu keser, yeniden dizer; geçiş, ok ve daire, yazı, renk ve hız ekler. Beğenmezseniz tek tıkla geri alın.":
-        "Cuts and reorders the video; adds transitions, arrows and circles, text, colour and speed. Undo in one click.",
-    "İSTEĞİNİZ / PROMPT": "YOUR PROMPT", "✦  Prompt ile kurgula": "✦  Edit from prompt",
-    "↶  AI kurgusunu geri al": "↶  Undo AI edit", "Öneri al": "Get suggestions",
-    "ÖNERİ MODU (KESMEDEN)": "SUGGESTION MODE (NO CUTS)", "KONUŞMA METNİ VE SESLENDİRME": "TRANSCRIPT & VOICEOVER",
-    "Konuşmayı da çözümle (yerel Whisper, daha yavaş)": "Also analyse speech (local Whisper, slower)",
-    "Yapılan kurgunun özeti burada görünecek.": "A summary of the edit will appear here.",
-    "Temsilci kareleri analiz eder; en güçlü bölüm, başlık, açıklama ve kurgu ritmi önerir.":
-        "Analyzes representative frames and suggests the strongest section, title, caption and pacing.",
-    "YAPAY ZEKÂ HEDEFİ": "AI GOAL", "OPENAI AYARLARI": "OPENAI SETTINGS",
-    "Windows'ta güvenli sakla": "Store securely in Windows", "Göster": "Show",
-    "✦  AI ile kurguyu planla": "✦  Plan edit with AI",
-    "Konuşmayı Türkçe metne çevir": "Transcribe speech",
-    "AI kurgu planı burada görünecek.": "The AI edit plan will appear here.",
-    "TUVAL ORANI": "CANVAS RATIO", "HIZ VE GEÇİŞ": "SPEED & TRANSITION",
-    "Yumuşak giriş ve çıkış geçişi": "Soft fade in and out", "GÖRÜNÜM EFEKTİ": "LOOK EFFECT",
-    "Yok": "None", "Sinematik": "Cinematic", "Siyah-beyaz": "Black & white", "Yumuşak": "Soft",
-    "RENK VE IŞIK": "COLOR & LIGHT", "Parlaklık": "Brightness", "Kontrast": "Contrast",
-    "Doygunluk": "Saturation", "Canlı görünüm uygula": "Apply vivid look",
-    "Doğal görünüme dön": "Reset to natural", "BAŞLIK KATMANI": "TITLE LAYER",
-    "Videoda görünecek kısa başlık": "Short title shown on video",
-    "Başlık alt-orta güvenli bölgede, yüksek kontrastlı kutu içinde dışa aktarılır.":
-        "The title is exported in a high-contrast box within the lower safe area.",
-    "YAYIN PAKETİ": "PUBLISH PACKAGE", "Dışa aktarma profili": "Export profile",
-    "Temel gürültü azaltma": "Basic noise reduction",
-    "Ses yüksekliğini -14 LUFS'a normalleştir": "Normalize loudness to -14 LUFS",
-    "AI Başlık": "AI Title", "Başlık önerisi": "Title suggestion", "Açıklama": "Caption",
-    "Video açıklaması": "Video caption", "Etiketler": "Hashtags",
-    "Yayın metnini panoya kopyala": "Copy publish text",
-    "Instagram'a doğrudan yükleme bu sürümde yoktur. Videoyu filigransız dışa aktarabilir ve yayın paketini kopyalayabilirsiniz.":
-        "Direct Instagram upload is not included. Export without a watermark and copy the publish package.",
-    "1:1 · Kare": "1:1 · Square", "4:5 · Instagram gönderisi": "4:5 · Instagram post",
-    "Kaynak oranı": "Source ratio",
-}
 
 
 def runtime_file(name: str) -> Path:
@@ -143,6 +98,130 @@ def ffmpeg_path() -> str:
     return found
 
 
+log = logging.getLogger("akis")
+log.addHandler(logging.NullHandler())  # without setup_logging (tests, tools) records are dropped, not printed
+RECOVERY_QUESTION = "Kurtarılmış çalışma bulundu, açılsın mı?"
+STALE_PLAN_QUESTION = "Zaman çizelgesi bu sırada değişti. Plan yine de uygulansın mı?"
+UPDATE_REMIND_AFTER = 24 * 3600  # a postponed update is not offered again for this many seconds
+THREAD_STOP_WAIT_MS = 2000  # how long closing the window waits for a background update thread
+_background_threads: list[QThread] = []  # still stopping after their window closed; waited for in main()
+
+
+def wait_for_background_threads() -> None:
+    """After the event loop: let interrupted update threads end so none is destroyed while running."""
+    while _background_threads:
+        thread = _background_threads.pop()
+        if not thread.wait((update_service.READ_TIMEOUT + 5) * 1000):
+            log.warning("Arka plan işi zamanında bitmedi")
+
+
+def app_data_dir() -> Path:
+    """Per-user folder for logs and untitled-project recovery files."""
+    return Path(QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppLocalDataLocation))
+
+
+def recovery_dir() -> Path:
+    return app_data_dir() / "recovery"
+
+
+def recovery_lock(path: Path) -> QLockFile:
+    """Lock owned by the instance writing an untitled recovery file.
+
+    QLockFile records the owner's pid and, on Windows, keeps the file open, so a live instance's lock can
+    neither be taken nor deleted; once its process is gone the lock counts as stale and can be taken over.
+    Age-based staleness is off: an instance may run for hours.
+    """
+    lock = QLockFile(str(path.with_name(path.name.removesuffix(".akis.json") + ".lock")))
+    lock.setStaleLockTime(0)
+    return lock
+
+
+def orphan_recovery_files(folder: Path | None = None) -> list[tuple[Path, QLockFile]]:
+    """Untitled recovery files whose writer is no longer running, newest first, each with its lock now held."""
+    folder = recovery_dir() if folder is None else folder
+    if not folder.is_dir():
+        return []
+    def modified(path: Path) -> float:
+        try:
+            return path.stat().st_mtime
+        except OSError:
+            return 0.0
+
+    found = []
+    own = f"recovery-{os.getpid()}.akis.json"
+    for path in sorted(folder.glob("recovery-*.akis.json"), key=modified, reverse=True):
+        if path.name == own:
+            continue
+        lock = recovery_lock(path)
+        if lock.tryLock(0):
+            found.append((path, lock))
+    return found
+
+
+def normalize_export_path(path: str) -> str:
+    """`klip` -> `klip.mp4`; a known video extension (`klip.mov`) is replaced rather than doubled."""
+    file = Path(path)
+    if file.suffix.lower() == ".mp4":
+        return path
+    if file.suffix.lower() in VIDEO_EXTS:
+        return str(file.with_suffix(".mp4"))
+    return path + ".mp4"
+
+
+_log_handler: logging.Handler | None = None
+_crash_log = None
+
+
+def setup_logging(folder: Path) -> Path:
+    """Rotating application log plus a faulthandler crash log; the packaged app has no console."""
+    global _log_handler, _crash_log
+    folder.mkdir(parents=True, exist_ok=True)
+    log_path = folder / "akis.log"
+    if _log_handler is None:
+        _log_handler = logging.handlers.RotatingFileHandler(log_path, maxBytes=1_000_000, backupCount=3, encoding="utf-8")
+        _log_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+        root = logging.getLogger()
+        root.addHandler(_log_handler)
+        root.setLevel(logging.INFO)
+    if _crash_log is None:
+        try:
+            _crash_log = open(folder / "crash.log", "a", encoding="utf-8")
+            faulthandler.enable(file=_crash_log, all_threads=True)
+        except OSError:
+            log.exception("Çökme günlüğü açılamadı")
+    return log_path
+
+
+class ExceptionHook:
+    """sys.excepthook: logs every uncaught exception and, on the GUI thread, shows a short message."""
+
+    def __init__(self, log_path: Path | None = None, show_dialogs: bool = True) -> None:
+        self.log_path = log_path
+        self.show_dialogs = show_dialogs
+        self._active = False
+
+    def __call__(self, exc_type, exc, tb) -> None:
+        if issubclass(exc_type, KeyboardInterrupt):
+            sys.__excepthook__(exc_type, exc, tb)
+            return
+        log.critical("Yakalanmamış hata:\n%s", "".join(traceback.format_exception(exc_type, exc, tb)))
+        if not self.show_dialogs or self._active:
+            return  # re-entrant: an error while showing the previous message is only logged
+        # No dialog before a QApplication exists, nor from a worker thread (widgets are GUI-thread only).
+        if QApplication.instance() is None or threading.current_thread() is not threading.main_thread():
+            return
+        self._active = True
+        try:
+            text = f"Beklenmeyen bir hata oluştu: {exc}"
+            if self.log_path:
+                text += f"\n\nAyrıntılar günlük dosyasına yazıldı:\n{self.log_path}"
+            QMessageBox.critical(None, APP_NAME, text)
+        except Exception:
+            log.exception("Hata iletisi gösterilemedi")
+        finally:
+            self._active = False
+
+
 def safe_filename(value: str) -> str:
     value = re.sub(r"[^\w\- ]", "", value, flags=re.UNICODE).strip().replace(" ", "_")
     return value[:64] or "video"
@@ -157,146 +236,24 @@ def format_time(seconds: float) -> str:
     return f"{int(minutes):02d}:{sec:05.2f}"
 
 
-def escape_drawtext(text: str) -> str:
-    return (
-        text.replace("\\", r"\\")
-        .replace(":", r"\:")
-        .replace("'", r"\'")
-        .replace("%", r"\%")
-        .replace("[", r"\[")
-        .replace("]", r"\]")
-    )
-
-
 @dataclass
 class EditState:
     source: str = ""
     duration: float = 0.0
     start: float = 0.0
     end: float = 0.0
-    aspect: str = "9:16 · Reels / Shorts"
+    # Choice keys (akis.i18n), never the text a combo shows: the canonical Turkish item text.
+    aspect: str = i18n.DEFAULT_ASPECT
     brightness: int = 0
     contrast: int = 0
     saturation: int = 0
     speed: float = 1.0
-    effect: str = "Yok"
-    fade: bool = False
-    export_profile: str = "Reels · 1080×1920"
-    noise_reduction: bool = False
-    loudness_normalization: bool = False
-    overlay_text: str = ""
+    export_profile: str = i18n.DEFAULT_EXPORT_PROFILE
+    # effect/fade/noise_reduction/loudness_normalization/overlay_text were dropped: their controls are
+    # permanently disabled. apply_project_state ignores unknown keys, so older files holding them still load.
     ai_title: str = ""
     ai_caption: str = ""
     ai_hashtags: str = ""
-
-
-class TimelineBar(QWidget):
-    range_changed = Signal(float, float)
-    seek_requested = Signal(float)
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.setMinimumHeight(96)
-        self.setMouseTracking(True)
-        self.duration = 1.0
-        self.start = 0.0
-        self.end = 1.0
-        self.playhead = 0.0
-        self._drag = ""
-
-    def set_duration(self, seconds: float) -> None:
-        self.duration = max(0.01, seconds)
-        self.start = 0.0
-        self.end = self.duration
-        self.playhead = 0.0
-        self.update()
-
-    def set_range(self, start: float, end: float, emit: bool = False) -> None:
-        start = max(0.0, min(float(start), self.duration))
-        end = max(start + min(0.05, self.duration), min(float(end), self.duration))
-        self.start, self.end = start, end
-        self.update()
-        if emit:
-            self.range_changed.emit(start, end)
-
-    def set_playhead(self, seconds: float) -> None:
-        self.playhead = max(0.0, min(seconds, self.duration))
-        self.update()
-
-    def _x(self, value: float) -> float:
-        return 18 + (self.width() - 36) * value / self.duration
-
-    def _value(self, x: float) -> float:
-        return max(0.0, min(self.duration, (x - 18) / max(1, self.width() - 36) * self.duration))
-
-    def paintEvent(self, _event) -> None:
-        p = QPainter(self)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        track = self.rect().adjusted(18, 28, -18, -24)
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QColor("#191b22"))
-        p.drawRoundedRect(track, 10, 10)
-
-        p.setPen(QPen(QColor("#343746"), 2))
-        center = track.center().y()
-        steps = max(32, self.width() // 10)
-        for i in range(steps):
-            x = track.left() + i * track.width() / max(1, steps - 1)
-            wave = 7 + 10 * abs(math.sin(i * 1.71) * math.cos(i * 0.47))
-            p.drawLine(int(x), int(center - wave), int(x), int(center + wave))
-
-        sx, ex = self._x(self.start), self._x(self.end)
-        selected = track.adjusted(int(sx - track.left()), 0, int(ex - track.right()), 0)
-        p.setBrush(QColor(124, 92, 255, 54))
-        p.setPen(QPen(QColor("#7c5cff"), 2))
-        p.drawRoundedRect(selected, 9, 9)
-
-        for x in (sx, ex):
-            p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(QColor("#9b87ff"))
-            p.drawRoundedRect(int(x - 5), track.top() - 5, 10, track.height() + 10, 5, 5)
-
-        px = self._x(self.playhead)
-        p.setPen(QPen(QColor("#ff4fa3"), 2))
-        p.drawLine(int(px), track.top() - 12, int(px), track.bottom() + 8)
-        path = QPainterPath()
-        path.moveTo(px - 5, track.top() - 13)
-        path.lineTo(px + 5, track.top() - 13)
-        path.lineTo(px, track.top() - 6)
-        path.closeSubpath()
-        p.fillPath(path, QColor("#ff4fa3"))
-
-        p.setPen(QColor("#8d91a4"))
-        p.setFont(QFont("Segoe UI", 8))
-        p.drawText(18, self.height() - 6, format_time(self.start))
-        end_text = format_time(self.end)
-        p.drawText(self.width() - 18 - p.fontMetrics().horizontalAdvance(end_text), self.height() - 6, end_text)
-
-    def mousePressEvent(self, event) -> None:
-        x = event.position().x()
-        if abs(x - self._x(self.start)) <= 12:
-            self._drag = "start"
-        elif abs(x - self._x(self.end)) <= 12:
-            self._drag = "end"
-        else:
-            self._drag = "seek"
-            self.seek_requested.emit(self._value(x))
-
-    def mouseMoveEvent(self, event) -> None:
-        value = self._value(event.position().x())
-        if self._drag == "start":
-            self.start = min(value, self.end - min(0.05, self.duration))
-            self.range_changed.emit(self.start, self.end)
-            self.update()
-        elif self._drag == "end":
-            self.end = max(value, self.start + min(0.05, self.duration))
-            self.range_changed.emit(self.start, self.end)
-            self.update()
-        elif self._drag == "seek":
-            self.seek_requested.emit(value)
-
-    def mouseReleaseEvent(self, _event) -> None:
-        self._drag = ""
 
 
 class MainWindow(QMainWindow):
@@ -318,7 +275,9 @@ class MainWindow(QMainWindow):
         self.proxy.ready.connect(self.on_proxy_ready)
         self.proxy.ended.connect(self.on_proxy_ended)
         self.proxy.failed.connect(self.on_proxy_failed)
-        self.proxy_enabled = True
+        # A failed proxy render only blocks that exact edit; any change makes smooth playback eligible again.
+        self._proxy_failed_signature = None
+        self._proxy_requested = None
         self._play_when_ready = False
         self.proxy_timer = QTimer(self)
         self.proxy_timer.setSingleShot(True)
@@ -328,7 +287,11 @@ class MainWindow(QMainWindow):
         self.project_path = ""
         self._saved_signature = None  # project contents as last saved or opened
         self._close_confirmed = False
+        self._shutting_down = False  # set by closeEvent; late update signals are then ignored
         self._pending_project: dict | None = None
+        self._autosave_file = ""  # last autosave/recovery file this window wrote
+        self._recovery_lock: QLockFile | None = None  # held while our untitled recovery file exists
+        self._prompt_revision = None  # timeline_revision() when the running prompt edit started
         self.worker: QThread | None = None
         self._workers = set()
         self.setWindowTitle(APP_NAME)
@@ -365,35 +328,12 @@ class MainWindow(QMainWindow):
         self.autosave_timer.start()
         self.update_check = None
         self.update_download = None
+        self._update = None  # the release being downloaded or waiting to be installed
+        self._update_percent = -1
+        self._declined_updates = set()  # versions the user postponed in this session
         if getattr(sys, '_MEIPASS', None) and sys.platform == 'win32':
             QTimer.singleShot(5000, self.check_for_updates)
         self.set_status("Bir video sürükleyin veya “Video ekle” düğmesini kullanın.")
-
-    def make_icon(self) -> QIcon:
-        pix = QPixmap(96, 96)
-        pix.fill(Qt.GlobalColor.transparent)
-        p = QPainter(pix)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        gradient = QColor("#7c5cff")
-        p.setBrush(gradient)
-        p.setPen(Qt.PenStyle.NoPen)
-        p.drawRoundedRect(8, 8, 80, 80, 24, 24)
-        # Original interlocking A/flow mark for Akış Kurgu.
-        p.setBrush(QColor("white"))
-        path = QPainterPath()
-        path.moveTo(25, 68)
-        path.lineTo(45, 27)
-        path.lineTo(53, 27)
-        path.lineTo(73, 68)
-        path.lineTo(62, 68)
-        path.lineTo(49, 40)
-        path.lineTo(36, 68)
-        path.closeSubpath()
-        p.drawPath(path)
-        p.setPen(QPen(QColor("#d8ccff"), 6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-        p.drawLine(39, 58, 59, 50)
-        p.end()
-        return QIcon(pix)
 
     def build_sidebar(self) -> QWidget:
         side = QFrame()
@@ -477,6 +417,10 @@ class MainWindow(QMainWindow):
         self.project_title.setObjectName("projectTitle")
         self.project_subtitle = QLabel("Video ekleyerek başlayın")
         self.project_subtitle.setObjectName("muted")
+        # User content once a video is loaded (file name and size); apply_language only rewrites the
+        # placeholders while there is no video.
+        for label in (self.project_title, self.project_subtitle):
+            label.setProperty("i18n_skip", True)
         title_box.addWidget(self.project_title)
         title_box.addWidget(self.project_subtitle)
         header.addLayout(title_box)
@@ -485,6 +429,7 @@ class MainWindow(QMainWindow):
         self.status_label.setObjectName("statusPill")
         self.status_label.setWordWrap(True)
         self.status_label.setMinimumWidth(300)
+        self.status_label.setProperty("i18n_skip", True)  # messages can quote file names and errors
         header.addWidget(self.status_label)
         open_project = QPushButton("Proje aç")
         open_project.setObjectName("ghost")
@@ -537,6 +482,8 @@ class MainWindow(QMainWindow):
         controls.addWidget(self.play_button)
         self.time_label = QLabel("00:00.00 / 00:00.00")
         self.time_label.setObjectName("mono")
+        for dynamic in (self.play_button, self.time_label):
+            dynamic.setProperty("i18n_skip", True)
         controls.addWidget(self.time_label)
         controls.addStretch()
         volume_label = QLabel("Ses")
@@ -600,39 +547,6 @@ class MainWindow(QMainWindow):
         self.horizontal_timeline.valueChanged.connect(self.multitrack_view.set_offset)
         self.multitrack_view.viewport_resized.connect(self.update_timeline_scroll)
         v.addWidget(self.horizontal_timeline)
-        self.timeline = TimelineBar()
-        self.timeline.setEnabled(False)
-        self.timeline.setToolTip("Eski aralık seçimi ortak timeline çıktısını etkilemez; bölme aracını kullanın.")
-        self.timeline.range_changed.connect(self.on_timeline_range)
-        self.timeline.seek_requested.connect(lambda sec: self.seek_timeline(round(sec * self.multitrack.fps_num / self.multitrack.fps_den)))
-        v.addWidget(self.timeline)
-        self.timeline.hide()
-
-        trim_row = QWidget()
-        trims = QHBoxLayout(trim_row)
-        trims.setContentsMargins(0, 0, 0, 0)
-        trims.addWidget(QLabel("Başlangıç"))
-        self.start_spin = QDoubleSpinBox()
-        self.start_spin.setEnabled(False)
-        self.start_spin.setDecimals(2)
-        self.start_spin.setSuffix(" sn")
-        self.start_spin.valueChanged.connect(self.on_spin_range)
-        trims.addWidget(self.start_spin)
-        trims.addWidget(QLabel("Bitiş"))
-        self.end_spin = QDoubleSpinBox()
-        self.end_spin.setEnabled(False)
-        self.end_spin.setDecimals(2)
-        self.end_spin.setSuffix(" sn")
-        self.end_spin.valueChanged.connect(self.on_spin_range)
-        trims.addWidget(self.end_spin)
-        trims.addStretch()
-        reset = QPushButton("Aralığı sıfırla")
-        reset.setEnabled(False)
-        reset.setObjectName("ghost")
-        reset.clicked.connect(self.reset_range)
-        trims.addWidget(reset)
-        v.addWidget(trim_row)
-        trim_row.hide()
         return area
 
     def build_inspector(self) -> QWidget:
@@ -722,10 +636,11 @@ class MainWindow(QMainWindow):
 
         v.addWidget(self.section("ÖNERİ MODU (KESMEDEN)"))
         options = QFormLayout()
-        self.ai_platform = QComboBox(); self.ai_platform.addItems(['Reels', 'TikTok', 'YouTube Shorts', 'General'])
-        self.ai_tempo = QComboBox(); self.ai_tempo.addItems(['Slow', 'Medium', 'Fast', 'Dynamic'])
-        self.ai_style = QComboBox(); self.ai_style.addItems(['Cinematic', 'Energetic', 'Minimal', 'Educational', 'Storytelling'])
-        self.ai_focus = QComboBox(); self.ai_focus.addItems(['Hook first', 'Highlights', 'Full story', 'Product', 'Tutorial'])
+        # Item data is the value sent to the model, whatever the item shows.
+        self.ai_platform = self.keyed_combo(['Reels', 'TikTok', 'YouTube Shorts', 'General'])
+        self.ai_tempo = self.keyed_combo(['Slow', 'Medium', 'Fast', 'Dynamic'])
+        self.ai_style = self.keyed_combo(['Cinematic', 'Energetic', 'Minimal', 'Educational', 'Storytelling'])
+        self.ai_focus = self.keyed_combo(['Hook first', 'Highlights', 'Full story', 'Product', 'Tutorial'])
         for label, widget in [('Platform', self.ai_platform), ('Tempo', self.ai_tempo), ('Stil / Style', self.ai_style), ('Odak / Focus', self.ai_focus)]:
             options.addRow(label, widget)
         v.addLayout(options)
@@ -786,35 +701,83 @@ class MainWindow(QMainWindow):
         label.setObjectName("sectionLabel")
         return label
 
+    @staticmethod
+    def keyed_combo(keys) -> QComboBox:
+        """A combo whose items carry a stable key as item data; the shown text may be translated."""
+        combo = QComboBox()
+        for key in keys:
+            combo.addItem(key, key)
+        combo.setProperty("i18n_keyed", True)
+        return combo
+
+    @staticmethod
+    def select_choice(combo: QComboBox, key) -> bool:
+        """Select the item whose key is `key`; returns False (selection unchanged) when there is none."""
+        index = combo.findData(key)
+        if index < 0:
+            return False
+        combo.setCurrentIndex(index)
+        return True
+
+    def select_aspect(self, value) -> str:
+        """Select an aspect from a key, an older file's display text (Turkish or English) or a bare ratio."""
+        key = i18n.choice_key(i18n.ASPECTS, value)
+        if key is None:
+            log.warning("Bilinmeyen tuval oranı %r; varsayılan kullanılıyor", value)
+            key = i18n.DEFAULT_ASPECT
+        self.select_choice(self.aspect, key)
+        return key
+
+    def select_export_profile(self, value) -> str:
+        key = i18n.choice_key(i18n.EXPORT_PROFILES, value)
+        if key is None:
+            log.warning("Bilinmeyen dışa aktarma profili %r; varsayılan kullanılıyor", value)
+            key = i18n.DEFAULT_EXPORT_PROFILE
+        self.select_choice(self.export_profile, key)
+        return key
+
+    def select_speed(self, value) -> float:
+        """Select the offered speed nearest to `value` (1.25, '1.25×'). Raises ValueError for a non-number."""
+        speed = i18n.speed_key(value)
+        self.select_choice(self.speed, speed)
+        return speed
+
+    def speed_value(self) -> float:
+        return float(self.speed.currentData())
+
+    def refresh_timeline_view(self) -> None:
+        """Size the track view and its scroll area for the current number of tracks."""
+        tracks = len(self.multitrack.tracks)
+        self.multitrack_view.setMinimumHeight(max(210, 40 + 43 * tracks))
+        self.track_scroll.setMinimumHeight(max(160, min(360, 46 + 43 * tracks)))
+
     def build_edit_tab(self) -> QWidget:
         content = QWidget()
         v = QVBoxLayout(content)
         v.setContentsMargins(16, 18, 16, 18)
         v.setSpacing(14)
         v.addWidget(self.section("TUVAL ORANI"))
-        self.aspect = QComboBox()
-        self.aspect.addItems(["9:16 · Reels / Shorts", "16:9 · YouTube", "1:1 · Kare", "4:5 · Instagram gönderisi", "Kaynak oranı"])
-        self.aspect.currentTextChanged.connect(self.change_aspect)
+        self.aspect = self.keyed_combo(i18n.ASPECTS)
+        self.aspect.currentIndexChanged.connect(lambda _index: self.change_aspect(self.aspect.currentData()))
         v.addWidget(self.aspect)
 
         v.addWidget(self.section("HIZ VE GEÇİŞ"))
         self.speed = QComboBox()
-        self.speed.addItems(["0.50×", "0.75×", "1.00×", "1.25×", "1.50×", "2.00×"])
-        self.speed.setCurrentText("1.00×")
-        self.speed.currentTextChanged.connect(self.change_speed)
+        for value in i18n.SPEEDS:
+            self.speed.addItem(f"{value:.2f}×", value)
+        self.select_speed(1.0)
+        self.speed.currentIndexChanged.connect(lambda _index: self.change_speed(self.speed.currentData()))
         v.addWidget(self.speed)
+        # Not supported by the shared timeline renderer yet: shown disabled, not saved in projects.
         self.fade = QCheckBox("Yumuşak giriş ve çıkış geçişi (henüz yok)")
         self.fade.setEnabled(False)
         self.fade.setToolTip("Ortak timeline render yolunda henüz desteklenmiyor.")
-        self.fade.toggled.connect(lambda checked: setattr(self.state, "fade", checked))
         v.addWidget(self.fade)
 
         v.addWidget(self.section("GÖRÜNÜM EFEKTİ"))
-        self.effect = QComboBox()
-        self.effect.addItems(["Yok", "Sinematik", "Siyah-beyaz", "Yumuşak"])
+        self.effect = self.keyed_combo(i18n.EFFECTS)
         self.effect.setEnabled(False)
         self.effect.setToolTip("Ortak timeline render yolunda henüz desteklenmiyor.")
-        self.effect.currentTextChanged.connect(lambda text: setattr(self.state, "effect", text))
         v.addWidget(self.effect)
 
         v.addWidget(self.section("RENK VE IŞIK"))
@@ -836,7 +799,6 @@ class MainWindow(QMainWindow):
         self.overlay.setPlaceholderText("Videoda görünecek kısa başlık")
         self.overlay.setEnabled(False)
         self.overlay.setToolTip("Bu kontrol ortak timeline render yolunda henüz desteklenmiyor.")
-        self.overlay.textChanged.connect(lambda text: setattr(self.state, "overlay_text", text))
         v.addWidget(self.overlay)
         hint = QLabel("Başlık alt-orta güvenli bölgede, yüksek kontrastlı kutu içinde dışa aktarılır.")
         hint.setWordWrap(True)
@@ -857,6 +819,7 @@ class MainWindow(QMainWindow):
         slider = QSlider(Qt.Orientation.Horizontal)
         slider.setRange(low, high)
         slider.valueChanged.connect(lambda x: (value.setText(f"{x:+d}"), callback(x)))
+        slider.value_label = value  # kept current by hand when a value is restored with signals blocked
         layout.addWidget(slider)
         return slider
 
@@ -867,25 +830,21 @@ class MainWindow(QMainWindow):
         v.setSpacing(12)
         v.addWidget(self.section("YAYIN PAKETİ"))
         v.addWidget(QLabel("Dışa aktarma profili"))
-        self.export_profile = QComboBox()
-        self.export_profile.addItems([
-            "Reels · 1080×1920", "TikTok · 1080×1920", "YouTube · 1920×1080",
-            "4K Dikey · 2160×3840", "4K UHD · 3840×2160",
-        ])
-        self.export_profile.currentTextChanged.connect(self.change_export_profile)
+        self.export_profile = self.keyed_combo(i18n.EXPORT_PROFILES)
+        self.export_profile.currentIndexChanged.connect(
+            lambda _index: self.change_export_profile(self.export_profile.currentData()))
         v.addWidget(self.export_profile)
         profile_hint = QLabel('Profil oranı seçer; 4K seçenekleri seçili oranı iki kat çözünürlükte dışa aktarır.')
         profile_hint.setWordWrap(True)
         v.addWidget(profile_hint)
+        # Not supported by the shared timeline renderer yet: shown disabled, not saved in projects.
         self.noise_reduction = QCheckBox("Temel gürültü azaltma")
         self.noise_reduction.setEnabled(False)
         self.noise_reduction.setToolTip("Ortak timeline render yolunda henüz desteklenmiyor.")
-        self.noise_reduction.toggled.connect(lambda checked: setattr(self.state, "noise_reduction", checked))
         v.addWidget(self.noise_reduction)
         self.loudness = QCheckBox("Ses yüksekliğini -14 LUFS'a normalleştir (henüz yok)")
         self.loudness.setEnabled(False)
         self.loudness.setToolTip("Ortak timeline render yolunda henüz desteklenmiyor.")
-        self.loudness.toggled.connect(lambda checked: setattr(self.state, "loudness_normalization", checked))
         v.addWidget(self.loudness)
         v.addWidget(QLabel("AI Başlık"))
         self.publish_title = QLineEdit()
@@ -940,14 +899,15 @@ class MainWindow(QMainWindow):
             return
         self.media_bin.add(str(file))
         self.refresh_media_bin()
-        self.multitrack_view.setMinimumHeight(max(210, 40 + 43 * len(self.multitrack.tracks)))
-        self.track_scroll.setMinimumHeight(max(160, min(360, 46 + 43 * len(self.multitrack.tracks))))
+        self.refresh_timeline_view()
         self.multitrack_view.refresh_waveforms()
         self.multitrack_view.update()
         self.seek_timeline(self.timeline_frame)
         self.set_status('Video zaman çizelgesine eklendi.')
 
     def load_video(self, path: str) -> None:
+        if not self.can_start_work():  # a running worker would deliver its result into the new video
+            return
         file = Path(path)
         if file.suffix.lower() not in VIDEO_EXTS or not file.exists():
             QMessageBox.warning(self, APP_NAME, "Desteklenen bir video dosyası seçin.")
@@ -965,10 +925,10 @@ class MainWindow(QMainWindow):
         self.caption_segments = []
         self.caption_source = ''
         self.apply_captions_button.setEnabled(False)
-        self.state = EditState(source=str(file), aspect=self.aspect.currentText(),
+        self.state = EditState(source=str(file), aspect=self.aspect.currentData(),
                                brightness=self.brightness.value(), contrast=self.contrast.value(),
-                               saturation=self.saturation.value(),
-                               speed=float(self.speed.currentText().replace("×", "")))
+                               saturation=self.saturation.value(), speed=self.speed_value(),
+                               export_profile=self.export_profile.currentData())
         if not self._pending_project and not getattr(self, "_template_before_video", False):
             self.multitrack = Timeline.from_legacy({})
             self.multitrack_view.set_model(self.multitrack)
@@ -979,6 +939,9 @@ class MainWindow(QMainWindow):
         self.refresh_media_bin()
         opening_project = self._pending_project is not None
         self.on_duration(round(duration * 1000))
+        # AI-undo snapshots belong to the previous video/project; restoring one here would mix sources.
+        self._edit_undo.clear()
+        self.undo_edit_button.setEnabled(False)
         self.mark_saved()
         if not opening_project:
             self.set_status("Video hazır. Sağdaki kutuya isteğinizi yazıp kurgulatabilirsiniz.")
@@ -991,15 +954,6 @@ class MainWindow(QMainWindow):
         self.state.duration = duration
         self.state.start = 0.0
         self.state.end = duration
-        self.timeline.set_duration(duration)
-        self.start_spin.blockSignals(True)
-        self.end_spin.blockSignals(True)
-        self.start_spin.setRange(0, duration)
-        self.end_spin.setRange(0, duration)
-        self.start_spin.setValue(0)
-        self.end_spin.setValue(duration)
-        self.start_spin.blockSignals(False)
-        self.end_spin.blockSignals(False)
         self.update_range_label()
         if self._pending_project:
             pending = self._pending_project
@@ -1030,7 +984,7 @@ class MainWindow(QMainWindow):
         else:
             if not duration_frames(self.multitrack):
                 return
-            if self.proxy_enabled and self.proxy.available:
+            if self.proxy_usable():
                 if self.timeline_frame >= duration_frames(self.multitrack) - 1:
                     self.seek_timeline(0)
                 self.play_button.setText('❚❚')
@@ -1048,16 +1002,33 @@ class MainWindow(QMainWindow):
             self.play_button.setText('❚❚')
 
     def proxy_signature(self):
+        """Signature of the current edit for the proxy, or None when no canvas size can be worked out."""
         adjustments = {k: v for k, v in self.render_adjustments().items() if k != 'speed'}
-        return timeline_signature(self.multitrack, self.canvas_size(), adjustments)
+        try:
+            canvas = self.canvas_size()
+        except (ValueError, RuntimeError, OSError):  # e.g. "Kaynak oranı" with no usable video clip
+            return None
+        return timeline_signature(self.multitrack, canvas, adjustments)
+
+    def proxy_usable(self, signature=...):
+        """Smooth playback can be tried for this edit: the backend works and this exact edit has not failed."""
+        if not self.proxy.available:
+            return False
+        if signature is ...:
+            signature = self.proxy_signature()
+        return signature is not None and signature != self._proxy_failed_signature
 
     def prepare_proxy(self):
         """Render the smooth-playback copy in the background whenever the edit has changed."""
-        if not self.proxy_enabled or not self.proxy.available or not duration_frames(self.multitrack):
+        if not duration_frames(self.multitrack):
             return
+        signature = self.proxy_signature()
+        if not self.proxy_usable(signature):
+            return
+        self._proxy_requested = signature
         try:
             adjustments = {k: v for k, v in self.render_adjustments().items() if k != 'speed'}
-            self.proxy.prepare(self.multitrack, self.canvas_size(), adjustments, self.proxy_signature())
+            self.proxy.prepare(self.multitrack, self.canvas_size(), adjustments, signature)
         except Exception as exc:
             self.on_proxy_failed(str(exc))
 
@@ -1096,38 +1067,19 @@ class MainWindow(QMainWindow):
         self.stop_proxy_playback()
 
     def on_proxy_failed(self, message):
-        """Fall back to frame-by-frame preview rather than leaving playback broken."""
-        self.proxy_enabled = False
+        """Fall back to frame-by-frame preview for this edit rather than leaving playback broken.
+
+        Only the failed signature is remembered: the next change to the edit tries the proxy again.
+        """
+        failed = self._proxy_requested or self.proxy.signature or self.proxy_signature()
+        self._proxy_failed_signature = failed
+        log.warning("Akıcı önizleme başarısız (%s): %s", failed, message)
         self.stop_proxy_playback(refresh=False)
         self.set_status(f'Akıcı önizleme kullanılamadı, kare kare önizlemeye geçildi: {message[:120]}')
-
-    def on_timeline_range(self, start: float, end: float) -> None:
-        self.state.start, self.state.end = start, end
-        self.start_spin.blockSignals(True)
-        self.end_spin.blockSignals(True)
-        self.start_spin.setValue(start)
-        self.end_spin.setValue(end)
-        self.start_spin.blockSignals(False)
-        self.end_spin.blockSignals(False)
-        self.update_range_label()
-
-    def on_spin_range(self) -> None:
-        if not self.state.duration:
-            return
-        start = min(self.start_spin.value(), self.end_spin.value() - 0.05)
-        end = max(self.end_spin.value(), start + 0.05)
-        self.state.start, self.state.end = start, end
-        self.timeline.set_range(start, end)
-        self.update_range_label()
 
     def update_range_label(self) -> None:
         selected = max(0, self.state.end - self.state.start)
         self.selection_label.setText(f"Seçim: {format_time(selected)}")
-
-    def reset_range(self) -> None:
-        if not self.state.duration:
-            return
-        self.timeline.set_range(0, self.state.duration, emit=True)
 
     def api_credentials(self) -> tuple[str, str] | None:
         key = self.api_key.text().strip()
@@ -1182,14 +1134,11 @@ class MainWindow(QMainWindow):
             template, style, tempo = dialog.selection()
             template_service.apply_template(self.multitrack, template)
             self._template_before_video = not bool(self.state.source)
-            for i in range(self.aspect.count()):
-                if self.aspect.itemText(i).startswith(template.ratio):
-                    self.aspect.setCurrentIndex(i); break
+            self.select_choice(self.aspect, i18n.choice_key(i18n.ASPECTS, template.ratio))
             self.apply_preset(*template_service.STYLES[style])
-            self.speed.setCurrentText(template_service.TEMPOS[tempo])
+            self.select_speed(template_service.TEMPOS[tempo])
             self.multitrack_view.set_model(self.multitrack)
-            self.multitrack_view.setMinimumHeight(max(210, 40 + 43 * len(self.multitrack.tracks)))
-            self.track_scroll.setMinimumHeight(max(160, min(360, 46 + 43 * len(self.multitrack.tracks))))
+            self.refresh_timeline_view()
             self.multitrack_view.update()
             if duration_frames(self.multitrack):
                 self.seek_timeline(self.timeline_frame)
@@ -1209,7 +1158,7 @@ class MainWindow(QMainWindow):
             return
         key, model = credentials
         self.begin_work("AI analizi başlatılıyor…")
-        self.worker = AIWorker(key, model, self.state.source, self.state.duration, plan_prompt(self.ai_prompt.toPlainText().strip(), self.ai_platform.currentText(), self.ai_tempo.currentText(), self.ai_style.currentText(), self.ai_focus.currentText()), ffmpeg_path(), self.provider.currentText())
+        self.worker = AIWorker(key, model, self.state.source, self.state.duration, plan_prompt(self.ai_prompt.toPlainText().strip(), self.ai_platform.currentData(), self.ai_tempo.currentData(), self.ai_style.currentData(), self.ai_focus.currentData()), ffmpeg_path(), self.provider.currentText())
         self.worker.status.connect(self.set_status)
         self.worker.completed.connect(self.on_ai_plan)
         self.worker.failed.connect(self.on_worker_error)
@@ -1248,17 +1197,22 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, APP_NAME, 'Kurgulanacak video dosyası bulunamadı.')
             return
         transcripts = {self.caption_source: self.caption_segments} if self.caption_source and self.caption_segments else {}
+        self._prompt_revision = self.timeline_revision()
         self.begin_work("Prompt kurgusu başlatılıyor…")
+        # The model sets colour/speed/aspect as absolute values, so it is told what they are now.
+        settings = {'color': (self.brightness.value(), self.contrast.value(), self.saturation.value()),
+                    'speed': self.speed.currentText(), 'aspect': self.aspect.currentData()}
         self.worker = PromptEditWorker(key, model, self.provider.currentText(), request, self.multitrack, sources,
                                        ffmpeg_path(), transcripts,
-                                       self.local_model.currentText() if self.use_speech.isChecked() else None)
+                                       self.local_model.currentText() if self.use_speech.isChecked() else None,
+                                       settings=settings)
         self.worker.status.connect(self.set_status)
         self.worker.completed.connect(self.on_prompt_edit)
         self.worker.failed.connect(self.on_worker_error)
         self.start_worker()
 
     def edit_snapshot(self):
-        return {'timeline': self.multitrack, 'aspect': self.aspect.currentText(), 'speed': self.speed.currentText(),
+        return {'timeline': self.multitrack, 'aspect': self.aspect.currentData(), 'speed': self.speed_value(),
                 'color': (self.brightness.value(), self.contrast.value(), self.saturation.value()),
                 'publish': (self.publish_title.text(), self.publish_caption.toPlainText(), self.publish_tags.toPlainText())}
 
@@ -1269,14 +1223,31 @@ class MainWindow(QMainWindow):
         self.timeline_audio.stop()
         self.multitrack = timeline
         self.multitrack_view.set_model(timeline)
-        self.multitrack_view.setMinimumHeight(max(210, 40 + 43 * len(timeline.tracks)))
-        self.track_scroll.setMinimumHeight(max(160, min(360, 46 + 43 * len(timeline.tracks))))
+        self.refresh_timeline_view()
         self.seek_timeline(0)
 
+    def timeline_revision(self) -> str:
+        """Cheap fingerprint of the timeline's contents, to notice edits made while a worker was running."""
+        payload = json.dumps(self.multitrack.to_dict(), sort_keys=True, ensure_ascii=False, default=str)
+        return hashlib.sha1(payload.encode()).hexdigest()
+
     def on_prompt_edit(self, plan, sources):
+        started, self._prompt_revision = self._prompt_revision, None
+        if started is not None and started != self.timeline_revision():
+            # The plan was computed from the timeline as it was when the request started.
+            answer = QMessageBox.question(self, APP_NAME, STALE_PLAN_QUESTION,
+                                          QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                          QMessageBox.StandardButton.No)
+            if answer != QMessageBox.StandardButton.Yes:
+                self.finish_work('AI planı uygulanmadı; zaman çizelgesindeki değişiklikleriniz korundu.')
+                return
         try:
-            aspect_text = self.aspect.itemText(edit_plan.ASPECTS.index(plan['aspect'])) if 'aspect' in plan else self.aspect.currentText()
-            canvas = timeline_service.canvas_size(aspect_text, self.multitrack, MediaService(ffmpeg_path()))
+            aspect = self.aspect.currentData()
+            if 'aspect' in plan:  # a bare ratio such as '16:9'
+                aspect = i18n.choice_key(i18n.ASPECTS, plan['aspect'])
+                if aspect is None:
+                    raise ValueError(f'desteklenmeyen oran: {plan["aspect"]}')
+            canvas = timeline_service.canvas_size(aspect, self.multitrack, MediaService(ffmpeg_path()))
             timeline = edit_plan.apply_plan(self.multitrack, sources, plan, canvas)
         except Exception as exc:
             self.on_worker_error(f'Kurgu planı uygulanamadı: {exc}')
@@ -1284,11 +1255,15 @@ class MainWindow(QMainWindow):
         self._edit_undo.append(self.edit_snapshot())
         self.undo_edit_button.setEnabled(True)
         if 'aspect' in plan:
-            self.aspect.setCurrentIndex(edit_plan.ASPECTS.index(plan['aspect']))
+            self.select_choice(self.aspect, aspect)
         if 'speed' in plan:
-            self.speed.setCurrentText(f"{plan['speed']:.2f}×")
+            self.select_speed(plan['speed'])
         if 'color' in plan:
-            self.apply_preset(plan['color']['brightness'], plan['color']['contrast'], plan['color']['saturation'])
+            # A plan carries only the colour keys the model gave; the others keep their current value.
+            color = plan['color']
+            self.apply_preset(color.get('brightness', self.brightness.value()),
+                              color.get('contrast', self.contrast.value()),
+                              color.get('saturation', self.saturation.value()))
         if 'title' in plan:
             self.publish_title.setText(plan['title'])
         if 'caption' in plan:
@@ -1304,8 +1279,8 @@ class MainWindow(QMainWindow):
             return
         snapshot = self._edit_undo.pop()
         self.undo_edit_button.setEnabled(bool(self._edit_undo))
-        self.aspect.setCurrentText(snapshot['aspect'])
-        self.speed.setCurrentText(snapshot['speed'])
+        self.select_choice(self.aspect, snapshot['aspect'])
+        self.select_speed(snapshot['speed'])
         self.apply_preset(*snapshot['color'])
         title, caption, tags = snapshot['publish']
         self.publish_title.setText(title)
@@ -1374,8 +1349,7 @@ class MainWindow(QMainWindow):
 
     def apply_local_captions(self):
         count = caption_track(self.multitrack, self.caption_source, self.caption_segments)
-        self.multitrack_view.setMinimumHeight(max(210, 40 + 43 * len(self.multitrack.tracks)))
-        self.track_scroll.setMinimumHeight(max(160, min(360, 46 + 43 * len(self.multitrack.tracks))))
+        self.refresh_timeline_view()
         self.multitrack_view.update()
         self.seek_timeline(self.timeline_frame)
         self.set_status(f'{count} altyazı klibi eklendi. / Caption clips added.')
@@ -1387,11 +1361,12 @@ class MainWindow(QMainWindow):
         if not text:
             self.set_status('Önce seslendirme metni girin.')
             return
-        path, _ = QFileDialog.getSaveFileName(self, 'Seslendirmeyi kaydet', '', 'WAV (*.wav)')
-        if not path:
+        chosen, _ = QFileDialog.getSaveFileName(self, 'Seslendirmeyi kaydet', '', 'WAV (*.wav)')
+        if not chosen:
             return
-        if not path.lower().endswith('.wav'):
-            path += '.wav'
+        path = chosen if chosen.lower().endswith('.wav') else chosen + '.wav'
+        if not self.confirm_overwrite(chosen, path):
+            return
         self.begin_work('Windows sesi oluşturuluyor…')
         self.worker = TtsWorker(text, path)
         self.worker.completed.connect(lambda result: self.finish_work(f'Ses kaydedildi: {result}'))
@@ -1409,23 +1384,38 @@ class MainWindow(QMainWindow):
             return
         if not self.ensure_video():
             return
-        default = safe_filename(self.project_title.text()) + "_akis.mp4"
-        path, _ = QFileDialog.getSaveFileName(self, "Videoyu dışa aktar", str(Path.home() / "Videos" / default), "MP4 Video (*.mp4)")
-        if not path:
+        try:
+            canvas = self.export_canvas_size()
+        except (ValueError, RuntimeError, OSError) as exc:  # e.g. "Kaynak oranı" with no usable video clip
+            QMessageBox.warning(self, APP_NAME, f'Dışa aktarma boyutu belirlenemedi: {exc}')
+            self.set_status('Dışa aktarma başlatılamadı.')
             return
-        if not path.lower().endswith(".mp4"):
-            path += ".mp4"
+        default = safe_filename(self.project_title.text()) + "_akis.mp4"
+        chosen, _ = QFileDialog.getSaveFileName(self, "Videoyu dışa aktar", str(Path.home() / "Videos" / default), "MP4 Video (*.mp4)")
+        if not chosen:
+            return
+        path = normalize_export_path(chosen)
+        if not self.confirm_overwrite(chosen, path):
+            return
         if timeline_service.output_overwrites_source(self.multitrack, path, (self.state.source,)):
             QMessageBox.warning(self, APP_NAME, 'Çıktı yolu kaynak medya ile aynı olamaz; başka bir dosya adı seçin.')
             return
-        self.state.overlay_text = self.overlay.text()
-        self.state.aspect = self.aspect.currentText()
-        self.state.export_profile = self.export_profile.currentText()
+        self.state.aspect = self.aspect.currentData()
+        self.state.export_profile = self.export_profile.currentData()
         self.begin_work("Dışa aktarma hazırlanıyor…")
-        self.worker = TimelineRenderWorker(self.multitrack, path, self.export_canvas_size(), ffmpeg_path(), adjustments=self.render_adjustments())
+        self.worker = TimelineRenderWorker(self.multitrack, path, canvas, ffmpeg_path(), adjustments=self.render_adjustments())
         self.worker.completed.connect(self.on_exported)
         self.worker.failed.connect(self.on_worker_error)
         self.start_worker()
+
+    def confirm_overwrite(self, chosen: str, path: str) -> bool:
+        """The file dialog only confirmed overwriting `chosen`; ask again when the final name differs and exists."""
+        if os.path.normcase(os.path.abspath(chosen)) == os.path.normcase(os.path.abspath(path)) or not Path(path).exists():
+            return True
+        answer = QMessageBox.question(self, APP_NAME, f'“{Path(path).name}” zaten var. Üzerine yazılsın mı?',
+                                      QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                      QMessageBox.StandardButton.No)
+        return answer == QMessageBox.StandardButton.Yes
 
     def on_exported(self, path: str) -> None:
         self.finish_work("Dışa aktarma tamamlandı.")
@@ -1483,23 +1473,93 @@ class MainWindow(QMainWindow):
         self.set_status("İşlem tamamlanamadı.")
         QMessageBox.critical(self, APP_NAME, message)
 
-    def check_for_updates(self):
-        self.update_check = UpdateCheckWorker(self)
+    # Self-update: check the version first, ask, download into one fixed folder, ask again, verify, install.
+    def update_folder(self) -> Path:
+        return update_service.update_dir(app_data_dir())
+
+    def check_for_updates(self) -> None:
+        if self._shutting_down or any(t is not None and t.isRunning() for t in (self.update_check, self.update_download)):
+            return
+        update_service.cleanup_legacy_temp()
+        self.update_check = UpdateCheckWorker()
         self.update_check.available.connect(self.offer_update)
+        self.update_check.up_to_date.connect(lambda: update_service.cleanup_update_dir(self.update_folder()))
         self.update_check.start()
 
-    def offer_update(self, update):
+    def update_postponed(self, version: str) -> bool:
+        """The user said "later" to this version in this session, or within UPDATE_REMIND_AFTER."""
+        if version in self._declined_updates:
+            return True
+        try:
+            until = float(self.settings.value("update/postponed_until", 0) or 0)
+        except (TypeError, ValueError):
+            until = 0.0
+        return self.settings.value("update/postponed_version", "") == version and time.time() < until
+
+    def postpone_update(self, version: str) -> None:
+        self._declined_updates.add(version)
+        self.settings.setValue("update/postponed_version", version)
+        self.settings.setValue("update/postponed_until", time.time() + UPDATE_REMIND_AFTER)
+
+    def offer_update(self, update) -> None:
+        if self._shutting_down:
+            return
+        version = update['version']
+        try:
+            target = update_service.installer_path(self.update_folder(), update)
+        except ValueError:
+            log.warning("Geçersiz güncelleme sürümü: %r", version)
+            return
+        # Installers of any other version (older downloads, partial files) are stale now.
+        update_service.cleanup_update_dir(target.parent, keep=target)
+        if self.update_postponed(version):
+            log.info("Güncelleme %s ertelendiği için sorulmadı", version)
+            return
+        size = update.get('size')
+        size_text = f" İndirme boyutu: {size / 1024 / 1024:.1f} MB." if size else ""
+        answer = QMessageBox.question(
+            self, APP_NAME,
+            f"Akış Kurgu AI {version} sürümü yayımlandı.{size_text}\n\nŞimdi indirilsin mi? İndirme arka planda "
+            "yapılır; kurulumdan önce yeniden sorulur.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.Yes)
+        if answer != QMessageBox.StandardButton.Yes:
+            self.postpone_update(version)
+            self.set_status(f"{version} güncellemesi ertelendi.")
+            return
+        self.start_update_download(update, target)
+
+    def start_update_download(self, update, target: Path) -> None:
+        self._update = update
+        self._update_percent = -1
         self.set_status(f"{update['version']} güncellemesi indiriliyor…")
-        destination = str(Path(tempfile.mkdtemp(prefix='akis_update_')) / 'AkisKurguAI-Setup.exe')
-        self.update_download = UpdateDownloadWorker(update, destination)
+        self.update_download = UpdateDownloadWorker(update, str(target))
+        self.update_download.progress.connect(self.on_update_progress)
         self.update_download.completed.connect(self.install_update)
-        self.update_download.failed.connect(lambda message: self.set_status(f'Güncelleme indirilemedi: {message}'))
+        self.update_download.failed.connect(self.on_update_failed)
+        self.update_download.cancelled.connect(lambda: log.info("Güncelleme indirmesi iptal edildi"))
         self.update_download.start()
 
-    def install_update(self, installer):
+    def on_update_progress(self, done: int, total: int) -> None:
+        if self._shutting_down or total <= 0:
+            return
+        percent = min(100, done * 100 // total)
+        if percent != self._update_percent:
+            self._update_percent = percent
+            self.set_status(f"{self._update['version']} güncellemesi indiriliyor… %{percent}")
+
+    def on_update_failed(self, message: str) -> None:
+        log.warning("Güncelleme indirilemedi: %s", message)
+        if not self._shutting_down:
+            self.set_status(f'Güncelleme indirilemedi: {message}')
+
+    def install_update(self, installer: str) -> None:
+        update = self._update
+        if self._shutting_down or update is None:
+            return
         self.set_status('Güncelleme hazır.')
         answer = QMessageBox.question(self, APP_NAME, 'Güncelleme hazır. Önce açık projenizi kaydedin. Uygulama kapanıp güncellensin mi?', QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         if answer != QMessageBox.StandardButton.Yes:
+            self.postpone_update(update['version'])  # the verified file stays and is reused next time
             return
         if self._workers:
             QMessageBox.information(self, APP_NAME, 'Güncellemeden önce devam eden işlemin bitmesini bekleyin.')
@@ -1508,12 +1568,26 @@ class MainWindow(QMainWindow):
         if not self.confirm_close():
             return
         try:
-            update_service.launch_installer(installer, sys.executable, os.getpid())
+            # Verifies the SHA-256 again right before spawning; the helper re-verifies before Start-Process.
+            update_service.launch_installer(installer, sys.executable, os.getpid(), sha256=update['sha256'])
         except (OSError, ValueError) as exc:
+            if str(exc) == update_service.VERIFY_FAILED:
+                self.remove_file(Path(installer))
             QMessageBox.critical(self, APP_NAME, f'Güncelleme başlatılamadı: {exc}')
             return
         self._close_confirmed = True
         self.close()
+
+    @staticmethod
+    def stop_thread(thread) -> None:
+        """Ask a background thread to stop and wait briefly; one still blocked on the network is left to
+        finish on its own (kept referenced, waited for once the event loop has ended)."""
+        if thread is None or not thread.isRunning():
+            return
+        thread.requestInterruption()
+        if not thread.wait(THREAD_STOP_WAIT_MS):
+            log.info("Arka plan işi %s ms içinde durmadı; kapanışta beklenecek", THREAD_STOP_WAIT_MS)
+            _background_threads.append(thread)
 
     def set_status(self, text: str) -> None:
         self.status_label.setText(text)
@@ -1540,8 +1614,7 @@ class MainWindow(QMainWindow):
         kind, ok = QInputDialog.getItem(self, 'İz ekle / Add track', 'Tür / Type', ['video', 'audio', 'text', 'overlay'], 0, False)
         if ok:
             self.multitrack.tracks.append(Track(kind, f'{kind.title()} {len(self.multitrack.tracks)+1}'))
-            self.multitrack_view.setMinimumHeight(max(210, 40 + 43 * len(self.multitrack.tracks)))
-            self.track_scroll.setMinimumHeight(max(160, min(360, 46 + 43 * len(self.multitrack.tracks))))
+            self.refresh_timeline_view()
             self.multitrack_view.update()
 
     def remove_track(self):
@@ -1558,8 +1631,7 @@ class MainWindow(QMainWindow):
         self.multitrack.tracks.pop(index)
         self.multitrack_view.selected = None
         self.multitrack_view.selected_track = None
-        self.multitrack_view.setMinimumHeight(max(210, 40 + 43 * len(self.multitrack.tracks)))
-        self.track_scroll.setMinimumHeight(max(160, min(360, 46 + 43 * len(self.multitrack.tracks))))
+        self.refresh_timeline_view()
         self.seek_timeline(self.timeline_frame)
 
     def edit_text_clip(self):
@@ -1606,7 +1678,11 @@ class MainWindow(QMainWindow):
 
     def element_at(self, x, y):
         """(track_index, clip) of the text or mark drawn nearest to a point of the picture, or None."""
-        width, height = self.canvas_size()
+        try:
+            width, height = self.canvas_size()
+        except (ValueError, RuntimeError, OSError) as exc:  # no picture to hit-test against
+            self.set_status(f'Önizleme boyutu belirlenemedi: {exc}')
+            return None
         best = None
         for index, track in enumerate(self.multitrack.tracks):
             if track.kind != 'text' or track.muted:
@@ -1711,7 +1787,12 @@ class MainWindow(QMainWindow):
         self.multitrack_view.update()
         fps = self.multitrack.fps_num / self.multitrack.fps_den
         self.time_label.setText(f'{format_time(self.timeline_frame/fps)} / {format_time(total/fps)}')
-        self.preview.request(self.multitrack, self.timeline_frame, self.canvas_size(), self.render_adjustments())
+        try:
+            canvas = self.canvas_size()
+        except (ValueError, RuntimeError, OSError) as exc:  # e.g. "Kaynak oranı" with the first clip missing
+            self.set_status(f'Önizleme oluşturulamadı: {exc}')
+            return
+        self.preview.request(self.multitrack, self.timeline_frame, canvas, self.render_adjustments())
 
     def show_timeline_frame(self, path):
         if not self.proxy.playing:
@@ -1730,24 +1811,25 @@ class MainWindow(QMainWindow):
         elif frame != self.timeline_frame:
             self.seek_timeline(frame, from_clock=True)
 
-    def change_aspect(self, text):
-        self.state.aspect = text
+    def change_aspect(self, key):
+        self.state.aspect = key
         if hasattr(self, 'multitrack_view') and duration_frames(self.multitrack):
             self.seek_timeline(self.timeline_frame)
 
-    def change_export_profile(self, text):
-        self.state.export_profile = text
-        if text.startswith(('Reels', 'TikTok', '4K Dikey')):
-            self.aspect.setCurrentIndex(0)
-        elif text.startswith(('YouTube', '4K UHD')):
-            self.aspect.setCurrentIndex(1)
+    def change_export_profile(self, key):
+        self.state.export_profile = key
+        if key.startswith(('Reels', 'TikTok', '4K Dikey')):
+            self.select_choice(self.aspect, '9:16 · Reels / Shorts')
+        elif key.startswith(('YouTube', '4K UHD')):
+            self.select_choice(self.aspect, '16:9 · YouTube')
 
+    # timeline_service parses the canonical Turkish texts, which are exactly the combo keys.
     def canvas_size(self):
-        return timeline_service.canvas_size(self.aspect.currentText(), self.multitrack, MediaService(ffmpeg_path()))
+        return timeline_service.canvas_size(self.aspect.currentData(), self.multitrack, MediaService(ffmpeg_path()))
 
     def export_canvas_size(self):
-        return timeline_service.output_canvas_size(self.aspect.currentText(), self.multitrack,
-                                                   MediaService(ffmpeg_path()), self.export_profile.currentText())
+        return timeline_service.output_canvas_size(self.aspect.currentData(), self.multitrack,
+                                                   MediaService(ffmpeg_path()), self.export_profile.currentData())
 
     def sync_timeline_audio(self, force=False):
         if self.play_timer.isActive():
@@ -1775,8 +1857,8 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'multitrack_view') and duration_frames(self.multitrack):
             self.seek_timeline(self.timeline_frame)
 
-    def change_speed(self, text):
-        self.state.speed = float(text.replace('×', ''))
+    def change_speed(self, value):
+        self.state.speed = i18n.speed_key(value)
         if hasattr(self, 'proxy'):
             self.proxy.set_speed(self.state.speed)
         if hasattr(self, 'play_timer') and self.play_timer.isActive():
@@ -1804,20 +1886,23 @@ class MainWindow(QMainWindow):
         path = self.project_path
         if not path:
             default = safe_filename(self.project_title.text()) + ".akis.json"
-            path, _ = QFileDialog.getSaveFileName(
+            chosen, _ = QFileDialog.getSaveFileName(
                 self, "Projeyi kaydet", str(Path.home() / "Documents" / default), "Akış projesi (*.akis.json)"
             )
-        if not path:
-            return
-        if not path.lower().endswith(".akis.json"):
-            path += ".akis.json"
+            if not chosen:
+                return
+            path = project_service.normalize_project_path(chosen)
+            if not self.confirm_overwrite(chosen, path):
+                return
         try:
             self.write_project(path, snapshot=True)
         except (OSError, ValueError) as exc:
+            log.exception("Proje kaydedilemedi: %s", path)
             QMessageBox.critical(self, APP_NAME, f'Proje kaydedilemedi: {exc}')
             return
         self.project_path = path
         self.mark_saved()
+        self.discard_autosave()  # the project file now holds everything the autosave did
         self.set_status("Proje ve sürüm anlık görüntüsü kaydedildi.")
 
     def project_signature(self) -> str:
@@ -1841,26 +1926,140 @@ class MainWindow(QMainWindow):
         if answer == buttons.Save:
             self.save_project()
             return not self.has_unsaved_changes()
-        return answer == buttons.Discard
+        if answer == buttons.Discard:
+            self.discard_autosave()  # discarded work must not come back as "recovered" later
+            return True
+        return False
 
     def open_project(self) -> None:
-        if not self.confirm_close():
+        if not self.can_start_work() or not self.confirm_close():
             return
         path, _ = QFileDialog.getOpenFileName(
             self, "Proje aç", "", "Akış projesi (*.akis.json);;JSON (*.json)"
         )
         if not path:
             return
+        self.open_project_file(path)
+
+    def open_project_file(self, path: str) -> bool:
+        """Open a project file, offering its newer autosave (left by a crash) instead."""
+        autosave = Path(path + ".autosave")
+        load_from, recovered = path, False
         try:
-            document, source_path = project_service.load_with_source(path)
-            self._pending_project = document
-            if self.load_video(source_path):
-                self.project_path = path
+            newer = autosave.is_file() and autosave.stat().st_mtime > Path(path).stat().st_mtime
+        except OSError:
+            newer = False
+        if newer:
+            answer = QMessageBox.question(self, APP_NAME, RECOVERY_QUESTION,
+                                          QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                          QMessageBox.StandardButton.Yes)
+            if answer == QMessageBox.StandardButton.Yes:
+                load_from, recovered = str(autosave), True
             else:
-                self._pending_project = None
+                self.remove_file(autosave)
+        elif autosave.is_file():
+            self.remove_file(autosave)  # older than the project: the project was saved after it
+        opened = self.load_project_document(load_from, path, recovered=recovered)
+        if opened and recovered:
+            self._autosave_file = str(autosave)  # ours now: removed on save, discard or clean close
+        return opened
+
+    def load_project_document(self, load_from: str, project_path: str, recovered: bool = False) -> bool:
+        """Load `load_from` as the project at `project_path` (the real project, never the autosave)."""
+        # Opening is all-or-nothing: load_video/apply_project_state replace the window's project piece by
+        # piece, so a failure half-way must put the previous project back. Otherwise the window would show
+        # the new project while project_path still names the old file, and Save/autosave would overwrite it.
+        snapshot = self.open_snapshot()
+        try:
+            document, source_path, missing = project_service.load_project(load_from)
+            self._pending_project = document
+            loaded = self.load_video(source_path)
         except Exception as exc:
-            self._pending_project = None
-            QMessageBox.critical(self, APP_NAME, str(exc))
+            log.exception("Proje açılamadı: %s", load_from)
+            self.restore_open_snapshot(snapshot)
+            QMessageBox.critical(self, APP_NAME, f'Proje açılamadı: {exc}')
+            self.set_status('Proje açılamadı; önceki çalışma olduğu gibi korundu.')
+            return False
+        if not loaded:  # load_video refused the source and already told the user why
+            self.restore_open_snapshot(snapshot)
+            return False
+        # The previous project was saved or discarded in confirm_close; never delete the file just recovered.
+        self.discard_autosave(keep=load_from if recovered else None)
+        self.project_path = project_path
+        if recovered:
+            self._saved_signature = None  # recovered work is not in any saved file yet
+            self.set_status('Kurtarılan çalışma açıldı; kalıcı olması için projeyi kaydedin.')
+        if missing:
+            names = '\n'.join(f'• {item}' for item in missing)
+            QMessageBox.warning(self, APP_NAME, f'Projede kullanılan şu medya dosyaları bulunamadı:\n{names}\n\n'
+                                                'Proje açıldı; bu dosyaları kullanan klipler önizlemede ve dışa aktarmada eksik kalabilir.')
+        return True
+
+    def project_controls(self):
+        """(widget, getter, setter) for every control apply_project_state writes."""
+        # Keyed combos are captured and restored by key, so a language switch in between cannot break them.
+        return [(self.aspect, self.aspect.currentData, lambda key: self.select_choice(self.aspect, key)),
+                (self.brightness, self.brightness.value, self.brightness.setValue),
+                (self.contrast, self.contrast.value, self.contrast.setValue),
+                (self.saturation, self.saturation.value, self.saturation.setValue),
+                (self.speed, self.speed.currentData, lambda key: self.select_choice(self.speed, key)),
+                (self.export_profile, self.export_profile.currentData,
+                 lambda key: self.select_choice(self.export_profile, key)),
+                (self.publish_title, self.publish_title.text, self.publish_title.setText),
+                (self.publish_caption, self.publish_caption.toPlainText, self.publish_caption.setPlainText),
+                (self.publish_tags, self.publish_tags.toPlainText, self.publish_tags.setPlainText),
+                (self.ai_prompt, self.ai_prompt.toPlainText, self.ai_prompt.setPlainText),
+                (self.project_title, self.project_title.text, self.project_title.setText),
+                (self.project_subtitle, self.project_subtitle.text, self.project_subtitle.setText),
+                (self.apply_captions_button, self.apply_captions_button.isEnabled, self.apply_captions_button.setEnabled),
+                (self.undo_edit_button, self.undo_edit_button.isEnabled, self.undo_edit_button.setEnabled)]
+
+    def open_snapshot(self) -> dict:
+        """Everything opening a project can replace, so a failed open can be undone exactly."""
+        return {'state': copy.deepcopy(self.state), 'multitrack': self.multitrack,
+                'selected': (self.multitrack_view.selected, self.multitrack_view.selected_track),
+                'frame': self.timeline_frame, 'project_path': self.project_path,
+                'saved_signature': self._saved_signature, 'pending': self._pending_project,
+                'template_before_video': getattr(self, '_template_before_video', False),
+                'media': list(self.media_bin.paths), 'undo': list(self._edit_undo),
+                'captions': (self.caption_segments, self.caption_source),
+                'controls': [(widget, setter, getter()) for widget, getter, setter in self.project_controls()]}
+
+    def restore_open_snapshot(self, snapshot: dict) -> None:
+        self.play_timer.stop()
+        self.playback_clock.stop()
+        self.timeline_audio.stop()
+        self.proxy_timer.stop()
+        # Plain data first: it decides what Save and autosave write, and where.
+        self.project_path = snapshot['project_path']
+        self._saved_signature = snapshot['saved_signature']
+        self._pending_project = snapshot['pending']
+        self._template_before_video = snapshot['template_before_video']
+        self.multitrack = snapshot['multitrack']
+        self.media_bin.paths[:] = snapshot['media']
+        self._edit_undo[:] = snapshot['undo']
+        self.caption_segments, self.caption_source = snapshot['captions']
+        # Controls with their signals blocked: their slots would write into state and re-render mid-restore.
+        for widget, setter, value in snapshot['controls']:
+            blocked = widget.blockSignals(True)
+            try:
+                setter(value)
+            finally:
+                widget.blockSignals(blocked)
+            if hasattr(widget, 'value_label'):
+                widget.value_label.setText(f'{value:+d}')
+        self.state = copy.deepcopy(snapshot['state'])
+        self.proxy.set_speed(self.state.speed)
+        self.multitrack_view.set_model(self.multitrack)
+        self.multitrack_view.selected, self.multitrack_view.selected_track = snapshot['selected']
+        self.refresh_timeline_view()
+        self.refresh_media_bin()
+        self.update_range_label()
+        self.timeline_frame = snapshot['frame']
+        try:
+            self.seek_timeline(self.timeline_frame)  # only refreshes the picture; the data is already back
+        except Exception:
+            self.multitrack_view.update()
 
     def apply_project_state(self, document: dict) -> None:
         raw = document.get("state", {})
@@ -1870,29 +2069,27 @@ class MainWindow(QMainWindow):
         self.state = EditState(**merged)
         self.multitrack = Timeline.from_dict(document['timeline']) if 'timeline' in document else Timeline.from_legacy(merged)
         self.multitrack_view.set_model(self.multitrack)
-        self.multitrack_view.setMinimumHeight(max(210, 40 + 43 * len(self.multitrack.tracks)))
-        self.track_scroll.setMinimumHeight(max(160, min(360, 46 + 43 * len(self.multitrack.tracks))))
+        self.refresh_timeline_view()
         for track in self.multitrack.tracks:
             for clip in track.clips:
                 if clip.source:
                     self.media_bin.add(clip.source)
         self.refresh_media_bin()
-        self.timeline.set_range(
-            self.state.start, min(self.state.end or self.state.duration, self.state.duration), emit=True
-        )
-        self.aspect.setCurrentText(self.state.aspect)
+        # The legacy in/out range, clamped to the video as the old range bar did.
+        duration = max(0.01, self.state.duration)
+        start = max(0.0, min(float(self.state.start), duration))
+        end = max(start + min(0.05, duration), min(float(self.state.end or duration), duration))
+        self.state.start, self.state.end = start, end
+        self.update_range_label()
+        # Older files may hold display text (Turkish, or English if saved with the English UI): map to keys.
+        self.state.aspect = self.select_aspect(self.state.aspect)
         self.brightness.setValue(self.state.brightness)
         self.contrast.setValue(self.state.contrast)
         self.saturation.setValue(self.state.saturation)
-        self.speed.setCurrentText(f"{self.state.speed:.2f}×")
-        self.effect.setCurrentText(self.state.effect)
-        self.fade.setChecked(False)
-        self.overlay.setText(self.state.overlay_text)
+        self.state.speed = self.select_speed(self.state.speed)
         self.export_profile.blockSignals(True)
-        self.export_profile.setCurrentText(self.state.export_profile)
+        self.state.export_profile = self.select_export_profile(self.state.export_profile)
         self.export_profile.blockSignals(False)
-        self.noise_reduction.setChecked(self.state.noise_reduction)
-        self.loudness.setChecked(False)
         publish = document.get("publish", {})
         self.publish_title.setText(publish.get("title", ""))
         self.publish_caption.setPlainText(publish.get("caption", ""))
@@ -1903,48 +2100,118 @@ class MainWindow(QMainWindow):
             self.seek_timeline(self.timeline_frame)
         self.set_status("Proje açıldı ve son ayarlar geri yüklendi.")
 
-    def autosave_project(self) -> None:
-        if not self.state.source:
-            return
-        if self.project_path:
-            autosave = self.project_path + ".autosave"
-        else:
-            app_data = Path(QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppLocalDataLocation))
-            app_data.mkdir(parents=True, exist_ok=True)
-            autosave = str(app_data / "recovery.akis.json")
+    def untitled_recovery_path(self) -> Path:
+        """This instance's recovery file for an untitled project, with its lock taken (one per process)."""
+        path = recovery_dir() / f"recovery-{os.getpid()}.akis.json"
+        if self._recovery_lock is None:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            lock = recovery_lock(path)
+            if not lock.tryLock(0):
+                raise OSError(f'Kurtarma dosyası kilitlenemedi: {lock.error()}')
+            self._recovery_lock = lock
+        return path
+
+    def autosave_path(self) -> str:
+        return self.project_path + ".autosave" if self.project_path else str(self.untitled_recovery_path())
+
+    def autosave_project(self) -> bool:
+        """Write unsaved work where a crash can be recovered from. Returns whether a file was written."""
+        if not self.state.source or not self.has_unsaved_changes():
+            return False
         try:
-            self.write_project(autosave, snapshot=False)
-        except Exception:
-            pass
+            path = self.autosave_path()
+            if self._autosave_file and self._autosave_file != path:
+                self.remove_file(Path(self._autosave_file))  # e.g. untitled recovery after the first save
+            self.write_project(path, snapshot=False)
+        except Exception as exc:
+            log.exception("Otomatik kayıt başarısız")
+            self.set_status(f'Otomatik kayıt yapılamadı: {exc}')
+            return False
+        self._autosave_file = path
+        return True
+
+    @staticmethod
+    def remove_file(path: Path) -> None:
+        try:
+            Path(path).unlink(missing_ok=True)
+        except OSError:
+            log.exception("Dosya silinemedi: %s", path)
+
+    def discard_autosave(self, keep: str | None = None) -> None:
+        """Remove this window's autosave/recovery file: the work is saved, discarded or the window closes."""
+        targets = {self._autosave_file} if self._autosave_file else set()
+        if self.project_path:
+            targets.add(self.project_path + ".autosave")
+        for target in targets:
+            if keep is None or os.path.normcase(os.path.abspath(target)) != os.path.normcase(os.path.abspath(keep)):
+                self.remove_file(Path(target))
+        self._autosave_file = ""
+        if self._recovery_lock is not None:
+            self.remove_file(recovery_dir() / f"recovery-{os.getpid()}.akis.json")
+            self._recovery_lock.unlock()
+            self._recovery_lock = None
+
+    def offer_recovery(self) -> bool:
+        """At startup: offer untitled work left behind by an instance that is no longer running."""
+        for path, lock in orphan_recovery_files():
+            try:
+                answer = QMessageBox.question(self, APP_NAME, RECOVERY_QUESTION,
+                                              QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                              QMessageBox.StandardButton.Yes)
+                if answer != QMessageBox.StandardButton.Yes:
+                    self.remove_file(path)
+                    continue
+                if not self.load_project_document(str(path), "", recovered=True):
+                    continue  # unreadable: kept for a later attempt, the user has been told
+                # Keep the work in our own recovery file before the orphan goes away.
+                if self.autosave_project():
+                    self.remove_file(path)
+                return True
+            finally:
+                lock.unlock()
+        return False
 
     def system_language_code(self) -> str:
         return "tr" if QLocale.system().language() == QLocale.Language.Turkish else "en"
 
+    @staticmethod
+    def _retranslated(widget, slot: str, current: str, code: str) -> str:
+        """Text for one translatable slot of a widget, from the Turkish source remembered on the widget.
+
+        Whole strings only. The remembered source is used while the slot still shows that source or its
+        translation; text that code put there since is taken as the new source (mapped back to Turkish
+        only when it is exactly a known English string).
+        """
+        prop = f"i18n_{slot}"
+        source = widget.property(prop)
+        if not isinstance(source, str) or current not in (source, i18n.translate(source, "en")):
+            source = i18n.source_of(current)
+            widget.setProperty(prop, source)
+        return i18n.translate(source, code)
+
     def apply_language(self, code: str) -> None:
-        mapping = EN_UI if code == "en" else {value: key for key, value in EN_UI.items()}
-
-        def translated(value: str) -> str:
-            if value in mapping:
-                return mapping[value]
-            result = value
-            for source, target in sorted(mapping.items(), key=lambda item: len(item[0]), reverse=True):
-                if source and source in result:
-                    result = result.replace(source, target)
-            return result
-
+        """Show the UI in `code` ('tr' or 'en'). User content and saved values are never changed."""
         for widget in self.findChildren(QWidget):
+            if widget.property("i18n_skip"):
+                continue
             if isinstance(widget, (QLabel, QPushButton, QCheckBox, QToolButton)):
-                widget.setText(translated(widget.text()))
-            if isinstance(widget, (QLineEdit, QPlainTextEdit)):
-                widget.setPlaceholderText(translated(widget.placeholderText()))
+                text = self._retranslated(widget, "text", widget.text(), code)
+                if text != widget.text():
+                    widget.setText(text)
+            if isinstance(widget, (QLineEdit, QPlainTextEdit)) and widget.placeholderText():
+                widget.setPlaceholderText(self._retranslated(widget, "placeholder", widget.placeholderText(), code))
             if isinstance(widget, QTabWidget):
                 for index in range(widget.count()):
-                    widget.setTabText(index, translated(widget.tabText(index)))
-            if isinstance(widget, QComboBox) and widget is not self.language:
+                    widget.setTabText(index, self._retranslated(widget, f"tab{index}", widget.tabText(index), code))
+            if isinstance(widget, QComboBox) and widget.property("i18n_keyed"):
+                # Only combos whose items carry keys; others (AI suggestions, models) show content as is.
                 blocked = widget.blockSignals(True)
                 for index in range(widget.count()):
-                    widget.setItemText(index, translated(widget.itemText(index)))
+                    widget.setItemText(index, i18n.translate(str(widget.itemData(index)), code))
                 widget.blockSignals(blocked)
+        if not self.state.source:  # the header shows placeholders until a video is loaded
+            self.project_title.setText(i18n.translate("Yeni proje", code))
+            self.project_subtitle.setText(i18n.translate("Video ekleyerek başlayın", code))
 
     def change_language(self) -> None:
         code = self.language.currentData()
@@ -1960,13 +2227,16 @@ class MainWindow(QMainWindow):
         if not self.confirm_close():
             event.ignore()
             return
+        self.autosave_timer.stop()
+        self.discard_autosave()  # clean close: saved or deliberately discarded, nothing to recover
         self.play_timer.stop()
         self.playback_clock.stop()
         self.timeline_audio.stop()
-        if self.update_download and self.update_download.isRunning():
-            self.update_download.wait()
-        if self.update_check and self.update_check.isRunning():
-            self.update_check.wait()
+        self._shutting_down = True
+        # Bounded: a slow or stalled link must not hang the closing window. An interrupted download
+        # deletes its partial file itself.
+        self.stop_thread(self.update_download)
+        self.stop_thread(self.update_check)
         self.proxy_timer.stop()
         self.proxy.close()
         self.preview.close()
@@ -2040,9 +2310,20 @@ def main() -> int:
     app.setOrganizationName(ORG_NAME)
     app.setStyle("Fusion")
     app.setStyleSheet(STYLE)
+    try:
+        log_path = setup_logging(app_data_dir() / "logs")
+    except OSError:
+        log_path = None
+    automated = app.platformName() in ("offscreen", "minimal")  # tests and scripted runs: nobody to click OK
+    sys.excepthook = ExceptionHook(log_path, show_dialogs=not automated)
+    log.info("%s başlatıldı (pid %s)", APP_NAME, os.getpid())
     window = MainWindow()
     window.show()
-    return app.exec()
+    if not automated:
+        QTimer.singleShot(0, window.offer_recovery)
+    code = app.exec()
+    wait_for_background_threads()
+    return code
 
 
 if __name__ == "__main__":
