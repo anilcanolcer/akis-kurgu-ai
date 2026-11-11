@@ -34,7 +34,8 @@ from akis.preview_controller import PreviewController
 from akis.preview_widget import PreviewView, ProxyPlayback, timeline_signature
 from akis.shape_art import default_tail
 from akis.update_worker import UpdateCheckWorker, UpdateDownloadWorker
-from akis.ai_service import plan_prompt, add_plan_markers
+from akis.update_dialog import UpdateProgressDialog
+from akis.ai_service import plan_prompt, add_plan_markers, format_suggestion
 from akis.caption_worker import LocalCaptionWorker
 from akis.tts_worker import TtsWorker
 from akis.ai_workers import AIWorker, PromptEditWorker, TranscriptWorker
@@ -45,6 +46,9 @@ from akis import ai_providers, update_service
 from akis import template_service
 from akis import i18n
 from akis.template_dialog import TemplateDialog
+from akis.inspiration_dialog import InspirationDialog
+from akis.inspiration_service import template_for
+from akis.story_dialog import StoryDialog
 from akis.temp_cleanup import cleanup_stale_temp_dirs
 
 from PySide6.QtCore import QLocale, QLockFile, QSettings, QStandardPaths, Qt, QThread, QTimer
@@ -108,6 +112,7 @@ UPDATE_REMIND_AFTER = 24 * 3600  # a postponed update is not offered again for t
 CANCEL_ON_CLOSE_QUESTION = "Devam eden işlem iptal edilip çıkılsın mı?"
 THREAD_STOP_WAIT_MS = 2000  # how long closing the window waits for a background thread
 UNDO_LIMIT = 50  # timeline edit steps kept for undo
+STILL_CLIP_SECONDS = 5  # a generated still image is added to the timeline as a clip of this length
 _background_threads: list[QThread] = []  # still stopping after their window closed; waited for in main()
 
 
@@ -344,6 +349,7 @@ class MainWindow(QMainWindow):
         self.update_history_controls()
 
         self._provider_keys = {}
+        self.story_dialog = None
         self._saved_providers = set()
         self._active_provider = self.provider.currentText()
         self.provider.currentTextChanged.connect(self.change_provider)
@@ -358,7 +364,10 @@ class MainWindow(QMainWindow):
         self._update = None  # the release being downloaded or waiting to be installed
         self._update_percent = -1
         self._declined_updates = set()  # versions the user postponed in this session
+        self._update_target: Path | None = None
+        self.update_dialog: UpdateProgressDialog | None = None
         if getattr(sys, '_MEIPASS', None) and sys.platform == 'win32':
+            QTimer.singleShot(0, self.report_update_result)
             QTimer.singleShot(5000, self.check_for_updates)
         self.set_status("Bir video sürükleyin veya “Video ekle” düğmesini kullanın.")
 
@@ -379,7 +388,7 @@ class MainWindow(QMainWindow):
         v.addSpacing(24)
 
         for index, (text, icon) in enumerate([
-            ("Projeler", "▦"), ("İlham", "✦"), ("Şablonlar", "◈"), ("Dışa aktarımlar", "⇧")
+            ("Projeler", "▦"), ("İlham", "✦"), ("Şablonlar", "◈"), ("Hikâye Stüdyosu", "✎"), ("Dışa aktarımlar", "⇧")
         ]):
             button = QPushButton(f"{icon}   {text}")
             button.setProperty("nav", True)
@@ -387,8 +396,12 @@ class MainWindow(QMainWindow):
             button.setCursor(Qt.CursorShape.PointingHandCursor)
             if index == 0:
                 button.clicked.connect(lambda: self.set_status("Proje düzenleyicisi açık."))
-            elif index in (1, 2):
+            elif index == 1:
+                button.clicked.connect(self.show_inspiration)
+            elif index == 2:
                 button.clicked.connect(self.show_templates)
+            elif index == 3:
+                button.clicked.connect(self.show_story_studio)
             else:
                 button.clicked.connect(lambda: self.set_status("Dışa aktarmak için üstteki düğmeyi kullanın."))
             v.addWidget(button)
@@ -1177,21 +1190,89 @@ class MainWindow(QMainWindow):
         self.transcript_model.addItems(ai_providers.TRANSCRIPTION_MODELS.get(provider, ()))
 
     def show_templates(self):
+        """Şablonlar: ready-made structure (tracks, aspect ratio, colour style, tempo)."""
         dialog = TemplateDialog(self)
         if dialog.exec():
-            template, style, tempo = dialog.selection()
-            with self.history_step():
-                template_service.apply_template(self.multitrack, template)
-                self._template_before_video = not bool(self.state.source)
-                self.select_choice(self.aspect, i18n.choice_key(i18n.ASPECTS, template.ratio))
-                self.apply_preset(*template_service.STYLES[style])
-                self.select_speed(template_service.TEMPOS[tempo])
-            self.multitrack_view.set_model(self.multitrack)
-            self.refresh_timeline_view()
-            self.multitrack_view.update()
-            if duration_frames(self.multitrack):
-                self.seek_timeline(self.timeline_frame)
-            self.set_status(f'{template.name} uygulandı; medyayı izlere ekleyin.')
+            self.apply_template_choice(*dialog.selection())
+
+    def show_inspiration(self):
+        """İlham: creative ideas. An idea becomes the edit request; its matching template is optional."""
+        dialog = InspirationDialog(self)
+        if not dialog.exec():
+            return
+        idea, action = dialog.selection()
+        if idea is None:
+            return
+        self.ai_prompt.setPlainText(idea.prompt)
+        template = template_for(idea) if action == 'prompt+template' else None
+        if template is not None:
+            self.apply_template_choice(template, template.style, template.tempo)
+            self.set_status(f'“{idea.title}” fikri kurgu isteğine yazıldı ve {template.name} şablonu uygulandı.')
+        else:
+            self.set_status(f'“{idea.title}” fikri kurgu isteğine yazıldı; AI sekmesinden uygulayabilirsiniz.')
+
+    # Hikâye Stüdyosu: Gemini text → image → video; results are added to the project as media.
+    def gemini_key(self) -> str:
+        if self.provider.currentText() == 'Gemini' and self.api_key.text().strip():
+            return self.api_key.text().strip()
+        key = self._provider_keys.get('Gemini', '')
+        if not key:
+            try:
+                key = ai_providers.load_key(APP_NAME, 'Gemini')
+            except Exception:  # keyring backend missing or locked
+                key = ''
+        return key
+
+    def story_output_dir(self) -> str:
+        """Generated media lives beside the project file, or in the app-data folder for an untitled project."""
+        if self.project_path:
+            project = Path(self.project_path)
+            folder = project.with_name(project.name.removesuffix('.akis.json').removesuffix('.json') + '_ai')
+        else:
+            folder = app_data_dir() / 'generated'
+        folder.mkdir(parents=True, exist_ok=True)
+        return str(folder)
+
+    def add_generated_media(self, path: str) -> bool:
+        """Put a generated file on the timeline. A still image becomes a short clip, since tracks hold video."""
+        file = Path(path)
+        if not file.is_file():
+            return False
+        if file.suffix.lower() in ('.png', '.jpg', '.jpeg', '.webp'):
+            clip = file.with_name(file.stem + '_klip.mp4')
+            result = MediaService(ffmpeg_path()).run(
+                ['-y', '-loop', '1', '-t', str(STILL_CLIP_SECONDS), '-i', str(file), '-r', '30',
+                 '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p', '-c:v', 'libx264', '-an', str(clip)], text=True)
+            if result.returncode != 0 or not clip.is_file():
+                QMessageBox.warning(self, APP_NAME, 'Görsel klibe dönüştürülemedi.')
+                return False
+            file = clip
+        before = len(self.media_bin.paths)
+        self.add_video(str(file))
+        return bool(self.state.source) and (len(self.media_bin.paths) > before or str(file) in self.media_bin.paths)
+
+    def show_story_studio(self):
+        if self.story_dialog is None:
+            self.story_dialog = StoryDialog(self, api_key=self.gemini_key, output_dir=self.story_output_dir,
+                                            add_media=self.add_generated_media,
+                                            default_aspect=str(self.aspect.currentData() or '16:9'))
+        self.story_dialog.show()
+        self.story_dialog.raise_()
+        self.story_dialog.activateWindow()
+
+    def apply_template_choice(self, template, style, tempo):
+        with self.history_step():
+            template_service.apply_template(self.multitrack, template)
+            self._template_before_video = not bool(self.state.source)
+            self.select_choice(self.aspect, i18n.choice_key(i18n.ASPECTS, template.ratio))
+            self.apply_preset(*template_service.STYLES[style])
+            self.select_speed(template_service.TEMPOS[tempo])
+        self.multitrack_view.set_model(self.multitrack)
+        self.refresh_timeline_view()
+        self.multitrack_view.update()
+        if duration_frames(self.multitrack):
+            self.seek_timeline(self.timeline_frame)
+        self.set_status(f'{template.name} uygulandı; medyayı izlere ekleyin.')
 
     def toggle_key(self) -> None:
         mode = self.api_key.echoMode()
@@ -1434,7 +1515,7 @@ class MainWindow(QMainWindow):
     def show_ai_suggestion(self, index):
         if 0 <= index < len(self.ai_suggestions):
             plan = self.ai_suggestions[index]
-            self.ai_result.setPlainText(json.dumps(plan, ensure_ascii=False, indent=2))
+            self.ai_result.setPlainText(format_suggestion(plan))
 
     def apply_ai_suggestion(self):
         index = self.ai_choice.currentIndex()
@@ -1444,8 +1525,12 @@ class MainWindow(QMainWindow):
                 add_plan_markers(self.multitrack, plan)
                 self.publish_title.setText(str(plan.get('title', '')))
                 self.publish_caption.setPlainText(str(plan.get('caption', '')))
+                if plan.get('hashtags'):
+                    self.publish_tags.setPlainText(' '.join('#' + str(tag).lstrip('#') for tag in plan['hashtags']))
             self.set_status('Öneri işaretleri projeye eklendi. / Plan markers added.')
             self.multitrack_view.update()
+        else:
+            self.set_status('Önce “Öneri al” ile öneri isteyin.')
 
     def run_transcript(self) -> None:
         if not self.can_start_work():
@@ -1647,9 +1732,49 @@ class MainWindow(QMainWindow):
         if not self._shutting_down:
             self.finish_work('Dışa aktarma iptal edildi.')
 
-    # Self-update: check the version first, ask, download into one fixed folder, ask again, verify, install.
+    # Self-update: check the version, ask, download with a progress dialog into one fixed folder (the install
+    # folder is not touched), check free space, ask again, verify, hand over to the installer helper.
     def update_folder(self) -> Path:
         return update_service.update_dir(app_data_dir())
+
+    @staticmethod
+    def install_folder() -> Path:
+        return Path(sys.executable).resolve().parent
+
+    def ui_text(self, template: str, **values) -> str:
+        """A whole-string translation of `template` into the current UI language, then filled in."""
+        return i18n.translate(template, self.language.currentData() or "tr").format(**values)
+
+    def report_update_result(self) -> None:
+        """At startup: say that an update worked, or (once) that it failed, and remember the failed version.
+
+        install_update stores the version it hands over as update/pending_version; this launch then runs
+        either that version (success) or still the old one (the installer failed and restored it).
+        """
+        current = update_service.VERSION
+        current_tuple = update_service.version_tuple(current)
+        pending = str(self.settings.value("update/pending_version", "") or "")
+        last = str(self.settings.value("update/last_run_version", "") or "")
+        self.settings.setValue("update/last_run_version", current)
+        if pending:
+            self.settings.remove("update/pending_version")
+            target = update_service.version_tuple(pending)
+            if target and current_tuple and current_tuple >= target:
+                self.update_succeeded(current)
+            else:
+                log.warning("Güncelleme %s kurulamadı; %s çalışıyor", pending, current)
+                self.settings.setValue("update/failed_version", pending)
+                self.set_status(self.ui_text(
+                    "Akış Kurgu AI {version} güncellemesi kurulamadı; {current} sürümü kullanılmaya devam ediyor.",
+                    version=pending, current=current))
+        elif last and current_tuple and (update_service.version_tuple(last) or current_tuple) < current_tuple:
+            self.update_succeeded(current)  # updated by running the installer by hand
+
+    def update_succeeded(self, current: str) -> None:
+        log.info("Güncelleme tamamlandı: %s", current)
+        self.settings.remove("update/failed_version")
+        update_service.cleanup_update_dir(self.update_folder())
+        self.set_status(self.ui_text("Akış Kurgu AI {version} sürümüne güncellendi.", version=current))
 
     def check_for_updates(self) -> None:
         if self._shutting_down or any(t is not None and t.isRunning() for t in (self.update_check, self.update_download)):
@@ -1689,65 +1814,149 @@ class MainWindow(QMainWindow):
         if self.update_postponed(version):
             log.info("Güncelleme %s ertelendiği için sorulmadı", version)
             return
-        size = update.get('size')
-        size_text = f" İndirme boyutu: {size / 1024 / 1024:.1f} MB." if size else ""
-        answer = QMessageBox.question(
-            self, APP_NAME,
-            f"Akış Kurgu AI {version} sürümü yayımlandı.{size_text}\n\nŞimdi indirilsin mi? İndirme arka planda "
-            "yapılır; kurulumdan önce yeniden sorulur.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.Yes)
+        if str(self.settings.value("update/failed_version", "") or "") == version:
+            # Installing this version failed before: say so and let the user decide, never re-run silently.
+            question = self.ui_text(
+                "Akış Kurgu AI {version} güncellemesi önceki denemede kurulamadı; {current} sürümü değişmeden "
+                "çalışıyor.\n\nAyrıntılar: {log}\n\nYeniden denensin mi?",
+                version=version, current=update_service.VERSION, log=target.parent / update_service.INSTALL_LOG)
+            if target.is_file():
+                question += "\n\n" + self.ui_text("Kurulum dosyasını elle de çalıştırabilirsiniz: {path}", path=target)
+        else:
+            size = update.get('size')
+            question = self.ui_text(
+                "Akış Kurgu AI {version} sürümü yayımlandı. İndirme boyutu: {size:.1f} MB.\n\nŞimdi indirilsin "
+                "mi? İndirme arka planda yapılır; kurulumdan önce yeniden sorulur.",
+                version=version, size=size / 1024 / 1024) if size else self.ui_text(
+                "Akış Kurgu AI {version} sürümü yayımlandı.\n\nŞimdi indirilsin mi? İndirme arka planda "
+                "yapılır; kurulumdan önce yeniden sorulur.", version=version)
+        answer = QMessageBox.question(self, APP_NAME, question,
+                                      QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                      QMessageBox.StandardButton.Yes)
         if answer != QMessageBox.StandardButton.Yes:
             self.postpone_update(version)
-            self.set_status(f"{version} güncellemesi ertelendi.")
+            self.set_status(self.ui_text("{version} güncellemesi ertelendi.", version=version))
             return
+        if not target.is_file():
+            shortfall = update_service.space_shortfall(target.parent, update_service.download_space_needed(update))
+            if shortfall:
+                self._declined_updates.add(version)  # asked again at the next launch
+                text = self.ui_text(
+                    "Güncellemeyi indirmek için {folder} konumunda en az {needed:.0f} MB boş alan gerekiyor; şu "
+                    "anda {free:.0f} MB boş. Yer açtıktan sonra güncelleme yeniden önerilecek.",
+                    folder=target.parent, needed=shortfall[0] / 1024 ** 2, free=shortfall[1] / 1024 ** 2)
+                self.set_status(text)
+                QMessageBox.warning(self, APP_NAME, text)
+                return
         self.start_update_download(update, target)
 
     def start_update_download(self, update, target: Path) -> None:
+        if self.update_download is not None and self.update_download.isRunning():
+            return
         self._update = update
+        self._update_target = Path(target)
         self._update_percent = -1
-        self.set_status(f"{update['version']} güncellemesi indiriliyor…")
+        if self.update_dialog is None or self.update_dialog.version != update['version']:
+            if self.update_dialog is not None:
+                self.update_dialog.deleteLater()
+            self.update_dialog = UpdateProgressDialog(update['version'], self.language.currentData() or "tr", self)
+            self.update_dialog.cancel_requested.connect(self.cancel_update_download)
+            self.update_dialog.retry_requested.connect(self.retry_update_download)
+        self.update_dialog.start()
+        self.update_dialog.show()
+        self.set_status(self.ui_text("{version} güncellemesi indiriliyor…", version=update['version']))
         self.update_download = UpdateDownloadWorker(update, str(target))
         self.update_download.progress.connect(self.on_update_progress)
         self.update_download.completed.connect(self.install_update)
         self.update_download.failed.connect(self.on_update_failed)
-        self.update_download.cancelled.connect(lambda: log.info("Güncelleme indirmesi iptal edildi"))
+        self.update_download.cancelled.connect(self.on_update_cancelled)
         self.update_download.start()
 
+    def cancel_update_download(self) -> None:
+        if self.update_download is not None and self.update_download.isRunning():
+            self.update_download.requestInterruption()  # the worker deletes its partial file
+        else:
+            self.on_update_cancelled()
+
+    def retry_update_download(self) -> None:
+        if self._shutting_down or self._update is None or self._update_target is None:
+            return
+        self.start_update_download(self._update, self._update_target)
+
     def on_update_progress(self, done: int, total: int) -> None:
-        if self._shutting_down or total <= 0:
+        if self._shutting_down:
+            return
+        if self.update_dialog is not None:
+            self.update_dialog.set_progress(done, total)
+        if total <= 0:
             return
         percent = min(100, done * 100 // total)
         if percent != self._update_percent:
             self._update_percent = percent
-            self.set_status(f"{self._update['version']} güncellemesi indiriliyor… %{percent}")
+            self.set_status(self.ui_text("{version} güncellemesi indiriliyor… %{percent}",
+                                         version=self._update['version'], percent=percent))
+
+    def on_update_cancelled(self) -> None:
+        log.info("Güncelleme indirmesi iptal edildi")
+        if self._shutting_down:
+            return
+        if self.update_dialog is not None:
+            self.update_dialog.hide()
+        if self._update is not None:
+            self.postpone_update(self._update['version'])
+        self.set_status(self.ui_text("Güncelleme indirmesi iptal edildi."))
 
     def on_update_failed(self, message: str) -> None:
         log.warning("Güncelleme indirilemedi: %s", message)
-        if not self._shutting_down:
-            self.set_status(f'Güncelleme indirilemedi: {message}')
+        if self._shutting_down:
+            return
+        self.set_status(self.ui_text("Güncelleme indirilemedi: {message}", message=message))
+        if self.update_dialog is not None:
+            self.update_dialog.show_failed(message)
 
     def install_update(self, installer: str) -> None:
         update = self._update
         if self._shutting_down or update is None:
             return
-        self.set_status('Güncelleme hazır.')
-        answer = QMessageBox.question(self, APP_NAME, 'Güncelleme hazır. Önce açık projenizi kaydedin. Uygulama kapanıp güncellensin mi?', QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if self.update_dialog is not None:
+            self.update_dialog.show_verifying()
+            self.update_dialog.hide()
+        self.set_status(self.ui_text("Güncelleme hazır."))
+        folder = self.install_folder()
+        shortfall = update_service.space_shortfall(folder, update_service.required_install_space(folder))
+        if shortfall:
+            self.postpone_update(update['version'])  # the verified file stays and is reused next time
+            QMessageBox.warning(self, APP_NAME, self.ui_text(
+                "Güncellemeyi kurmak için {folder} sürücüsünde en az {needed:.1f} GB boş alan gerekiyor; şu anda "
+                "{free:.1f} GB boş. Hiçbir şey değiştirilmedi; yer açtıktan sonra güncelleme yeniden önerilecek.",
+                folder=folder.anchor or folder, needed=shortfall[0] / 1024 ** 3, free=shortfall[1] / 1024 ** 3))
+            return
+        answer = QMessageBox.question(self, APP_NAME, self.ui_text(
+            "Akış Kurgu AI {version} indirildi ve doğrulandı.\n\nUygulama kapanacak; bir güncelleme penceresi "
+            "ilerlemeyi gösterecek ve bitince yeni sürüm açılacak. Bu birkaç dakika sürebilir; o sırada "
+            "uygulamayı yeniden açmayın. Bir sorun olursa kullandığınız sürüm olduğu gibi kalır.\n\nÖnce açık "
+            "projenizi kaydedin. Şimdi güncellensin mi?", version=update['version']),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         if answer != QMessageBox.StandardButton.Yes:
             self.postpone_update(update['version'])  # the verified file stays and is reused next time
             return
         if self._workers:
-            QMessageBox.information(self, APP_NAME, 'Güncellemeden önce devam eden işlemin bitmesini bekleyin.')
+            QMessageBox.information(self, APP_NAME, self.ui_text("Güncellemeden önce devam eden işlemin bitmesini bekleyin."))
             return
         # Settle unsaved work before the installer starts waiting for this process to exit.
         if not self.confirm_close():
             return
+        # The next launch compares this with the version it runs to tell success from failure.
+        self.settings.setValue("update/pending_version", update['version'])
+        self.settings.sync()
         try:
             # Verifies the SHA-256 again right before spawning; the helper re-verifies before Start-Process.
             update_service.launch_installer(installer, sys.executable, os.getpid(), sha256=update['sha256'])
         except (OSError, ValueError) as exc:
+            self.settings.remove("update/pending_version")
             if str(exc) == update_service.VERIFY_FAILED:
                 self.remove_file(Path(installer))
-            QMessageBox.critical(self, APP_NAME, f'Güncelleme başlatılamadı: {exc}')
+            QMessageBox.critical(self, APP_NAME, self.ui_text("Güncelleme başlatılamadı: {message}", message=exc))
             return
         self._close_confirmed = True
         self.close()
@@ -2448,6 +2657,8 @@ class MainWindow(QMainWindow):
         self.timeline_audio.stop()
         self._shutting_down = True  # from here on, late worker results and errors are dropped
         self.stop_workers()
+        if self.story_dialog is not None:
+            self.story_dialog.close()  # stops its own generation workers
         # Bounded: a slow or stalled link must not hang the closing window. An interrupted download
         # deletes its partial file itself.
         self.stop_thread(self.update_download)

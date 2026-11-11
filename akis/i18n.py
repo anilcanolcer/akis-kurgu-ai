@@ -62,6 +62,61 @@ EN_UI = {
     "Kaynak oranı": "Source ratio", "4K Dikey · 2160×3840": "4K Vertical · 2160×3840",
     "Profil oranı seçer; 4K seçenekleri seçili oranı iki kat çözünürlükte dışa aktarır.":
         "The profile picks the ratio; 4K options export the chosen ratio at twice the resolution.",
+    # Self-update. Templates with {fields} are translated whole, then filled in (same fields both ways).
+    "Akış Kurgu AI güncellemesi": "Akış Kurgu AI update",
+    "Yeniden dene": "Retry", "Kapat": "Close", "Bağlanılıyor…": "Connecting…",
+    "Akış Kurgu AI {version} indiriliyor…": "Downloading Akış Kurgu AI {version}…",
+    "{done:.1f} MB / {total:.1f} MB indirildi": "{done:.1f} MB of {total:.1f} MB downloaded",
+    "{done:.1f} MB indirildi (toplam boyut bilinmiyor)": "{done:.1f} MB downloaded (total size unknown)",
+    "İndirme iptal ediliyor…": "Cancelling the download…",
+    "İndirme tamamlandı ve doğrulandı.": "Download complete and verified.",
+    "Güncelleme indirilemedi: {message}": "The update could not be downloaded: {message}",
+    "Uygulama değişmedi; çalışmaya devam edebilirsiniz.": "Nothing was changed; you can keep working.",
+    "Güncelleme indirmesi iptal edildi.": "Update download cancelled.",
+    "{version} güncellemesi indiriliyor…": "Downloading update {version}…",
+    "{version} güncellemesi indiriliyor… %{percent}": "Downloading update {version}… {percent}%",
+    "{version} güncellemesi ertelendi.": "Update {version} postponed.",
+    "Güncelleme hazır.": "Update ready.",
+    "Güncellemeden önce devam eden işlemin bitmesini bekleyin.":
+        "Wait for the running task to finish before updating.",
+    "Güncelleme başlatılamadı: {message}": "The update could not be started: {message}",
+    "Akış Kurgu AI {version} sürümüne güncellendi.": "Akış Kurgu AI was updated to {version}.",
+    "Akış Kurgu AI {version} güncellemesi kurulamadı; {current} sürümü kullanılmaya devam ediyor.":
+        "Akış Kurgu AI {version} could not be installed; you are still using {current}.",
+    "Akış Kurgu AI {version} sürümü yayımlandı. İndirme boyutu: {size:.1f} MB.\n\nŞimdi indirilsin mi? İndirme "
+    "arka planda yapılır; kurulumdan önce yeniden sorulur.":
+        "Akış Kurgu AI {version} is available. Download size: {size:.1f} MB.\n\nDownload it now? It downloads in "
+        "the background; you are asked again before installing.",
+    "Akış Kurgu AI {version} sürümü yayımlandı.\n\nŞimdi indirilsin mi? İndirme arka planda yapılır; kurulumdan "
+    "önce yeniden sorulur.":
+        "Akış Kurgu AI {version} is available.\n\nDownload it now? It downloads in the background; you are asked "
+        "again before installing.",
+    "Akış Kurgu AI {version} güncellemesi önceki denemede kurulamadı; {current} sürümü değişmeden çalışıyor."
+    "\n\nAyrıntılar: {log}\n\nYeniden denensin mi?":
+        "Installing Akış Kurgu AI {version} failed last time; {current} is still in place and working.\n\n"
+        "Details: {log}\n\nTry again?",
+    "Kurulum dosyasını elle de çalıştırabilirsiniz: {path}": "You can also run the installer yourself: {path}",
+    "Güncellemeyi indirmek için {folder} konumunda en az {needed:.0f} MB boş alan gerekiyor; şu anda {free:.0f} MB "
+    "boş. Yer açtıktan sonra güncelleme yeniden önerilecek.":
+        "Downloading the update needs at least {needed:.0f} MB free in {folder}; {free:.0f} MB is free. The "
+        "update will be offered again once there is room.",
+    "Güncellemeyi kurmak için {folder} sürücüsünde en az {needed:.1f} GB boş alan gerekiyor; şu anda {free:.1f} GB "
+    "boş. Hiçbir şey değiştirilmedi; yer açtıktan sonra güncelleme yeniden önerilecek.":
+        "Installing the update needs at least {needed:.1f} GB free on drive {folder}; {free:.1f} GB is free. "
+        "Nothing was changed; the update will be offered again once there is room.",
+    "Akış Kurgu AI {version} indirildi ve doğrulandı.\n\nUygulama kapanacak; bir güncelleme penceresi ilerlemeyi "
+    "gösterecek ve bitince yeni sürüm açılacak. Bu birkaç dakika sürebilir; o sırada uygulamayı yeniden açmayın. "
+    "Bir sorun olursa kullandığınız sürüm olduğu gibi kalır.\n\nÖnce açık projenizi kaydedin. Şimdi güncellensin mi?":
+        "Akış Kurgu AI {version} is downloaded and verified.\n\nThe app will close; an update window shows the "
+        "progress and the new version opens when it is done. This can take a few minutes; do not reopen the app "
+        "meanwhile. If anything goes wrong, the version you use stays as it is.\n\nSave your open project first. "
+        "Update now?",
+    # İlham, Şablonlar and Hikâye Stüdyosu.
+    "Hikâye Stüdyosu": "Story Studio", "Rastgele fikir": "Random idea", "Fikir ara…": "Search ideas…",
+    "Fikri kurgu isteğine yaz": "Write idea into edit request",
+    "Fikri yaz ve şablonunu uygula": "Write idea and apply its template",
+    "Önce “Öneri al” ile öneri isteyin.": "Ask for suggestions with “Get suggestions” first.",
+    "Görsel klibe dönüştürülemedi.": "The image could not be turned into a clip.",
 }
 TR_UI = {english: turkish for turkish, english in EN_UI.items()}
 

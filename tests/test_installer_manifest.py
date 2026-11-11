@@ -1,24 +1,187 @@
+"""Uninstall manifest generation, and static checks of installer.nsi's update mode and safe file swap.
+
+The installer logic itself is exercised for real by scripts/installer-scenarios.ps1 (needs makensis; CI
+runs it). These checks keep the properties that script relies on from silently regressing.
+"""
+import re
+import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
+from akis import update_service
+
+ROOT = Path(__file__).resolve().parents[1]
+NSI = (ROOT / 'installer.nsi').read_text(encoding='utf-8-sig').replace('\r\n', '\n')
+
+
+def block(start, end='SectionEnd'):
+    """Text of installer.nsi from the line starting `start` up to the next `end` line."""
+    match = re.search(rf'^{re.escape(start)}.*?^{re.escape(end)}', NSI, re.M | re.S)
+    if match is None:
+        raise AssertionError(f'{start!r} not found in installer.nsi')
+    return match.group(0)
+
+
+def code_lines(text):
+    return '\n'.join(line for line in text.splitlines() if not line.strip().startswith(';'))
+
+
 class InstallerManifestTests(unittest.TestCase):
+    def generate(self, root, output):
+        return subprocess.run([sys.executable, str(ROOT / 'scripts/generate-nsis-uninstall.py'), str(root), str(output)],
+                              capture_output=True, text=True)
+
     def test_uninstall_manifest_only_targets_packaged_files(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder) / 'package'
-            nested = root / 'media$test'
+            nested = root / '_internal' / 'media$test'
             nested.mkdir(parents=True)
             (root / 'AkisKurguAI.exe').write_bytes(b'app')
             (nested / 'dep.dll').write_bytes(b'dep')
             output = Path(folder) / 'uninstall.nsh'
-            subprocess.run([sys.executable, 'scripts/generate-nsis-uninstall.py', str(root), str(output)], check=True)
+            self.assertEqual(self.generate(root, output).returncode, 0)
             data = output.read_text(encoding='utf-8-sig')
             self.assertIn('Delete "$INSTDIR\\AkisKurguAI.exe"', data)
-            self.assertIn('Delete "$INSTDIR\\media$$test\\dep.dll"', data)
-            self.assertIn('RMDir "$INSTDIR\\media$$test"', data)
+            self.assertIn('Delete "$INSTDIR\\_internal\\media$$test\\dep.dll"', data)
+            self.assertIn('RMDir "$INSTDIR\\_internal\\media$$test"', data)
             self.assertNotIn('RMDir /r', data)
+
+    def test_generator_rejects_a_layout_the_installer_would_not_swap(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder) / 'package'
+            root.mkdir()
+            (root / 'AkisKurguAI.exe').write_bytes(b'app')
+            output = Path(folder) / 'uninstall.nsh'
+            self.assertNotEqual(self.generate(root, output).returncode, 0)  # no _internal
+            (root / '_internal').mkdir()
+            (root / 'stray.dll').write_bytes(b'x')
+            result = self.generate(root, output)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('stray.dll', result.stderr)
+
+
+class InstallerScriptTests(unittest.TestCase):
+    def test_update_switch_and_legacy_flags_select_update_mode(self):
+        init = block('Function .onInit', 'FunctionEnd')
+        self.assertRegex(init, r'GetOptions\} \$R0 "/UPDATE" \$R1\s+\$\{IfNot\} \$\{Errors\}\s+StrCpy \$UpdateMode 1')
+        self.assertRegex(init, r'GetOptions\} \$R0 "/VERYSILENT" \$R1\s+\$\{IfNot\} \$\{Errors\}\s+StrCpy \$UpdateMode 1')
+        self.assertIn('"/DIR="', init)
+        self.assertIn('"/LOG="', init)
+
+    def test_update_mode_shows_only_the_progress_page_and_closes_itself(self):
+        pages = re.findall(r'^(!define MUI_PAGE_CUSTOMFUNCTION_PRE \w+\n)?!insertmacro (MUI_PAGE_\w+)', NSI, re.M)
+        skipped = {page for pre, page in pages if 'SkipPageInUpdateMode' in pre}
+        self.assertEqual(skipped, {'MUI_PAGE_WELCOME', 'MUI_PAGE_DIRECTORY', 'MUI_PAGE_FINISH'})
+        self.assertIn('MUI_PAGE_INSTFILES', {page for _, page in pages})
+        self.assertRegex(block('Function SkipPageInUpdateMode', 'FunctionEnd'), r'\$UpdateMode == 1\s+Abort')
+        self.assertRegex(block('Section "Install"'), r'\$UpdateMode == 1\s+SetDetailsView hide\s+SetAutoClose true')
+
+    def test_no_blocking_message_box_when_unattended(self):
+        boxes = [line for line in code_lines(NSI).splitlines() if 'MessageBox' in line]
+        self.assertTrue(boxes)
+        for line in boxes:
+            self.assertIn('/SD IDOK', line)
+        fail = block('!macro FAIL', '!macroend')
+        self.assertLess(fail.index('Quit'), fail.index('MessageBox'))  # update/silent mode quits before any box
+        self.assertRegex(fail, r'\$UpdateMode == 1\s+\$\{OrIf\} \$\{Silent\}\s+Quit')
+        self.assertIn('SetErrorLevel ${code}', fail)
+
+    def test_old_copy_is_moved_aside_before_extracting_and_deleted_only_at_the_end(self):
+        section = code_lines(block('Section "Install"'))
+        order = [section.index(text) for text in (
+            'Call RecoverInterrupted',
+            'Call TryMoveAside',
+            'File /r',
+            'File "/oname=AkisKurguAI.exe.new"',
+            'Rename "$INSTDIR\AkisKurguAI.exe.new" "$INSTDIR\AkisKurguAI.exe"',
+            'WriteUninstaller',
+            'WriteRegStr',
+            'CreateShortcut',
+            'NSIS installation completed.',
+            'RMDir /r "$INSTDIR\_internal.old"',
+            'Delete "$INSTDIR\AkisKurguAI.exe.old"',
+        )]
+        self.assertEqual(order, sorted(order))
+        self.assertEqual(section.count('RMDir /r "$INSTDIR\_internal.old"'), 1)
+        self.assertIn('SetOverwrite try', section)
+        self.assertNotIn('SetOverwrite on', section)
+        aside = code_lines(block('Function TryMoveAside', 'FunctionEnd'))
+        steps = [aside.index(text) for text in (
+            'CHECK_NOT_RUNNING "$INSTDIR\AkisKurguAI.exe"',
+            'Rename "$INSTDIR\AkisKurguAI.exe" "$INSTDIR\AkisKurguAI.exe.old"',
+            'Rename "$INSTDIR\_internal" "$INSTDIR\_internal.old"',
+        )]
+        self.assertEqual(steps, sorted(steps))
+
+    def test_failed_move_aside_is_undone_before_reporting_in_use(self):
+        aside = block('Function TryMoveAside', 'FunctionEnd')
+        refused = aside[aside.index('Rename "$INSTDIR\_internal" "$INSTDIR\_internal.old"'):]
+        refused = refused[:refused.index('StrCpy $MovedLib 1')]
+        self.assertLess(refused.index('Rename "$INSTDIR\AkisKurguAI.exe.old" "$INSTDIR\AkisKurguAI.exe"'),
+                        refused.index('StrCpy $Failed 1'))
+
+    def test_update_mode_waits_and_restarts_the_app_unelevated(self):
+        self.assertIn('"/WAIT="', NSI)
+        self.assertIn('$WINDIR\explorer.exe" "$INSTDIR\AkisKurguAI.exe"', NSI)
+        self.assertIn('VIProductVersion', NSI)
+
+    def test_errors_roll_back_to_the_old_copy(self):
+        self.assertEqual(block('Section "Install"').count('Call Rollback'), 2)  # extraction, finishing steps
+        rollback = block('Function Rollback', 'FunctionEnd')
+        self.assertIn('${If} $Swapping == 1', rollback)
+        self.assertIn('RMDir /r "$INSTDIR\\_internal"', rollback)
+        lib = rollback.index('Rename "$INSTDIR\\_internal.old" "$INSTDIR\\_internal"')
+        exe = rollback.index('Rename "$INSTDIR\\AkisKurguAI.exe.old" "$INSTDIR\\AkisKurguAI.exe"')
+        self.assertLess(lib, exe)  # exe last, and only when _internal came back
+        self.assertIn('$RollbackFailed == 0', rollback[lib:exe])
+        self.assertIn('Call Rollback', block('Function .onInstFailed', 'FunctionEnd'))
+
+    def test_recovery_restores_exe_only_after_internal(self):
+        recover = block('Function RecoverInterrupted', 'FunctionEnd')
+        lib = recover.index('Rename "$INSTDIR\\_internal.old" "$INSTDIR\\_internal"')
+        exe = recover.index('Rename "$INSTDIR\\AkisKurguAI.exe.old" "$INSTDIR\\AkisKurguAI.exe"')
+        self.assertLess(lib, exe)
+        self.assertIn('$RecoverFailed == 0', recover[lib:exe])
+
+    def test_exit_codes_match_the_helper_texts(self):
+        codes = {int(value) for value in re.findall(r'^!define ERR_\w+ (\d+)', NSI, re.M)}
+        self.assertEqual(codes, set(update_service.INSTALLER_EXIT_CODES) - {1, 2})
+
+    def test_uninstaller_removes_leftover_old_copies_but_no_user_files(self):
+        uninstall = code_lines(block('Section "Uninstall"'))
+        self.assertIn('RMDir /r "$INSTDIR\\_internal.old"', uninstall)
+        self.assertIn('Delete "$INSTDIR\\AkisKurguAI.exe.old"', uninstall)
+        self.assertIn('RMDir "$INSTDIR"', uninstall)
+        self.assertNotIn('RMDir /r "$INSTDIR"', uninstall)
+
+    def test_test_build_is_user_level_and_keeps_out_of_hklm_and_the_start_menu(self):
+        test = re.search(r'!ifdef TEST_USER_LEVEL(.*?)!else(.*?)!endif', NSI, re.S)
+        self.assertIn('RequestExecutionLevel user', test.group(1))
+        self.assertIn('!define REG_ROOT HKCU', test.group(1))
+        self.assertNotIn('SMPROGRAMS', test.group(1))
+        self.assertIn('RequestExecutionLevel admin', test.group(2))
+        for line in code_lines(NSI).splitlines():
+            if 'HKLM' in line and '!define' not in line:
+                self.assertIn('LEGACY_KEY', line)  # the only literal HKLM use, compiled out in test builds
+        self.assertRegex(NSI, r'!ifndef TEST_USER_LEVEL\s+ReadRegStr \$1 HKLM')
+
+    @unittest.skipUnless(shutil.which('powershell.exe'), 'Windows PowerShell not available')
+    def test_end_to_end_script_parses(self):
+        script = ROOT / 'scripts' / 'installer-scenarios.ps1'
+        check = ('$t=$null;$e=$null;[void][System.Management.Automation.Language.Parser]::ParseFile('
+                 f"'{script}',[ref]$t,[ref]$e);$e.Count")
+        result = subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', check],
+                                capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.stdout.strip(), '0', result.stderr)
+
+    def test_ci_runs_the_update_scenarios(self):
+        workflow = (ROOT / '.github' / 'workflows' / 'windows-build.yml').read_text(encoding='utf-8')
+        self.assertIn('scripts/installer-scenarios.ps1 -MakeNsis', workflow)
+        self.assertIn('python update_smoke.py', workflow)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -128,29 +128,38 @@ class LaunchVerificationTests(unittest.TestCase):
         self.app = root / 'AkisKurguAI.exe'
         self.app.touch()
 
-    def test_mismatch_aborts_before_spawning(self):
-        runner = Mock()
+    def test_mismatch_aborts_before_starting(self):
+        start = Mock()
         with self.assertRaises(ValueError) as caught:
-            launch_installer(self.setup_file, self.app, 123, sha256='0' * 64, popen=runner)
+            launch_installer(self.setup_file, self.app, 123, sha256='0' * 64, start=start)
         self.assertEqual(str(caught.exception), update_service.VERIFY_FAILED)
-        runner.assert_not_called()
+        start.assert_not_called()
         with self.assertRaises(ValueError):
-            launch_installer(self.setup_file, self.app, 123, sha256='not-a-hash', popen=runner)
-        runner.assert_not_called()
+            launch_installer(self.setup_file, self.app, 123, sha256='not-a-hash', start=start)
+        start.assert_not_called()
 
-    def test_helper_verifies_hash_right_before_start_process(self):
-        runner = Mock()
-        launch_installer(self.setup_file, self.app, 123, sha256=SHA.upper(), popen=runner)  # any case
-        script = helper_script(runner.call_args.args[0])
-        self.assertEqual(helper_payload(script)['sha256'], SHA)
-        check = script.index('ComputeHash')
-        compare = script.index('OrdinalIgnoreCase', check)
-        start = script.index('Start-Process -FilePath $d.installer')
-        self.assertLess(check, compare)
-        self.assertLess(compare, start)
-        self.assertIn("[IO.FileShare]::Read)", script)  # held open: no writer can swap the file meanwhile
-        self.assertIn(update_service.VERIFY_FAILED.split(';')[0], script)
-        self.assertNotIn('VERIFY_FAILED', script)
+    def test_installer_is_started_directly_in_update_mode(self):
+        start = Mock(return_value=42)
+        launch_installer(self.setup_file, self.app, 123, sha256=SHA.upper(), start=start)  # any case
+        path, arguments, folder = start.call_args.args
+        self.assertEqual(Path(path), self.setup_file.resolve())
+        self.assertEqual(Path(folder), self.setup_file.resolve().parent)
+        self.assertTrue(arguments.startswith('/UPDATE '))
+        self.assertIn(f'/DIR="{self.app.resolve().parent}"', arguments)
+        self.assertIn(f'/LOG="{self.setup_file.resolve().parent / update_service.INSTALL_LOG}"', arguments)
+        self.assertNotIn('powershell', arguments.lower())
+
+    def test_declined_elevation_and_start_failure_are_reported(self):
+        with self.assertRaises(PermissionError) as declined:
+            launch_installer(self.setup_file, self.app, sha256=SHA, start=Mock(return_value=update_service.SE_ERR_ACCESSDENIED))
+        self.assertEqual(str(declined.exception), update_service.UAC_DECLINED)
+        with self.assertRaises(OSError):
+            launch_installer(self.setup_file, self.app, sha256=SHA, start=Mock(return_value=2))
+
+    def test_no_powershell_helper_remains(self):
+        source = Path(update_service.__file__).read_text(encoding='utf-8')
+        self.assertNotIn('EncodedCommand', source)
+        self.assertNotIn('powershell.exe', source)
 
 
 class DownloadWorkerTests(unittest.TestCase):

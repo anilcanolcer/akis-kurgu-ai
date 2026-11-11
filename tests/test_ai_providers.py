@@ -257,15 +257,20 @@ class SuggestionParsingTests(unittest.TestCase):
 
     def test_turkish_errors(self):
         cases = {'yalnızca metin': 'JSON bulunamadı', '{"suggestions": [': 'JSON bulunamadı', '': 'JSON bulunamadı',
-                 '{"x": 1}': 'en az iki öneri', '[1, 2]': 'en az iki öneri',
-                 '{"suggestions":[{"trim_start":"abc"},{"trim_start":0}]}': 'sayı değil',
-                 '{"suggestions":[{"trim_start":true},{"trim_start":0}]}': 'sayı değil',
-                 '{"suggestions":[{"trim_start":[1]},{"trim_start":0}]}': 'sayı değil',
-                 '{"suggestions":[1, 2]}': 'Geçersiz öneri'}
+                 '{"x": 1}': 'öneri', '[1, 2]': 'öneri',
+                 '{"suggestions":[{"trim_start":"abc"}]}': 'kullanılabilir bir öneri',
+                 '{"suggestions":[1, 2]}': 'kullanılabilir bir öneri'}
         for text, message in cases.items():
             with self.subTest(text=text):
                 with self.assertRaisesRegex(ValueError, message):
                     parse_suggestions(text, 4)
+
+    def test_unusable_suggestions_are_dropped_not_fatal(self):
+        # One malformed entry must not discard the usable ones (this made "Öneri al" fail as a whole).
+        for bad in ('"abc"', 'true', '[1]'):
+            with self.subTest(bad=bad):
+                plans = parse_suggestions('{"suggestions":[{"trim_start":%s},{"trim_start":0}]}' % bad, 4)
+                self.assertEqual([(p['trim_start'], p['trim_end']) for p in plans], [(0.0, 4.0)])
 
     def test_null_trim_end_means_whole_video(self):
         plans = parse_suggestions('{"suggestions":[{"trim_start":0,"trim_end":null},{"trim_start":1}]}', 4)
