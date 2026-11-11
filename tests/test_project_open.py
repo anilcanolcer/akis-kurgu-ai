@@ -44,8 +44,9 @@ class ProjectOpenTests(unittest.TestCase):
         self.window.load_video(str(self.video_a))
         with patch('main.QFileDialog.getSaveFileName', return_value=(str(self.project_a), '')):
             self.window.save_project()
-        self.window._edit_undo.append(self.window.edit_snapshot())
-        self.window.undo_edit_button.setEnabled(True)
+        with self.window.history_step():  # one undo step (an empty track; no clips, nothing else changes)
+            self.window.multitrack.tracks.append(Track('text', 'Notlar'))
+        self.assertTrue(self.window.undo_edit_button.isEnabled())
         self.window.publish_title.setText('A başlık (kaydedilmedi)')
         self.window.brightness.setValue(7)
         self.assertTrue(self.window.has_unsaved_changes())
@@ -55,7 +56,7 @@ class ProjectOpenTests(unittest.TestCase):
         return {'path': w.project_path, 'source': w.state.source, 'state': asdict(w.state),
                 'timeline': w.multitrack.to_dict(), 'view_model': w.multitrack_view.model,
                 'media': list(w.media_bin.paths), 'unsaved': w.has_unsaved_changes(),
-                'signature': w._saved_signature, 'pending': w._pending_project, 'undo': list(w._edit_undo),
+                'signature': w._saved_signature, 'pending': w._pending_project, 'undo': list(w._undo_stack), 'redo': list(w._redo_stack),
                 'undo_enabled': w.undo_edit_button.isEnabled(), 'title': w.windowTitle(),
                 'project_title': w.project_title.text(), 'publish': w.publish_title.text(),
                 'aspect': w.aspect.currentText(), 'speed': w.speed.currentText(), 'brightness': w.brightness.value(),
@@ -108,7 +109,7 @@ class ProjectOpenTests(unittest.TestCase):
         self.assertEqual(self.window.aspect.currentText(), 'Kaynak oranı')
         self.assertFalse(self.window.has_unsaved_changes())
 
-    def test_successful_open_switches_target_and_clears_ai_undo(self):
+    def test_successful_open_switches_target_and_clears_undo_history(self):
         project_b, video_b = write_project_b(self.tmp.name, aspect='16:9 · YouTube', brightness=3)
         critical, _ = self.open(project_b)
         critical.assert_not_called()
@@ -123,17 +124,17 @@ class ProjectOpenTests(unittest.TestCase):
         self.assertEqual(w.publish_title.text(), 'B başlık')
         self.assertFalse(w.has_unsaved_changes())
         self.assertIsNone(w._pending_project)
-        self.assertEqual(w._edit_undo, [])
+        self.assertEqual(w._undo_stack, [])
         self.assertFalse(w.undo_edit_button.isEnabled())
 
-    def test_loading_new_main_video_clears_ai_undo(self):
+    def test_loading_new_main_video_clears_undo_history(self):
         w = self.window
         w.state.source = ''  # as after closing the video: the next add_video becomes the main video
         other = Path(self.tmp.name) / 'other.mp4'
         other.touch()
         w.add_video(str(other))
         self.assertEqual(w.state.source, str(other))
-        self.assertEqual(w._edit_undo, [])
+        self.assertEqual(w._undo_stack, [])
         self.assertFalse(w.undo_edit_button.isEnabled())
         self.assertEqual(w.project_path, '')
 

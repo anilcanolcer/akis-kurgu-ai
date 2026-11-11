@@ -337,13 +337,13 @@ class StalePlanTests(WindowCase):
         self.assertEqual(ask.call_args.args[2], main.STALE_PLAN_QUESTION)
         apply.assert_not_called()
         self.assertTrue(any(c.text == 'kullanıcı' for t in self.window.multitrack.tracks for c in t.clips))
-        self.assertEqual(self.window._edit_undo, [])
+        self.assertEqual(self.window._undo_stack, [])
 
     def test_changed_timeline_applies_on_yes(self):
         ask, apply, result = self.run_prompt(True, YES)
         ask.assert_called_once()
         self.assertIs(self.window.multitrack, result)
-        self.assertEqual(len(self.window._edit_undo), 1)
+        self.assertEqual(len(self.window._undo_stack), 1)
 
 
 class OverwritePromptTests(WindowCase):

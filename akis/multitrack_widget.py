@@ -8,7 +8,8 @@ from PySide6.QtWidgets import QWidget
 
 class MultitrackWidget(QWidget):
     seek = Signal(int)
-    changed = Signal()
+    changed = Signal()  # after a drag (move/trim) that actually changed a clip, on mouse release
+    edit_started = Signal()  # a drag that may change a clip begins; the model is still unchanged
     selection_changed = Signal()
     clip_activated = Signal(int, str)
     viewport_resized = Signal()
@@ -158,6 +159,7 @@ class MultitrackWidget(QWidget):
                 self.drag_mode = 'trim' if abs(x - self.x_for(clip.end)) < 9 else 'move'
                 self.drag_anchor = frame
                 self.original = (clip.start, clip.length)
+                self.edit_started.emit()
             elif x >= 100:
                 self.playhead = frame
                 self.seek.emit(frame)

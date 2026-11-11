@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import copy
 import faulthandler
 import hashlib
@@ -44,9 +45,10 @@ from akis import ai_providers, update_service
 from akis import template_service
 from akis import i18n
 from akis.template_dialog import TemplateDialog
+from akis.temp_cleanup import cleanup_stale_temp_dirs
 
 from PySide6.QtCore import QLocale, QLockFile, QSettings, QStandardPaths, Qt, QThread, QTimer
-from PySide6.QtGui import QDragEnterEvent, QDropEvent, QIcon, QPixmap
+from PySide6.QtGui import QAction, QDragEnterEvent, QDropEvent, QIcon, QImage, QKeySequence
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import (
     QApplication,
@@ -103,8 +105,18 @@ log.addHandler(logging.NullHandler())  # without setup_logging (tests, tools) re
 RECOVERY_QUESTION = "Kurtarılmış çalışma bulundu, açılsın mı?"
 STALE_PLAN_QUESTION = "Zaman çizelgesi bu sırada değişti. Plan yine de uygulansın mı?"
 UPDATE_REMIND_AFTER = 24 * 3600  # a postponed update is not offered again for this many seconds
-THREAD_STOP_WAIT_MS = 2000  # how long closing the window waits for a background update thread
+CANCEL_ON_CLOSE_QUESTION = "Devam eden işlem iptal edilip çıkılsın mı?"
+THREAD_STOP_WAIT_MS = 2000  # how long closing the window waits for a background thread
+UNDO_LIMIT = 50  # timeline edit steps kept for undo
 _background_threads: list[QThread] = []  # still stopping after their window closed; waited for in main()
+
+
+def start_temp_cleanup(root=None) -> threading.Thread:
+    """Remove scratch folders a crash left in the temp directory, off the GUI thread (a big folder or a
+    slow disk must not delay the window). Never raises; the thread is a daemon so it cannot block exit."""
+    thread = threading.Thread(target=cleanup_stale_temp_dirs, args=(root,), name="akis-temp-cleanup", daemon=True)
+    thread.start()
+    return thread
 
 
 def wait_for_background_threads() -> None:
@@ -294,6 +306,10 @@ class MainWindow(QMainWindow):
         self._prompt_revision = None  # timeline_revision() when the running prompt edit started
         self.worker: QThread | None = None
         self._workers = set()
+        # Edit history: each step is {'before': edit_snapshot(), 'after': edit_snapshot()} around one action.
+        self._undo_stack: list[dict] = []
+        self._redo_stack: list[dict] = []
+        self._drag_before = None  # edit_snapshot() taken when a timeline drag began
         self.setWindowTitle(APP_NAME)
         self.setMinimumSize(900, 650)
         available = QApplication.primaryScreen().availableGeometry()
@@ -315,6 +331,17 @@ class MainWindow(QMainWindow):
         layout.setSpacing(0)
         layout.addWidget(self.build_sidebar())
         layout.addWidget(self.build_workspace(), 1)
+        # Window-wide; a focused text field keeps Ctrl+Z / Ctrl+Y for its own text (it overrides the shortcut).
+        self.undo_action = QAction(self)
+        self.undo_action.setShortcut(QKeySequence("Ctrl+Z"))
+        self.undo_action.triggered.connect(self.undo)
+        self.redo_action = QAction(self)
+        self.redo_action.setShortcuts([QKeySequence("Ctrl+Y"), QKeySequence("Ctrl+Shift+Z")])
+        self.redo_action.triggered.connect(self.redo)
+        for action in (self.undo_action, self.redo_action):
+            action.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
+            self.addAction(action)
+        self.update_history_controls()
 
         self._provider_keys = {}
         self._saved_providers = set()
@@ -456,7 +483,17 @@ class MainWindow(QMainWindow):
         self.progress.setRange(0, 0)
         self.progress.setFixedHeight(3)
         self.progress.hide()
-        outer.addWidget(self.progress)
+        progress_row = QHBoxLayout()
+        progress_row.addWidget(self.progress, 1, Qt.AlignmentFlag.AlignVCenter)
+        # Shown while a worker runs; enabled only when that worker can be stopped (it has cancel()).
+        self.cancel_button = QPushButton("İptal")
+        self.cancel_button.setObjectName("ghost")
+        self.cancel_button.setToolTip("Devam eden işlemi durdurur.")
+        self.cancel_button.setEnabled(False)
+        self.cancel_button.hide()
+        self.cancel_button.clicked.connect(self.cancel_work)
+        progress_row.addWidget(self.cancel_button)
+        outer.addLayout(progress_row)
         return shell
 
     def build_editor(self) -> QWidget:
@@ -515,6 +552,14 @@ class MainWindow(QMainWindow):
             button = QPushButton(label)
             button.clicked.connect(action)
             tools.addWidget(button)
+        self.undo_button = QPushButton('↶ Geri al')
+        self.undo_button.setToolTip('Son adımı geri al (Ctrl+Z)')
+        self.undo_button.clicked.connect(self.undo)
+        tools.addWidget(self.undo_button)
+        self.redo_button = QPushButton('↷ Yinele')
+        self.redo_button.setToolTip('Geri alınan adımı yinele (Ctrl+Y)')
+        self.redo_button.clicked.connect(self.redo)
+        tools.addWidget(self.redo_button)
         zoom = QSlider(Qt.Orientation.Horizontal)
         zoom.setRange(1, 100)
         zoom.setValue(20)
@@ -532,7 +577,8 @@ class MainWindow(QMainWindow):
         self.multitrack_view = MultitrackWidget(self.multitrack)
         self.multitrack_view.waveform_executable = ffmpeg_path
         self.multitrack_view.seek.connect(self.seek_timeline)
-        self.multitrack_view.changed.connect(lambda: self.seek_timeline(self.timeline_frame))
+        self.multitrack_view.edit_started.connect(self.on_timeline_drag_started)
+        self.multitrack_view.changed.connect(self.on_timeline_dragged)
         self.multitrack_view.clip_activated.connect(self.edit_clip)
         self.track_scroll = QScrollArea()
         self.track_scroll.setWidgetResizable(True)
@@ -594,12 +640,13 @@ class MainWindow(QMainWindow):
         prompt_edit.setToolTip("Yazdığınız isteğe göre videoyu gerçekten keser, dizer ve ayarlar.")
         prompt_edit.clicked.connect(self.run_prompt_edit)
         v.addWidget(prompt_edit)
-        self.undo_edit_button = QPushButton("↶  AI kurgusunu geri al")
+        # Undoes the last step of the shared edit history; right after an AI edit that is the AI edit.
+        self.undo_edit_button = QPushButton("↶  Son adımı geri al")
         self.undo_edit_button.setObjectName("secondary")
+        self.undo_edit_button.setToolTip("AI kurgusu dahil son düzenlemeyi geri alır (Ctrl+Z).")
         self.undo_edit_button.setEnabled(False)
-        self.undo_edit_button.clicked.connect(self.undo_prompt_edit)
+        self.undo_edit_button.clicked.connect(self.undo)
         v.addWidget(self.undo_edit_button)
-        self._edit_undo = []
         self.ai_result = QPlainTextEdit()
         self.ai_result.setReadOnly(True)
         self.ai_result.setPlaceholderText("Yapılan kurgunun özeti burada görünecek.")
@@ -893,7 +940,8 @@ class MainWindow(QMainWindow):
             return
         try:
             seconds = MediaService(ffmpeg_path()).duration(str(file))
-            timeline_service.append_video(self.multitrack, str(file), seconds, self.multitrack_view.selected_track)
+            with self.history_step():
+                timeline_service.append_video(self.multitrack, str(file), seconds, self.multitrack_view.selected_track)
         except (ValueError, RuntimeError, OSError) as exc:
             QMessageBox.warning(self, APP_NAME, f'Video eklenemedi: {exc}')
             return
@@ -905,18 +953,19 @@ class MainWindow(QMainWindow):
         self.seek_timeline(self.timeline_frame)
         self.set_status('Video zaman çizelgesine eklendi.')
 
-    def load_video(self, path: str) -> None:
+    def load_video(self, path: str) -> bool:
+        """Make `path` the main video; returns False (and has told the user why) when it was refused."""
         if not self.can_start_work():  # a running worker would deliver its result into the new video
-            return
+            return False
         file = Path(path)
-        if file.suffix.lower() not in VIDEO_EXTS or not file.exists():
+        if file.suffix.lower() not in VIDEO_EXTS or not file.is_file():
             QMessageBox.warning(self, APP_NAME, "Desteklenen bir video dosyası seçin.")
-            return
+            return False
         try:
             duration = MediaService(ffmpeg_path()).duration(str(file))
-        except (ValueError, RuntimeError) as exc:
+        except (ValueError, RuntimeError, OSError) as exc:
             QMessageBox.warning(self, APP_NAME, str(exc))
-            return
+            return False
         self.play_timer.stop()
         self.playback_clock.stop()
         self.timeline_audio.stop()
@@ -939,9 +988,8 @@ class MainWindow(QMainWindow):
         self.refresh_media_bin()
         opening_project = self._pending_project is not None
         self.on_duration(round(duration * 1000))
-        # AI-undo snapshots belong to the previous video/project; restoring one here would mix sources.
-        self._edit_undo.clear()
-        self.undo_edit_button.setEnabled(False)
+        # Undo steps belong to the previous video/project; restoring one here would mix sources.
+        self.clear_history()
         self.mark_saved()
         if not opening_project:
             self.set_status("Video hazır. Sağdaki kutuya isteğinizi yazıp kurgulatabilirsiniz.")
@@ -961,8 +1009,8 @@ class MainWindow(QMainWindow):
             self.apply_project_state(pending)
         elif getattr(self, '_template_before_video', False):
             self._template_before_video = False
-            index = next(i for i, t in enumerate(self.multitrack.tracks) if t.kind == 'video')
-            timeline_service.append_media(self.multitrack, index, self.state.source, duration)
+            # The first video track, or a new one if the template's video tracks were removed meanwhile.
+            timeline_service.append_video(self.multitrack, self.state.source, duration)
             self.multitrack_view.set_model(self.multitrack)
             self.seek_timeline(0)
         elif not any(t.clips for t in self.multitrack.tracks):
@@ -1132,11 +1180,12 @@ class MainWindow(QMainWindow):
         dialog = TemplateDialog(self)
         if dialog.exec():
             template, style, tempo = dialog.selection()
-            template_service.apply_template(self.multitrack, template)
-            self._template_before_video = not bool(self.state.source)
-            self.select_choice(self.aspect, i18n.choice_key(i18n.ASPECTS, template.ratio))
-            self.apply_preset(*template_service.STYLES[style])
-            self.select_speed(template_service.TEMPOS[tempo])
+            with self.history_step():
+                template_service.apply_template(self.multitrack, template)
+                self._template_before_video = not bool(self.state.source)
+                self.select_choice(self.aspect, i18n.choice_key(i18n.ASPECTS, template.ratio))
+                self.apply_preset(*template_service.STYLES[style])
+                self.select_speed(template_service.TEMPOS[tempo])
             self.multitrack_view.set_model(self.multitrack)
             self.refresh_timeline_view()
             self.multitrack_view.update()
@@ -1157,11 +1206,12 @@ class MainWindow(QMainWindow):
         if not credentials:
             return
         key, model = credentials
-        self.begin_work("AI analizi başlatılıyor…")
         self.worker = AIWorker(key, model, self.state.source, self.state.duration, plan_prompt(self.ai_prompt.toPlainText().strip(), self.ai_platform.currentData(), self.ai_tempo.currentData(), self.ai_style.currentData(), self.ai_focus.currentData()), ffmpeg_path(), self.provider.currentText())
+        self.begin_work("AI analizi başlatılıyor…")
         self.worker.status.connect(self.set_status)
         self.worker.completed.connect(self.on_ai_plan)
         self.worker.failed.connect(self.on_worker_error)
+        self.worker.cancelled.connect(self.on_worker_cancelled)
         self.start_worker()
 
     def edit_sources(self):
@@ -1209,14 +1259,111 @@ class MainWindow(QMainWindow):
         self.worker.status.connect(self.set_status)
         self.worker.completed.connect(self.on_prompt_edit)
         self.worker.failed.connect(self.on_worker_error)
+        self.worker.cancelled.connect(self.on_worker_cancelled)
         self.start_worker()
 
     def edit_snapshot(self):
-        return {'timeline': self.multitrack, 'aspect': self.aspect.currentData(), 'speed': self.speed_value(),
+        """What one edit step can change: the timeline (a private copy) and the settings an AI plan or a
+        template sets. Stored snapshots are never modified; restoring one installs another copy."""
+        return {'timeline': copy.deepcopy(self.multitrack), 'aspect': self.aspect.currentData(),
+                'speed': self.speed_value(),
                 'color': (self.brightness.value(), self.contrast.value(), self.saturation.value()),
                 'publish': (self.publish_title.text(), self.publish_caption.toPlainText(), self.publish_tags.toPlainText())}
 
-    def show_timeline(self, timeline):
+    @staticmethod
+    def snapshot_changes(before, after) -> list[str]:
+        """Keys of an edit snapshot whose values differ between two snapshots."""
+        def value(snapshot, key):
+            return snapshot[key].to_dict() if key == 'timeline' else snapshot[key]
+        return [key for key in before if value(before, key) != value(after, key)]
+
+    def record_step(self, before) -> bool:
+        """Add one undo step from `before` to now; nothing is added when nothing changed."""
+        after = self.edit_snapshot()
+        if not self.snapshot_changes(before, after):
+            return False
+        self._undo_stack.append({'before': before, 'after': after})
+        del self._undo_stack[:-UNDO_LIMIT]
+        self._redo_stack.clear()
+        self.update_history_controls()
+        return True
+
+    @contextlib.contextmanager
+    def history_step(self):
+        """`with self.history_step(): <mutate>` makes the mutation one undo step (also when it raises
+        after changing something, so a partly applied edit can still be undone)."""
+        before = self.edit_snapshot()
+        try:
+            yield
+        finally:
+            self.record_step(before)
+
+    def clear_history(self) -> None:
+        self._undo_stack.clear()
+        self._redo_stack.clear()
+        self._drag_before = None
+        self.update_history_controls()
+
+    def update_history_controls(self) -> None:
+        can_undo, can_redo = bool(self._undo_stack), bool(self._redo_stack)
+        for control in (getattr(self, 'undo_edit_button', None), getattr(self, 'undo_button', None),
+                        getattr(self, 'undo_action', None)):
+            if control is not None:
+                control.setEnabled(can_undo)
+        for control in (getattr(self, 'redo_button', None), getattr(self, 'redo_action', None)):
+            if control is not None:
+                control.setEnabled(can_redo)
+
+    def apply_edit_snapshot(self, snapshot, keys) -> None:
+        """Put back the given keys of a snapshot. Only the keys a step changed are written, so undoing a
+        timeline edit never resets a colour or text the user changed after it."""
+        if 'aspect' in keys:
+            self.select_choice(self.aspect, snapshot['aspect'])
+        if 'speed' in keys:
+            self.select_speed(snapshot['speed'])
+        if 'color' in keys:
+            self.apply_preset(*snapshot['color'])
+        if 'publish' in keys:
+            title, caption, tags = snapshot['publish']
+            self.publish_title.setText(title)
+            self.publish_caption.setPlainText(caption)
+            self.publish_tags.setPlainText(tags)
+        if 'timeline' in keys:
+            self.show_timeline(copy.deepcopy(snapshot['timeline']), frame=self.timeline_frame)
+
+    def undo(self) -> bool:
+        if not self._undo_stack:
+            return False
+        self._drag_before = None
+        step = self._undo_stack.pop()
+        self._redo_stack.append(step)
+        self.apply_edit_snapshot(step['before'], self.snapshot_changes(step['before'], step['after']))
+        self.update_history_controls()
+        self.set_status('Son adım geri alındı.')
+        return True
+
+    def redo(self) -> bool:
+        if not self._redo_stack:
+            return False
+        self._drag_before = None
+        step = self._redo_stack.pop()
+        self._undo_stack.append(step)
+        self.apply_edit_snapshot(step['after'], self.snapshot_changes(step['before'], step['after']))
+        self.update_history_controls()
+        self.set_status('Adım yinelendi.')
+        return True
+
+    def on_timeline_drag_started(self):
+        self._drag_before = self.edit_snapshot()
+
+    def on_timeline_dragged(self):
+        """The track view finished a move/trim that changed a clip: one step for the whole drag."""
+        before, self._drag_before = self._drag_before, None
+        if before is not None:
+            self.record_step(before)
+        self.seek_timeline(self.timeline_frame)
+
+    def show_timeline(self, timeline, frame=0):
         self.stop_proxy_playback(refresh=False)
         self.play_timer.stop()
         self.playback_clock.stop()
@@ -1224,7 +1371,7 @@ class MainWindow(QMainWindow):
         self.multitrack = timeline
         self.multitrack_view.set_model(timeline)
         self.refresh_timeline_view()
-        self.seek_timeline(0)
+        self.seek_timeline(frame)
 
     def timeline_revision(self) -> str:
         """Cheap fingerprint of the timeline's contents, to notice edits made while a worker was running."""
@@ -1232,6 +1379,8 @@ class MainWindow(QMainWindow):
         return hashlib.sha1(payload.encode()).hexdigest()
 
     def on_prompt_edit(self, plan, sources):
+        if self._shutting_down:  # a result that arrives while the window closes is dropped
+            return
         started, self._prompt_revision = self._prompt_revision, None
         if started is not None and started != self.timeline_revision():
             # The plan was computed from the timeline as it was when the request started.
@@ -1252,45 +1401,30 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             self.on_worker_error(f'Kurgu planı uygulanamadı: {exc}')
             return
-        self._edit_undo.append(self.edit_snapshot())
-        self.undo_edit_button.setEnabled(True)
-        if 'aspect' in plan:
-            self.select_choice(self.aspect, aspect)
-        if 'speed' in plan:
-            self.select_speed(plan['speed'])
-        if 'color' in plan:
-            # A plan carries only the colour keys the model gave; the others keep their current value.
-            color = plan['color']
-            self.apply_preset(color.get('brightness', self.brightness.value()),
-                              color.get('contrast', self.contrast.value()),
-                              color.get('saturation', self.saturation.value()))
-        if 'title' in plan:
-            self.publish_title.setText(plan['title'])
-        if 'caption' in plan:
-            self.publish_caption.setPlainText(plan['caption'])
-        if 'hashtags' in plan:
-            self.publish_tags.setPlainText(' '.join(t if t.startswith('#') else '#' + t for t in plan['hashtags']))
-        self.show_timeline(timeline)
+        with self.history_step():  # the whole AI edit, settings included, is one undo step
+            if 'aspect' in plan:
+                self.select_choice(self.aspect, aspect)
+            if 'speed' in plan:
+                self.select_speed(plan['speed'])
+            if 'color' in plan:
+                # A plan carries only the colour keys the model gave; the others keep their current value.
+                color = plan['color']
+                self.apply_preset(color.get('brightness', self.brightness.value()),
+                                  color.get('contrast', self.contrast.value()),
+                                  color.get('saturation', self.saturation.value()))
+            if 'title' in plan:
+                self.publish_title.setText(plan['title'])
+            if 'caption' in plan:
+                self.publish_caption.setPlainText(plan['caption'])
+            if 'hashtags' in plan:
+                self.publish_tags.setPlainText(' '.join(t if t.startswith('#') else '#' + t for t in plan['hashtags']))
+            self.show_timeline(timeline)
         self.ai_result.setPlainText(edit_plan.describe(plan, timeline))
         self.finish_work('AI kurgusu uygulandı. Beğenmezseniz geri alabilir veya yeni bir istek yazabilirsiniz.')
 
-    def undo_prompt_edit(self):
-        if not self._edit_undo or not self.can_start_work():
-            return
-        snapshot = self._edit_undo.pop()
-        self.undo_edit_button.setEnabled(bool(self._edit_undo))
-        self.select_choice(self.aspect, snapshot['aspect'])
-        self.select_speed(snapshot['speed'])
-        self.apply_preset(*snapshot['color'])
-        title, caption, tags = snapshot['publish']
-        self.publish_title.setText(title)
-        self.publish_caption.setPlainText(caption)
-        self.publish_tags.setPlainText(tags)
-        self.show_timeline(snapshot['timeline'])
-        self.ai_result.setPlainText('')
-        self.set_status('AI kurgusu geri alındı.')
-
     def on_ai_plan(self, plans):
+        if self._shutting_down:
+            return
         self.ai_suggestions = plans
         self.ai_choice.clear()
         self.ai_choice.addItems([str(p.get('title') or f'Öneri / Suggestion {i+1}') for i, p in enumerate(plans)])
@@ -1306,9 +1440,10 @@ class MainWindow(QMainWindow):
         index = self.ai_choice.currentIndex()
         if 0 <= index < len(self.ai_suggestions):
             plan = self.ai_suggestions[index]
-            add_plan_markers(self.multitrack, plan)
-            self.publish_title.setText(str(plan.get('title', '')))
-            self.publish_caption.setPlainText(str(plan.get('caption', '')))
+            with self.history_step():
+                add_plan_markers(self.multitrack, plan)
+                self.publish_title.setText(str(plan.get('title', '')))
+                self.publish_caption.setPlainText(str(plan.get('caption', '')))
             self.set_status('Öneri işaretleri projeye eklendi. / Plan markers added.')
             self.multitrack_view.update()
 
@@ -1339,16 +1474,21 @@ class MainWindow(QMainWindow):
         self.worker.status.connect(self.set_status)
         self.worker.completed.connect(self.on_local_transcript if self.caption_backend.currentIndex() == 1 else self.on_transcript)
         self.worker.failed.connect(self.on_worker_error)
+        if hasattr(self.worker, 'cancelled'):  # local Whisper runs in one call and cannot be stopped
+            self.worker.cancelled.connect(self.on_worker_cancelled)
         self.start_worker()
 
     def on_local_transcript(self, segments):
+        if self._shutting_down:
+            return
         self.caption_segments = segments
         self.caption_source = self.caption_request_source
         self.apply_captions_button.setEnabled(bool(segments))
         self.on_transcript(' '.join(segment['text'] for segment in segments))
 
     def apply_local_captions(self):
-        count = caption_track(self.multitrack, self.caption_source, self.caption_segments)
+        with self.history_step():
+            count = caption_track(self.multitrack, self.caption_source, self.caption_segments)
         self.refresh_timeline_view()
         self.multitrack_view.update()
         self.seek_timeline(self.timeline_frame)
@@ -1369,11 +1509,17 @@ class MainWindow(QMainWindow):
             return
         self.begin_work('Windows sesi oluşturuluyor…')
         self.worker = TtsWorker(text, path)
-        self.worker.completed.connect(lambda result: self.finish_work(f'Ses kaydedildi: {result}'))
+        self.worker.completed.connect(self.on_voiceover)
         self.worker.failed.connect(self.on_worker_error)
         self.start_worker()
 
+    def on_voiceover(self, path: str) -> None:
+        if not self._shutting_down:
+            self.finish_work(f'Ses kaydedildi: {path}')
+
     def on_transcript(self, text: str) -> None:
+        if self._shutting_down:
+            return
         self.ai_result.setPlainText("KONUŞMA METNİ\n\n" + text)
         if not self.publish_caption.toPlainText().strip():
             self.publish_caption.setPlainText(text)
@@ -1402,10 +1548,11 @@ class MainWindow(QMainWindow):
             return
         self.state.aspect = self.aspect.currentData()
         self.state.export_profile = self.export_profile.currentData()
-        self.begin_work("Dışa aktarma hazırlanıyor…")
         self.worker = TimelineRenderWorker(self.multitrack, path, canvas, ffmpeg_path(), adjustments=self.render_adjustments())
+        self.begin_work("Dışa aktarma hazırlanıyor…")
         self.worker.completed.connect(self.on_exported)
         self.worker.failed.connect(self.on_worker_error)
+        self.worker.cancelled.connect(self.on_export_cancelled)
         self.start_worker()
 
     def confirm_overwrite(self, chosen: str, path: str) -> bool:
@@ -1418,6 +1565,8 @@ class MainWindow(QMainWindow):
         return answer == QMessageBox.StandardButton.Yes
 
     def on_exported(self, path: str) -> None:
+        if self._shutting_down:
+            return
         self.finish_work("Dışa aktarma tamamlandı.")
         QMessageBox.information(self, APP_NAME, f"Video başarıyla oluşturuldu:\n{path}")
 
@@ -1452,13 +1601,27 @@ class MainWindow(QMainWindow):
         worker = self.worker
         self._workers.add(worker)
         worker.finished.connect(lambda w=worker: self.worker_finished(w))
+        self.cancel_button.setEnabled(callable(getattr(worker, 'cancel', None)))
+        self.cancel_button.show()
         worker.start()
 
     def worker_finished(self, worker) -> None:
         self._workers.discard(worker)
         if self.worker is worker:
             self.worker = None
+        if not self._workers:
+            self.cancel_button.setEnabled(False)
+            self.cancel_button.hide()
         worker.deleteLater()
+
+    def cancel_work(self) -> None:
+        """İptal: stop the running worker; its `cancelled` signal then ends the busy state."""
+        worker = self.worker
+        if worker is None or worker not in self._workers or not callable(getattr(worker, 'cancel', None)):
+            return
+        worker.cancel()
+        self.cancel_button.setEnabled(False)
+        self.set_status('İptal ediliyor…')
 
     def begin_work(self, text: str) -> None:
         self.progress.show()
@@ -1469,9 +1632,20 @@ class MainWindow(QMainWindow):
         self.set_status(text)
 
     def on_worker_error(self, message: str) -> None:
+        if self._shutting_down:
+            return
         self.progress.hide()
         self.set_status("İşlem tamamlanamadı.")
         QMessageBox.critical(self, APP_NAME, message)
+
+    def on_worker_cancelled(self) -> None:
+        self._prompt_revision = None
+        if not self._shutting_down:
+            self.finish_work('İşlem iptal edildi.')
+
+    def on_export_cancelled(self) -> None:
+        if not self._shutting_down:
+            self.finish_work('Dışa aktarma iptal edildi.')
 
     # Self-update: check the version first, ask, download into one fixed folder, ask again, verify, install.
     def update_folder(self) -> Path:
@@ -1589,6 +1763,17 @@ class MainWindow(QMainWindow):
             log.info("Arka plan işi %s ms içinde durmadı; kapanışta beklenecek", THREAD_STOP_WAIT_MS)
             _background_threads.append(thread)
 
+    def stop_workers(self) -> None:
+        """At close: cancel every editing worker (killing its FFmpeg) and wait a bounded time for each.
+        One that cannot stop in time (a network call, local Whisper) is kept referenced and waited for
+        after the event loop; its results are ignored because _shutting_down is set."""
+        for worker in list(self._workers):
+            cancel = getattr(worker, 'cancel', None)
+            if callable(cancel):
+                cancel()
+            self.stop_thread(worker)
+        self.cancel_button.setEnabled(False)
+
     def set_status(self, text: str) -> None:
         self.status_label.setText(text)
         self.status_label.setToolTip(text)
@@ -1613,7 +1798,8 @@ class MainWindow(QMainWindow):
     def add_track(self):
         kind, ok = QInputDialog.getItem(self, 'İz ekle / Add track', 'Tür / Type', ['video', 'audio', 'text', 'overlay'], 0, False)
         if ok:
-            self.multitrack.tracks.append(Track(kind, f'{kind.title()} {len(self.multitrack.tracks)+1}'))
+            with self.history_step():
+                self.multitrack.tracks.append(Track(kind, f'{kind.title()} {len(self.multitrack.tracks)+1}'))
             self.refresh_timeline_view()
             self.multitrack_view.update()
 
@@ -1624,11 +1810,13 @@ class MainWindow(QMainWindow):
             return
         track = self.multitrack.tracks[index]
         if track.clips and QMessageBox.question(
-                self, APP_NAME, f'“{track.name}” izi ve içindeki {len(track.clips)} klip silinsin mi? Bu işlem geri alınamaz.',
+                self, APP_NAME, f'“{track.name}” izi ve içindeki {len(track.clips)} klip silinsin mi? '
+                                'Ctrl+Z ile geri alabilirsiniz.',
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
             return
-        self.multitrack.tracks.pop(index)
+        with self.history_step():
+            self.multitrack.tracks.pop(index)
         self.multitrack_view.selected = None
         self.multitrack_view.selected_track = None
         self.refresh_timeline_view()
@@ -1659,20 +1847,22 @@ class MainWindow(QMainWindow):
             choice, ok = QInputDialog.getItem(self, 'İşareti düzenle', 'Renk seçin veya işareti silin', names, current, False)
             if not ok:
                 return
-            if choice in self.MARK_COLOURS:
-                clip.style['color'] = self.MARK_COLOURS[choice]
-            else:
-                track.clips.remove(clip)
-                self.multitrack_view.selected = None
+            with self.history_step():
+                if choice in self.MARK_COLOURS:
+                    clip.style['color'] = self.MARK_COLOURS[choice]
+                else:
+                    track.clips.remove(clip)
+                    self.multitrack_view.selected = None
         else:
             value, ok = QInputDialog.getMultiLineText(self, 'Metni düzenle', 'Başlık / altyazı', clip.text)
             if not ok:
                 return
-            if value.strip():
-                clip.text = value.strip()
-            else:
-                track.clips.remove(clip)
-                self.multitrack_view.selected = None
+            with self.history_step():
+                if value.strip():
+                    clip.text = value.strip()
+                else:
+                    track.clips.remove(clip)
+                    self.multitrack_view.selected = None
         self.multitrack_view.update()
         self.seek_timeline(self.timeline_frame)
 
@@ -1739,7 +1929,8 @@ class MainWindow(QMainWindow):
         except (ValueError, RuntimeError, OSError) as exc:
             QMessageBox.warning(self, APP_NAME, f'Medya eklenemedi: {exc}')
             return
-        timeline_service.append_media(self.multitrack, index, path, seconds)
+        with self.history_step():
+            timeline_service.append_media(self.multitrack, index, path, seconds)
         self.media_bin.add(path)
         self.refresh_media_bin()
         self.multitrack_view.refresh_waveforms()
@@ -1750,18 +1941,29 @@ class MainWindow(QMainWindow):
         track, clip = self.selected_clip()
         if clip:
             try:
-                timeline_service.split_selected(self.multitrack, self.multitrack_view.selected, self.multitrack_view.playhead)
+                with self.history_step():
+                    timeline_service.split_selected(self.multitrack, self.multitrack_view.selected, self.multitrack_view.playhead)
                 self.multitrack_view.update()
             except ValueError as exc:
                 self.set_status(str(exc))
 
     def ripple_delete(self):
+        """Delete the selected clip and close the gap on every track and on the markers (one undo step)."""
         track, clip = self.selected_clip()
-        if clip:
-            track.ripple_delete(clip.id)
-            self.multitrack_view.selected = None
-            self.update_timeline_scroll()
-            self.seek_timeline(self.timeline_frame)
+        if not clip:
+            self.set_status('Önce silinecek klibi seçin.')
+            return
+        track_index = self.multitrack_view.selected[0]
+        try:
+            with self.history_step():
+                self.multitrack.ripple_delete(track_index, clip.id)
+        except ValueError as exc:  # the timeline rolled itself back
+            self.set_status(f'Klip silinemedi: {exc}')
+            self.multitrack_view.update()
+            return
+        self.multitrack_view.selected = None
+        self.update_timeline_scroll()
+        self.seek_timeline(self.timeline_frame)
 
     def seek_timeline(self, frame, *, from_clock=False):
         total = duration_frames(self.multitrack)
@@ -1796,7 +1998,7 @@ class MainWindow(QMainWindow):
 
     def show_timeline_frame(self, path):
         if not self.proxy.playing:
-            self.video.set_image(QPixmap(path))
+            self.video.set_image(QImage(path))
 
     def advance_timeline(self):
         total = duration_frames(self.multitrack)
@@ -1848,7 +2050,8 @@ class MainWindow(QMainWindow):
             return
         value, ok = QInputDialog.getInt(self, 'Klip sesi / Clip volume', 'Ses / Volume (%)', round(clip.volume * 100), 0, 100)
         if ok:
-            timeline_service.set_clip_volume(self.multitrack, self.multitrack_view.selected, value / 100)
+            with self.history_step():
+                timeline_service.set_clip_volume(self.multitrack, self.multitrack_view.selected, value / 100)
             self.sync_timeline_audio(force=True)
             self.set_status(f'Klip sesi: %{value}')
 
@@ -2011,8 +2214,7 @@ class MainWindow(QMainWindow):
                 (self.ai_prompt, self.ai_prompt.toPlainText, self.ai_prompt.setPlainText),
                 (self.project_title, self.project_title.text, self.project_title.setText),
                 (self.project_subtitle, self.project_subtitle.text, self.project_subtitle.setText),
-                (self.apply_captions_button, self.apply_captions_button.isEnabled, self.apply_captions_button.setEnabled),
-                (self.undo_edit_button, self.undo_edit_button.isEnabled, self.undo_edit_button.setEnabled)]
+                (self.apply_captions_button, self.apply_captions_button.isEnabled, self.apply_captions_button.setEnabled)]
 
     def open_snapshot(self) -> dict:
         """Everything opening a project can replace, so a failed open can be undone exactly."""
@@ -2021,7 +2223,9 @@ class MainWindow(QMainWindow):
                 'frame': self.timeline_frame, 'project_path': self.project_path,
                 'saved_signature': self._saved_signature, 'pending': self._pending_project,
                 'template_before_video': getattr(self, '_template_before_video', False),
-                'media': list(self.media_bin.paths), 'undo': list(self._edit_undo),
+                'media': list(self.media_bin.paths),
+                # Steps are never modified once stored, so copying the lists is enough.
+                'history': (list(self._undo_stack), list(self._redo_stack)),
                 'captions': (self.caption_segments, self.caption_source),
                 'controls': [(widget, setter, getter()) for widget, getter, setter in self.project_controls()]}
 
@@ -2037,7 +2241,10 @@ class MainWindow(QMainWindow):
         self._template_before_video = snapshot['template_before_video']
         self.multitrack = snapshot['multitrack']
         self.media_bin.paths[:] = snapshot['media']
-        self._edit_undo[:] = snapshot['undo']
+        undo, redo = snapshot['history']
+        self._undo_stack[:], self._redo_stack[:] = undo, redo
+        self._drag_before = None
+        self.update_history_controls()
         self.caption_segments, self.caption_source = snapshot['captions']
         # Controls with their signals blocked: their slots would write into state and re-render mid-restore.
         for widget, setter, value in snapshot['controls']:
@@ -2221,9 +2428,16 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         if self._workers:
-            self.set_status('İşlem devam ediyor; kapatmadan önce bitmesini bekleyin.')
-            event.ignore()
-            return
+            if not self.isVisible():  # a hidden window (tests, scripted runs) has nobody to ask
+                self.set_status('İşlem devam ediyor; kapatmadan önce bitmesini bekleyin.')
+                event.ignore()
+                return
+            answer = QMessageBox.question(self, APP_NAME, CANCEL_ON_CLOSE_QUESTION,
+                                          QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                          QMessageBox.StandardButton.No)
+            if answer != QMessageBox.StandardButton.Yes:
+                event.ignore()
+                return
         if not self.confirm_close():
             event.ignore()
             return
@@ -2232,7 +2446,8 @@ class MainWindow(QMainWindow):
         self.play_timer.stop()
         self.playback_clock.stop()
         self.timeline_audio.stop()
-        self._shutting_down = True
+        self._shutting_down = True  # from here on, late worker results and errors are dropped
+        self.stop_workers()
         # Bounded: a slow or stalled link must not hang the closing window. An interrupted download
         # deletes its partial file itself.
         self.stop_thread(self.update_download)
@@ -2317,6 +2532,7 @@ def main() -> int:
     automated = app.platformName() in ("offscreen", "minimal")  # tests and scripted runs: nobody to click OK
     sys.excepthook = ExceptionHook(log_path, show_dialogs=not automated)
     log.info("%s başlatıldı (pid %s)", APP_NAME, os.getpid())
+    start_temp_cleanup()
     window = MainWindow()
     window.show()
     if not automated:

@@ -26,6 +26,8 @@ EN_UI = {
         "Cuts and reorders the video; adds transitions, arrows and circles, text, colour and speed. Undo in one click.",
     "İSTEĞİNİZ / PROMPT": "YOUR PROMPT", "✦  Prompt ile kurgula": "✦  Edit from prompt",
     "↶  AI kurgusunu geri al": "↶  Undo AI edit", "Öneri al": "Get suggestions",
+    "↶  Son adımı geri al": "↶  Undo last step", "↶ Geri al": "↶ Undo", "↷ Yinele": "↷ Redo",
+    "İptal": "Cancel",
     "ÖNERİ MODU (KESMEDEN)": "SUGGESTION MODE (NO CUTS)", "KONUŞMA METNİ VE SESLENDİRME": "TRANSCRIPT & VOICEOVER",
     "Konuşmayı da çözümle (yerel Whisper, daha yavaş)": "Also analyse speech (local Whisper, slower)",
     "Yapılan kurgunun özeti burada görünecek.": "A summary of the edit will appear here.",
