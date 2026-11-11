@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import math
 import os
@@ -325,6 +326,8 @@ class MainWindow(QMainWindow):
         self.proxy_timer.timeout.connect(self.prepare_proxy)
         self.settings = QSettings(ORG_NAME, APP_NAME)
         self.project_path = ""
+        self._saved_signature = None  # project contents as last saved or opened
+        self._close_confirmed = False
         self._pending_project: dict | None = None
         self.worker: QThread | None = None
         self._workers = set()
@@ -974,8 +977,11 @@ class MainWindow(QMainWindow):
         self.media_bin.clear()
         self.media_bin.add(str(file))
         self.refresh_media_bin()
+        opening_project = self._pending_project is not None
         self.on_duration(round(duration * 1000))
-        self.set_status("Video hazır. Sağdaki kutuya isteğinizi yazıp kurgulatabilirsiniz.")
+        self.mark_saved()
+        if not opening_project:
+            self.set_status("Video hazır. Sağdaki kutuya isteğinizi yazıp kurgulatabilirsiniz.")
         return True
 
     def on_duration(self, milliseconds: int) -> None:
@@ -1498,11 +1504,15 @@ class MainWindow(QMainWindow):
         if self._workers:
             QMessageBox.information(self, APP_NAME, 'Güncellemeden önce devam eden işlemin bitmesini bekleyin.')
             return
+        # Settle unsaved work before the installer starts waiting for this process to exit.
+        if not self.confirm_close():
+            return
         try:
             update_service.launch_installer(installer, sys.executable, os.getpid())
         except (OSError, ValueError) as exc:
             QMessageBox.critical(self, APP_NAME, f'Güncelleme başlatılamadı: {exc}')
             return
+        self._close_confirmed = True
         self.close()
 
     def set_status(self, text: str) -> None:
@@ -1536,8 +1546,14 @@ class MainWindow(QMainWindow):
 
     def remove_track(self):
         index = self.multitrack_view.selected_track
-        if index is None:
+        if index is None or not 0 <= index < len(self.multitrack.tracks):
             self.set_status('Silinecek izi seçin.')
+            return
+        track = self.multitrack.tracks[index]
+        if track.clips and QMessageBox.question(
+                self, APP_NAME, f'“{track.name}” izi ve içindeki {len(track.clips)} klip silinsin mi? Bu işlem geri alınamaz.',
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
             return
         self.multitrack.tracks.pop(index)
         self.multitrack_view.selected = None
@@ -1801,9 +1817,35 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, APP_NAME, f'Proje kaydedilemedi: {exc}')
             return
         self.project_path = path
+        self.mark_saved()
         self.set_status("Proje ve sürüm anlık görüntüsü kaydedildi.")
 
+    def project_signature(self) -> str:
+        document = self.project_document()
+        document.pop('saved_at', None)
+        return hashlib.sha1(json.dumps(document, sort_keys=True, ensure_ascii=False, default=str).encode()).hexdigest()
+
+    def mark_saved(self) -> None:
+        self._saved_signature = self.project_signature()
+
+    def has_unsaved_changes(self) -> bool:
+        return bool(self.state.source) and self.project_signature() != self._saved_signature
+
+    def confirm_close(self) -> bool:
+        """Ask before work is lost. A hidden window (tests, scripted runs) has nobody to ask."""
+        if self._close_confirmed or not self.isVisible() or not self.has_unsaved_changes():
+            return True
+        buttons = QMessageBox.StandardButton
+        answer = QMessageBox.question(self, APP_NAME, 'Projede kaydedilmemiş değişiklikler var. Kaydedilsin mi?',
+                                      buttons.Save | buttons.Discard | buttons.Cancel, buttons.Save)
+        if answer == buttons.Save:
+            self.save_project()
+            return not self.has_unsaved_changes()
+        return answer == buttons.Discard
+
     def open_project(self) -> None:
+        if not self.confirm_close():
+            return
         path, _ = QFileDialog.getOpenFileName(
             self, "Proje aç", "", "Akış projesi (*.akis.json);;JSON (*.json)"
         )
@@ -1913,6 +1955,9 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         if self._workers:
             self.set_status('İşlem devam ediyor; kapatmadan önce bitmesini bekleyin.')
+            event.ignore()
+            return
+        if not self.confirm_close():
             event.ignore()
             return
         self.play_timer.stop()

@@ -7,6 +7,9 @@ import subprocess
 from pathlib import Path
 
 
+_PROBES = {}  # (executable, path, size, mtime) -> ffmpeg's stream report; files are probed once
+
+
 class MediaService:
     def __init__(self, executable, runner=None):
         self.executable = str(executable)
@@ -16,23 +19,48 @@ class MediaService:
         return self.runner([self.executable, *map(str, arguments)], capture_output=True,
                            text=text, creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
 
+    def probe(self, path):
+        """FFmpeg's description of a file. Real files are cached by size and modification time,
+        because the editor asks for the same facts on every seek and render."""
+        key = None
+        if self.runner is subprocess.run:
+            try:
+                stat = os.stat(path)
+                key = (self.executable, os.path.normcase(os.path.abspath(path)), stat.st_size, stat.st_mtime_ns)
+            except OSError:
+                pass
+        if key in _PROBES:
+            return _PROBES[key]
+        report = self.run(['-hide_banner', '-i', path], text=True).stderr or ''
+        if key is not None and 'Duration:' in report:
+            if len(_PROBES) > 256:
+                _PROBES.clear()
+            _PROBES[key] = report
+        return report
+
     def duration(self, path):
-        result = self.run(['-hide_banner', '-i', path], text=True)
-        match = re.search(r'Duration: (\d+):(\d+):(\d+(?:\.\d+)?)', result.stderr)
+        match = re.search(r'Duration: (\d+):(\d+):(\d+(?:\.\d+)?)', self.probe(path))
         if not match:
             raise ValueError('Medya süresi okunamadı.')
         return int(match.group(1))*3600 + int(match.group(2))*60 + float(match.group(3))
 
     def has_audio(self, path):
-        result = self.run(['-hide_banner', '-i', path], text=True)
-        return bool(re.search(r'Stream #\S+.*Audio:', result.stderr))
+        return bool(re.search(r'Stream #\S+.*Audio:', self.probe(path)))
 
     def dimensions(self, path):
-        result = self.run(['-hide_banner', '-i', path], text=True)
-        match = re.search(r'Stream #.*Video:.*?\b(\d{2,5})x(\d{2,5})\b', result.stderr)
+        """Displayed picture size. Phone footage is often stored landscape with a rotation flag;
+        FFmpeg turns it upright when decoding, so the reported size must be turned the same way."""
+        report = self.probe(path)
+        match = re.search(r'Stream #.*Video:.*?\b(\d{2,5})x(\d{2,5})\b', report)
         if not match:
             raise ValueError('Video boyutları okunamadı.')
         width, height = int(match.group(1)), int(match.group(2))
+        after = report[match.end():]
+        following = re.search(r'\n\s*Stream #', after)
+        rotation = re.search(r'rotation of (-?\d+(?:\.\d+)?) degrees', after[:following.start()] if following else after,
+                             re.IGNORECASE)
+        if rotation and round(abs(float(rotation.group(1)))) % 180 == 90:
+            width, height = height, width
         return width - width % 2, height - height % 2
 
     def silences(self, path, *, noise_db=-35, minimum=0.35):

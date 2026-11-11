@@ -205,7 +205,18 @@ class ProxyPlayback(QObject):
         self.worker.start()
 
     def _rendered(self, path):
+        previous = self.path
         self.signature, self.path = self.rendering, path
+        if previous and previous != path and self.player.source() != QUrl.fromLocalFile(previous):
+            self._discard(previous)
+
+    @staticmethod
+    def _discard(path):
+        """Each edit renders a fresh copy; remove outdated ones so a long session does not fill the disk."""
+        try:
+            Path(path).unlink(missing_ok=True)
+        except OSError:  # still open by the media backend; the folder is removed on close
+            pass
 
     def _render_failed(self, message):
         self.rendering = None
@@ -222,8 +233,11 @@ class ProxyPlayback(QObject):
         self.player.setPlaybackRate(speed)
         position = round(frame * 1000 / self.fps)
         if self.player.source() != QUrl.fromLocalFile(self.path):
+            outdated = self.player.source().toLocalFile()
             self._start_at = position  # Windows media loads asynchronously; seek once it is loaded
             self.player.setSource(QUrl.fromLocalFile(self.path))
+            if outdated:
+                self._discard(outdated)
         else:
             self.player.setPosition(position)
             self.player.play()

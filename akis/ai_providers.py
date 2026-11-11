@@ -2,7 +2,7 @@
 import base64
 import json
 from urllib.request import Request, urlopen
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 
 PROVIDERS = {
     'OpenAI': ('gpt-4o', 'gpt-5'),
@@ -34,6 +34,12 @@ def post_json(provider, url, body, headers, timeout, *, opener=None, sleep=None)
             raise RuntimeError(f'{provider} API hatası: HTTP {exc.code}' + (f' — {detail}' if detail else '')) from exc
         except TimeoutError as exc:
             raise RuntimeError(f'{provider} {timeout} saniyede yanıt vermedi. Başka bir model deneyin veya tekrar deneyin.') from exc
+        except URLError as exc:  # DNS, proxy, firewall or no connection at all
+            if isinstance(exc.reason, TimeoutError):
+                raise RuntimeError(f'{provider} {timeout} saniyede yanıt vermedi. Başka bir model deneyin veya tekrar deneyin.') from exc
+            raise RuntimeError(f'{provider} sunucusuna bağlanılamadı. İnternet bağlantınızı kontrol edin. ({exc.reason})') from exc
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f'{provider} beklenmeyen bir yanıt döndürdü; daha sonra tekrar deneyin.') from exc
 
 
 def save_key(service, provider, key):
