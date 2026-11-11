@@ -16,7 +16,8 @@ def plan(provider, response, frames=((0, b'jpeg'),), seen=None, **kwargs):
         if seen is not None:
             seen.update(url=url, headers=headers, body=body)
         return response
-    return request_plan(provider, KEY, PROVIDERS[provider][0], 'prompt', list(frames), transport, **kwargs)
+    key = '0' * 32 + ':' + KEY if provider == 'Cloudflare' else KEY
+    return request_plan(provider, key, PROVIDERS[provider][0], 'prompt', list(frames), transport, **kwargs)
 
 
 class ResponseShapeTests(unittest.TestCase):
@@ -90,6 +91,7 @@ class ResponseShapeTests(unittest.TestCase):
                 ok = {'OpenAI': {'output': [{'content': [{'type': 'output_text', 'text': 'ok'}]}]},
                       'Anthropic': {'content': [{'type': 'text', 'text': 'ok'}]},
                       'xAI': {'choices': [{'message': {'content': 'ok'}}]},
+                      'Cloudflare': {'choices': [{'message': {'content': 'ok'}}]},
                       'Gemini': {'candidates': [{'content': {'parts': [{'text': 'ok'}]}}]}}[provider]
                 plan(provider, ok, frames=[('K1 @ 12.50s', b'a'), (3.0, b'b')], seen=seen)
                 dumped = json.dumps(seen['body'], ensure_ascii=False)

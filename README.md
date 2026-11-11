@@ -137,7 +137,7 @@ Akış Kurgu AI, [GNU General Public License v3.0](LICENSE) ile yayımlanan özg
 Uygulama hesap gerektirmez, telemetri veya kullanım istatistiği toplamaz ve projelerinizi hiçbir yere göndermez. Ağ bağlantısı yalnızca şu durumlarda kurulur:
 
 - **Güncelleme denetimi:** açılışta GitHub'ın sürüm bilgisi okunur (`api.github.com`). Bu istekte size ait veri gönderilmez; indirme ve kurulum yalnızca siz onaylarsanız yapılır.
-- **AI özellikleri:** yalnızca siz kendi API anahtarınızı girip bir AI işlemi başlattığınızda, seçtiğiniz sağlayıcıya (OpenAI, Anthropic, xAI veya Google Gemini) isteğiniz, videodan seçilen kareler ve varsa konuşma dökümü gönderilir. Bu veriler ilgili sağlayıcının gizlilik koşullarına tabidir. API anahtarları Windows Kimlik Bilgileri Yöneticisi'nde saklanır.
+- **AI özellikleri:** yalnızca siz kendi API anahtarınızı girip bir AI işlemi başlattığınızda, seçtiğiniz sağlayıcıya (OpenAI, Anthropic, xAI, Google Gemini veya Cloudflare Workers AI) isteğiniz, videodan seçilen kareler ve varsa konuşma dökümü gönderilir. Bu veriler ilgili sağlayıcının gizlilik koşullarına tabidir. API anahtarları Windows Kimlik Bilgileri Yöneticisi'nde saklanır.
 - **Yerel Whisper modeli:** "Modeli indir" seçeneğini işaretlediğinizde model dosyaları Hugging Face üzerinden indirilir.
 
 Bunların dışında uygulama, kullanıcı ya da uygulamayı kuran kişi özellikle istemedikçe başka sistemlere bilgi aktarmaz. Kaldırmak için Windows "Uygulamalar" listesindeki **Akis Kurgu AI** girdisini veya kurulum klasöründeki `Uninstall-Akis.exe` dosyasını kullanın.

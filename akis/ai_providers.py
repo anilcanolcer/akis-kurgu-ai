@@ -13,7 +13,28 @@ PROVIDERS = {
     'Anthropic': ('claude-sonnet-5-5', 'claude-opus-5-5'),
     'xAI': ('grok-4.7', 'grok-4.6'),
     'Gemini': ('gemini-3.8-flash', 'gemini-4-argon', 'gemini-3.6-flash', 'gemini-flash-latest'),
+    # Workers AI. Planning sends video frames, so only image-capable chat models are offered; any other
+    # model id from the Cloudflare catalogue can be typed in.
+    # These four answered a request with a video frame on the free plan (checked 2026-11-11).
+    'Cloudflare': ('@cf/meta/llama-4-scout-17b-16e-instruct', '@cf/mistralai/mistral-small-3.1-24b-instruct',
+                   '@cf/qwen/qwen3.8-27b', '@cf/google/gemma-4-26b-a4b-it'),
 }
+CLOUDFLARE_KEY_HINT = 'HESAP_KİMLİĞİ:API_ANAHTARI'
+CLOUDFLARE_MAX_TOKENS = 8192
+
+
+def cloudflare_credentials(key):
+    """Split the Cloudflare key field into (account id, API token).
+
+    Workers AI addresses every call to an account, and a Workers AI token usually cannot list accounts,
+    so the 32-character account id is entered together with the token as ACCOUNT_ID:TOKEN.
+    """
+    account, separator, token = str(key or '').strip().partition(':')
+    account, token = account.strip(), token.strip()
+    if not separator or not token or not re.fullmatch(r'[0-9a-fA-F]{32}', account):
+        raise ValueError('Cloudflare için anahtarı "Hesap Kimliği:API anahtarı" biçiminde girin. Hesap kimliği '
+                         '(Account ID) Cloudflare panelinde Workers AI sayfasında yazan 32 karakterlik değerdir.')
+    return account.lower(), token
 # Text models tried in order when the chosen one is overloaded, missing, timed out or not on this tier.
 # Never used for image or video (each attempt there costs money).
 GEMINI_TEXT_FALLBACKS = {
@@ -128,12 +149,20 @@ def _http_detail(exc):
     try:
         payload = json.loads(exc.read().decode('utf-8', 'replace'))
         error = payload.get('error', payload) if isinstance(payload, dict) else {}
+        if isinstance(payload, dict) and isinstance(payload.get('errors'), list) and payload['errors']:
+            error = payload['errors'][0]  # Cloudflare: {"errors": [{"message": ..., "code": ...}]}
         return str(error.get('message', '') if isinstance(error, dict) else error)[:300]
     except Exception:
         return ''
 
 
-def _http_hint(provider, code):
+def _http_hint(provider, code, detail=''):
+    if provider == 'Cloudflare' and code == 403 and 'plan' in detail.lower():
+        return ('Bu model Cloudflare hesabınızın planında kullanılamıyor. Listeden başka bir model seçin ya da '
+                'Cloudflare panelinden planınızı yükseltin.')
+    if provider == 'Cloudflare' and code == 403:
+        return ('Cloudflare bu modeli bu anahtarla çalıştırmadı: model planınızda olmayabilir, lisans onayı '
+                'gerektirebilir ya da anahtarın Workers AI izni yoktur. Listeden başka bir model deneyin.')
     if code in (401, 403):
         return f'{provider} API anahtarı geçersiz ya da bu işlem için yetkisi yok. Ayarlardan anahtarı kontrol edin.'
     if code == 404:
@@ -192,7 +221,7 @@ def post_json(provider, url, body, headers, timeout, *, opener=None, sleep=None,
                     sleep(delay)
                     continue
             detail = _scrub(raw_detail if raw_detail is not None else _http_detail(exc), headers)
-            hint = _http_hint(provider, exc.code)
+            hint = _http_hint(provider, exc.code, detail)
             message = f'{provider} API hatası: HTTP {exc.code}' + (f' — {detail}' if detail else '')
             raise ProviderHTTPError(message + (f'\n{hint}' if hint else ''), exc.code) from exc
         except (TimeoutError, URLError, ConnectionError) as exc:
@@ -353,6 +382,16 @@ def request_plan(provider, key, model, prompt, frames, transport=None, instructi
         for label, img in encoded:
             content.extend([{'type': 'text', 'text': label}, {'type': 'image_url', 'image_url': {'url': 'data:image/jpeg;base64,' + img}}])
         body = {'model': model, 'messages': [{'role': 'system', 'content': instruction}, {'role': 'user', 'content': content}]}
+    elif provider == 'Cloudflare':
+        account, token = cloudflare_credentials(key)
+        # The OpenAI-compatible Workers AI endpoint; the model id (@cf/...) goes in the body.
+        url = f'https://api.cloudflare.com/client/v4/accounts/{account}/ai/v1/chat/completions'
+        headers['Authorization'] = 'Bearer ' + token
+        content = [{'type': 'text', 'text': prompt}]
+        for label, img in encoded:
+            content.extend([{'type': 'text', 'text': label}, {'type': 'image_url', 'image_url': {'url': 'data:image/jpeg;base64,' + img}}])
+        body = {'model': model, 'max_tokens': CLOUDFLARE_MAX_TOKENS,
+                'messages': [{'role': 'system', 'content': instruction}, {'role': 'user', 'content': content}]}
     else:
         from urllib.parse import quote
         url = 'https://generativelanguage.googleapis.com/v1beta/models/' + quote(model, safe='') + ':generateContent'
@@ -393,7 +432,7 @@ def request_plan(provider, key, model, prompt, frames, transport=None, instructi
         return _openai_text(provider, result)
     if provider == 'Anthropic':
         return _anthropic_text(provider, result)
-    if provider == 'xAI':
+    if provider in ('xAI', 'Cloudflare'):
         return _chat_text(provider, result)
     return _gemini_text(provider, result)
 

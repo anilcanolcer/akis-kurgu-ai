@@ -1157,6 +1157,7 @@ class MainWindow(QMainWindow):
         self._provider_keys[self._active_provider] = self.api_key.text().strip()
         self._active_provider = provider
         self.model.clear(); self.model.addItems(ai_providers.PROVIDERS[provider])
+        self.api_key.setPlaceholderText(ai_providers.CLOUDFLARE_KEY_HINT if provider == 'Cloudflare' else "sk-…")
         self.load_key()
 
     def save_key(self, key: str) -> None:
