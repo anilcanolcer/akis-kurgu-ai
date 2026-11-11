@@ -1,8 +1,35 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Akış Kurgu AI">
- <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#987bff"/><stop offset="1" stop-color="#5b3be0"/></linearGradient></defs>
- <rect x="7" y="7" width="242" height="242" rx="70" fill="#141321"/>
- <rect x="10" y="10" width="236" height="236" rx="67" fill="none" stroke="#6451aa" stroke-width="3"/>
- <path d="M49 186 108 65h34l65 121h-35l-47-88-42 88z" fill="url(#g)"/>
- <path d="M97 159 157 132" fill="none" stroke="#f9f6ff" stroke-width="15" stroke-linecap="round"/>
- <circle cx="179" cy="77" r="7" fill="#e9dcff"/>
+  <title>Akış Kurgu AI</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#211a3d"/>
+      <stop offset="1" stop-color="#0d0b18"/>
+    </linearGradient>
+    <linearGradient id="top" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#c3b2ff"/>
+      <stop offset="1" stop-color="#9a80ff"/>
+    </linearGradient>
+    <linearGradient id="mid" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#8b6aff"/>
+      <stop offset="1" stop-color="#4fe1c0"/>
+    </linearGradient>
+    <linearGradient id="low" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#6a4be8"/>
+      <stop offset="1" stop-color="#4a31c4"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="58" fill="url(#bg)"/>
+  <rect x="9.500" y="9.500" width="237" height="237" rx="56.500" fill="none" stroke="#8b6aff" stroke-opacity=".38" stroke-width="3"/>
+  <!-- A play triangle built from three timeline tracks (plain polygons: every SVG renderer draws them). -->
+  <g stroke-width="9" stroke-linejoin="round">
+    <path d="M76 52 L142 90 H76 Z" fill="url(#top)" stroke="url(#top)"/>
+    <path d="M76 108 H173 L208 128 L173 148 H76 Z" fill="url(#mid)" stroke="url(#mid)"/>
+    <path d="M76 166 H142 L76 204 Z" fill="url(#low)" stroke="url(#low)"/>
+  </g>
+  <!-- Playhead: the cut. A dark channel first, so it reads as slicing through the tracks. -->
+  <path d="M110 44 V214" stroke="#151127" stroke-width="17" stroke-linecap="round"/>
+  <path d="M110 54 V212" stroke="#f4f1ff" stroke-width="6" stroke-linecap="round"/>
+  <path d="M97 32 H123 V45 L110 58 L97 45 Z" fill="#f4f1ff" stroke="#151127" stroke-width="4" stroke-linejoin="round"/>
+  <!-- Spark: the AI. -->
+  <path d="M192 46 Q194.800 63.200 212 66 Q194.800 68.800 192 86 Q189.200 68.800 172 66 Q189.200 63.200 192 46 Z" fill="#4fe1c0"/>
 </svg>

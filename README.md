@@ -1,57 +1,66 @@
-<p align="center"><img src="https://raw.githubusercontent.com/anilcanolcer/akis-kurgu-ai/main/docs/banner.svg" alt="Akış Kurgu AI — yerel öncelikli video düzenleyici"></p>
+<p align="center"><img src="https://raw.githubusercontent.com/anilcanolcer/akis-kurgu-ai/main/docs/banner.svg" alt="Akış Kurgu AI — yapay zekâ destekli, yerel öncelikli video düzenleyici" width="100%"></p>
 
-<h1 align="center">Akış Kurgu AI</h1>
-<p align="center">Windows için yerel öncelikli, Türkçe ve İngilizce video düzenleyici</p>
+<p align="center">
+  <a href="https://github.com/anilcanolcer/akis-kurgu-ai/releases/latest"><img alt="Son sürüm" src="https://img.shields.io/github/v/release/anilcanolcer/akis-kurgu-ai?label=s%C3%BCr%C3%BCm&color=8b6aff"></a>
+  <a href="https://github.com/anilcanolcer/akis-kurgu-ai/actions/workflows/windows-build.yml"><img alt="Derleme" src="https://img.shields.io/github/actions/workflow/status/anilcanolcer/akis-kurgu-ai/windows-build.yml?branch=main&label=derleme"></a>
+  <a href="LICENSE"><img alt="Lisans: GPL-3.0" src="https://img.shields.io/badge/lisans-GPL--3.0-4fe1c0"></a>
+  <img alt="Windows 10/11" src="https://img.shields.io/badge/Windows-10%20%2F%2011-5b3be0">
+</p>
 
-## Windows'ta kurulum
+<p align="center"><b>Ne istediğini yaz, Akış kurgulasın.</b><br>Windows için Türkçe ve İngilizce, çok izli video düzenleyici. Kurgu ve dışa aktarma bilgisayarınızda yapılır; yapay zekâ yalnızca siz başlattığınızda, kendi anahtarınızla çalışır.</p>
 
-[**Windows kurucusunu indir — AkisKurguAI-Setup.exe**](https://github.com/anilcanolcer/akis-kurgu-ai/releases/latest/download/AkisKurguAI-Setup.exe)
+<p align="center"><a href="https://github.com/anilcanolcer/akis-kurgu-ai/releases/latest/download/AkisKurguAI-Setup.exe"><b>⬇ Windows kurucusunu indir</b></a></p>
 
-1. Kurucu EXE dosyasını indirin ve çalıştırın.
-2. Kurulum adımlarını tamamlayıp Başlat menüsünden **Akış Kurgu AI** uygulamasını açın.
-3. Yerel Whisper modeli ilk kullanımda internet üzerinden indirilir; sonrasında çevrimdışı kullanılabilir.
+![Akış Kurgu AI düzenleyicisi: önizleme, çok izli zaman çizelgesi ve AI kurgu paneli](https://raw.githubusercontent.com/anilcanolcer/akis-kurgu-ai/main/docs/editor-demo.png)
 
-**Bilinen kurulum sorunu:** Windows kurucusu dijital olarak imzalı değildir. Windows Akıllı Uygulama Denetimi veya kuruluşun uygulama ilkesi açık olan bilgisayarlarda 4551 hatasıyla engellenebilir. Yeni bir güvenilir imzalı dağıtım hazırlanıp doğrulanana kadar bu sistemlerde çalışacağı garanti edilmez.
+## Öne çıkanlar
 
-GitHub Windows ortamında kurulum, açılış ve yerel modelin indirilip çevrimdışı açılması denetlenmiştir; farklı cihazlarda ses eşzamanlaması değişebilir.
+| | |
+| --- | --- |
+| **İstekle kurgu** | "Sessizlikleri kes, en çarpıcı anı başa al, altyazı ekle" yazın; plan uygulanır, beğenmezseniz tek adımda geri alınır. B-roll, başlık ve müzik izleriniz korunur. |
+| **Hikâye Stüdyosu** | Gemini ile öncülden hikâye künyesi ve sahneler; sahnenin görseli (Nano Banana) ve kısa videosu (Omni Flash) üretilip zaman çizelgesine eklenir. |
+| **Çok izli zaman çizelgesi** | Video, ses, metin ve katman izleri; bölme, kırpma, tüm izleri kaydıran ripple silme, geri al / yinele (Ctrl+Z, Ctrl+Y). |
+| **Hızlı önizleme ve dışa aktarma** | Akıcı oynatma için arka planda proxy; H.264/AAC MP4, 4K profilleri, iptal edilebilir ve yarıda kalırsa eski dosyayı bozmayan dışa aktarma. |
+| **Altyazı ve seslendirme** | Yerel Whisper ile çevrimdışı konuşma dökümü ve altyazı; Windows sesleriyle metinden seslendirme. |
+| **İlham ve Şablonlar** | 23 hazır video fikri (çekim listesi ve kurgu isteğiyle) ve platforma göre iz, oran, renk ve tempo şablonları. |
+| **Sağlayıcı seçimi** | OpenAI, Anthropic, xAI, Google Gemini veya Cloudflare Workers AI; anahtarlar Windows Kimlik Bilgileri Yöneticisi'nde saklanır. |
+| **Güvenli çalışma** | Otomatik kayıt ve çökme sonrası kurtarma, proje sürümleri, eski sürüme geri dönebilen güvenli güncelleme. |
 
-## Uygulama görünümü
+## Ekran görüntüleri
 
-![Uygulamada örnek video ve zaman çizelgesi](https://raw.githubusercontent.com/anilcanolcer/akis-kurgu-ai/experimental/timeline-render/docs/editor-demo.png)
+| Hikâye Stüdyosu | İlham |
+| --- | --- |
+| ![Hikâye Stüdyosu: sahne listesi ve sahne metni](https://raw.githubusercontent.com/anilcanolcer/akis-kurgu-ai/main/docs/hikaye-studyosu.png) | ![İlham: yaratıcı video fikirleri, çekim listesi ve önerilen kurgu isteği](https://raw.githubusercontent.com/anilcanolcer/akis-kurgu-ai/main/docs/ilham.png) |
 
-*Uygulamanın gerçek arayüzü; görüntülerde FFmpeg tarafından oluşturulan örnek test videosu kullanılmıştır.*
+![Düzenle sekmesi: tuval oranı, hız ve renk ayarları](https://raw.githubusercontent.com/anilcanolcer/akis-kurgu-ai/main/docs/editor-adjustments.png)
 
-![Uygulamanın hız ve renk ayarları](https://raw.githubusercontent.com/anilcanolcer/akis-kurgu-ai/main/docs/editor-adjustments.png)
+*Görüntüler uygulamanın gerçek arayüzünden alınmıştır; örnek klipler FFmpeg ile üretilmiş renk geçişleridir, Hikâye Stüdyosu'ndaki metin örnek içeriktir.*
 
-*Düzenle sekmesindeki tuval oranı, hız ve renk kontrolleri.*
+## Kurulum
+
+1. [Kurucuyu indirin](https://github.com/anilcanolcer/akis-kurgu-ai/releases/latest/download/AkisKurguAI-Setup.exe) ve çalıştırın.
+2. Başlat menüsünden **Akis Kurgu AI** uygulamasını açın.
+3. Yerel Whisper modeli ilk kullanımda indirilir; sonrasında çevrimdışı çalışır.
+
+Kurucu dijital olarak imzalı değildir; Windows veya güvenlik yazılımınız uyarı gösterebilir, kurumsal güvenlik ürünleri kurulumu engelleyebilir. Ayrıntılar ve indirilen dosyayı doğrulama: [docs/kod-imzalama.md](docs/kod-imzalama.md). Uygulama yeni sürümü kendisi önerir; güncelleme sırasında eski sürüm silinmez, bir sorun olursa geri yüklenir.
 
 ## Kısa kullanım
 
-1. **Video ekle** ile dosya açın. İlk klip Video izinde görünür.
-2. İzdeki klibe tıklayın; cetvel üzerinde tıklayarak veya sürükleyerek oynatma konumunu değiştirin.
-3. Klip seçiliyken oynatma çizgisini klibin içine getirin ve **Böl** düğmesine basın. Uzun projelerde zaman çizelgesinin altındaki kaydırma çubuğunu kullanın. Klipleri aynı izde sürükleyebilir veya **Ripple sil** ile seçileni silip aynı izdeki sonraki klipleri kaydırabilirsiniz.
-4. Boş bir izi seçip **Medya** ile video/ses ekleyin; **İz** düğmeleriyle izleri yönetin. ▶ düğmesi oynatma ve duraklatma içindir.
-5. **Düzenle** sekmesinden oran, renk ve hız ayarlayın; **Dışa aktar** ile MP4 oluşturun. Projeyi `.akis.json` olarak kaydedebilirsiniz.
+1. **Video ekle** ile dosya açın; ilk klip Video izine yerleşir.
+2. **AI Kurgu** sekmesinde isteğinizi yazıp **Prompt ile kurgula** deyin ya da klipleri elle düzenleyin: seçin, sürükleyin, **Böl**, **Ripple sil**.
+3. **İlham**'dan bir fikir veya **Şablonlar**'dan bir yapı seçerek başlayabilirsiniz.
+4. **Düzenle** sekmesinden oran, renk ve hızı ayarlayın.
+5. **Dışa aktar** ile MP4 oluşturun; projeyi `.akis.json` olarak kaydedin.
 
-Yayın panelindeki 4K profilleri, seçili oran için standart çıktı çözünürlüğünü ikiye katlar. Çıktı dosyası kaynak medya dosyasıyla aynı seçilemez.
-
-## Neler çalışıyor?
-
-| Alan | Özellik durumu |
-| --- | --- |
-| Timeline | Video, ses, metin ve overlay iz modeli; seçim, taşıma, bölme, uçtan kırpma ve ripple silme için temel kontroller |
-| Önizleme ve çıktı | Ortak kare planından çok katmanlı FFmpeg kompozisyonu; H.264/AAC MP4, filigransız çıktı ve temel oranlar |
-| Renk ve hız | Parlaklık, kontrast, doygunluk ve genel hız önizleme/çıktıya uygulanır; hız değiştirilmiş export ara dosya ve ikinci kodlama kullanır |
-| Ses | Tek kaynaklı temel ses önizlemesi ve basit zamanlama düzeltmesi; export tarafında ses izlerinin temel karışımı |
-| Proje ve AI | Sürümlü JSON proje; isteğe bağlı OpenAI, Claude, Grok veya Gemini ile kurgu önerisi; OpenAI, xAI veya Gemini ile konuşma metni. API kullanımı internet ve kendi anahtarınızı gerektirir |
+AI özellikleri için AI sekmesinde sağlayıcıyı seçip kendi API anahtarınızı girin. Cloudflare için anahtar `Hesap Kimliği:API anahtarı` biçimindedir. Gemini ile metin, görsel ve video çağrılarının ayrıntıları: [docs/gemini-hikaye.md](docs/gemini-hikaye.md).
 
 ### Bilinen sınırlamalar
 
-- Önizleme her kareyi FFmpeg ile üretir; özellikle yüksek çözünürlükte akıcı gerçek zamanlı oynatma beklenmemelidir. Ses önizlemesi tek kaynak seçer, çok izli miksi canlı çalmaz.
-- Ripple silme yalnızca seçili izdeki klipleri kaydırır; diğer izlerdeki altyazı ve seslerin zamanlamasını ayrıca kontrol edin.
-- Eski aralık seçici, geçiş, görünüm efekti, başlık alanı ve bazı ses işleme kontrolleri yeni render yoluna bağlı olmadıklarından devre dışıdır. Metin izi model ve render düzeyinde desteklenir; tam bir metin düzenleyicisi yoktur.
-- Keyframe düzenleme, proxy, dışa aktarma kuyruğu ve gelişmiş renk araçları yoktur. Çeviriler eksiksiz değildir.
-- Instagram müzik kütüphanesi, hesap eşitleme veya doğrudan yayınlama sunulmaz. Proje Instagram ile bağlantılı değildir.
+- Akıcı oynatma, düzenlemeden kısa süre sonra arka planda hazırlanan proxy ile başlar; hazırlanana kadar önizleme kare kare ilerler.
+- Hikâye Stüdyosu'nda görsel ve video üretimi Google tarafında ücretli kota gerektirir; ücretsiz katmandaki anahtarlar yalnızca metin üretebilir.
+- Yerel Whisper dökümü ve Windows seslendirmesi başladıktan sonra iptal edilemez.
+- Keyframe düzenleyici, dışa aktarma kuyruğu ve gelişmiş renk araçları yoktur; İngilizce çeviri eksiksiz değildir.
+- Hesap eşitleme veya doğrudan yayınlama sunulmaz.
 
 ## Kaynak koddan çalıştırma
 
