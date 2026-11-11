@@ -204,7 +204,7 @@ class PromptEditTests(WindowCase):
         self.assertEqual((w.state.brightness, w.state.contrast, w.state.saturation), (12, 4, 5))
         self.assertEqual(w.aspect.currentData(), '16:9 · YouTube')
         self.assertEqual(w.state.speed, 1.25)
-        w.undo_prompt_edit()
+        self.assertTrue(w.undo())
         self.assertEqual((w.brightness.value(), w.contrast.value(), w.saturation.value()), (3, 4, 5))
         self.assertEqual(w.aspect.currentData(), i18n.DEFAULT_ASPECT)
         self.assertEqual(w.state.speed, 1.0)

@@ -2,7 +2,7 @@
 import tempfile
 from pathlib import Path
 from PySide6.QtCore import QThread, Signal
-from akis.media_service import MediaService
+from akis.media_service import MediaService, RenderCancelled
 from akis.ai_service import parse_suggestions
 from akis.ai_providers import request_plan, transcribe
 from akis.ai_service import local_transcribe
@@ -10,20 +10,49 @@ from akis.timeline_model import Timeline
 from akis import edit_plan
 
 
-class AIWorker(QThread):
+class WorkerCancelled(Exception):
+    """Raised inside run() between stages once cancel() was requested."""
+
+
+class CancellableWorker(QThread):
+    """A worker whose FFmpeg stages stop at once on cancel(); a network call in progress is not interrupted,
+    its result is discarded. Exactly one of completed / failed / cancelled is emitted per run."""
+    cancelled = Signal()
+
+    def __init__(self, executable) -> None:
+        super().__init__()
+        self.executable = executable
+        self.media = MediaService(executable)
+
+    def cancel(self) -> None:
+        """Safe from any thread; returns at once."""
+        self.requestInterruption()
+        self.media.cancel()
+
+    def check_cancelled(self) -> None:
+        if self.isInterruptionRequested() or self.media.cancelled:
+            raise WorkerCancelled()
+
+    def report_error(self, exc: Exception) -> None:
+        if isinstance(exc, (WorkerCancelled, RenderCancelled)) or self.isInterruptionRequested() or self.media.cancelled:
+            self.cancelled.emit()
+        else:
+            self.failed.emit(str(exc))
+
+
+class AIWorker(CancellableWorker):
     completed = Signal(list)
     failed = Signal(str)
     status = Signal(str)
 
     def __init__(self, api_key: str, model: str, video: str, duration: float, prompt: str, executable: str, provider: str = "OpenAI") -> None:
-        super().__init__()
+        super().__init__(executable)
         self.api_key = api_key
         self.provider = provider
         self.model = model
         self.video = video
         self.duration = duration
         self.prompt = prompt
-        self.executable = executable
 
     def run(self) -> None:
         try:
@@ -32,9 +61,10 @@ class AIWorker(QThread):
                 frames = []
                 moments = [0.05, 0.22, 0.42, 0.62, 0.82]
                 for index, ratio in enumerate(moments):
+                    self.check_cancelled()
                     target = Path(temp) / f"frame_{index}.jpg"
                     at = max(0, min(self.duration - 0.05, self.duration * ratio))
-                    result = MediaService(self.executable).extract_frame(self.video, at, target)
+                    result = self.media.extract_frame(self.video, at, target)
                     if result.returncode == 0 and target.exists():
                         frames.append((at, target))
 
@@ -49,24 +79,26 @@ class AIWorker(QThread):
                     '"trim_start":0.0, "trim_end":0.0, "pacing":"", "filter":"natural|vivid|cinematic", '
                     '"notes":[""]}]} Üç farklı öneri ver. Zamanlar video sınırları içinde olsun.'
                 )
+                self.check_cancelled()
                 self.status.emit("AI kurgu planı hazırlanıyor…")
                 text = request_plan(self.provider, self.api_key, self.model, prompt,
                                     [(at, path.read_bytes()) for at, path in frames])
-                self.completed.emit(parse_suggestions(text, self.duration))
+                suggestions = parse_suggestions(text, self.duration)
+            self.check_cancelled()
+            self.completed.emit(suggestions)
         except Exception as exc:
-            self.failed.emit(str(exc))
+            self.report_error(exc)
 
 
-class TranscriptWorker(QThread):
+class TranscriptWorker(CancellableWorker):
     completed = Signal(str)
     failed = Signal(str)
     status = Signal(str)
 
     def __init__(self, api_key: str, video: str, executable: str, model: str = "gpt-4o-mini-transcribe", provider: str = "OpenAI") -> None:
-        super().__init__()
+        super().__init__(executable)
         self.api_key = api_key
         self.video = video
-        self.executable = executable
         self.model = model
         self.provider = provider
 
@@ -75,13 +107,16 @@ class TranscriptWorker(QThread):
             self.status.emit("Ses parçası hazırlanıyor…")
             with tempfile.TemporaryDirectory(prefix="akis_audio_") as temp:
                 audio = Path(temp) / "audio.mp3"
-                result = MediaService(self.executable).extract_audio(self.video, audio)
+                result = self.media.extract_audio(self.video, audio)
+                self.check_cancelled()
                 if result.returncode != 0 or not audio.exists():
                     raise RuntimeError("Videodan ses parçası çıkarılamadı.")
                 self.status.emit("Türkçe konuşma metne çevriliyor…")
-                self.completed.emit(transcribe(self.provider, self.api_key, self.model, audio))
+                text = transcribe(self.provider, self.api_key, self.model, audio)
+            self.check_cancelled()
+            self.completed.emit(text)
         except Exception as exc:
-            self.failed.emit(str(exc))
+            self.report_error(exc)
 
 
 MAX_FRAMES = 32
@@ -124,7 +159,7 @@ def frame_counts(durations, cap=MAX_FRAMES):
     return counts
 
 
-class PromptEditWorker(QThread):
+class PromptEditWorker(CancellableWorker):
     """Analyse every source, ask the model for an edit plan, and return it validated."""
     completed = Signal(dict, list)
     failed = Signal(str)
@@ -132,22 +167,22 @@ class PromptEditWorker(QThread):
 
     def __init__(self, api_key, model, provider, request, timeline, sources, executable,
                  transcripts=None, whisper_model=None, request_fn=request_plan, settings=None) -> None:
-        super().__init__()
+        super().__init__(executable)
         self.api_key, self.model, self.provider = api_key, model, provider
         self.request = request
         self.timeline = Timeline.from_dict(timeline.to_dict())
         self.settings = settings
         self.sources = [{'path': path, 'duration': duration} for path, duration in sources]
-        self.executable = executable
         self.transcripts = dict(transcripts or {})
         self.whisper_model = whisper_model
         self.request_fn = request_fn
 
     def analyse(self, temp):
-        media = MediaService(self.executable)
+        media = self.media
         frames = []
         counts = frame_counts([source['duration'] for source in self.sources])
         for index, source in enumerate(self.sources):
+            self.check_cancelled()
             path, duration = source['path'], source['duration']
             self.status.emit(f"Video çözümleniyor ({index + 1}/{len(self.sources)}): ses, sahne ve kareler…")
             source['silences'] = media.silences(path) if media.has_audio(path) else []
@@ -163,6 +198,7 @@ class PromptEditWorker(QThread):
             source['transcript'] = transcript or []
             count = counts[index]
             for step in range(count):
+                self.check_cancelled()
                 at = max(0.0, min(duration - 0.05, duration * (step + 0.5) / count))
                 target = Path(temp) / f"s{index}_f{step}.jpg"
                 if media.extract_frame(path, at, target).returncode == 0 and target.exists():
@@ -176,6 +212,7 @@ class PromptEditWorker(QThread):
             with tempfile.TemporaryDirectory(prefix="akis_edit_") as temp:
                 frames = self.analyse(temp)
             prompt = edit_plan.build_prompt(self.request, self.sources, self.timeline, settings=self.settings)
+            self.check_cancelled()
             self.status.emit("AI kurgu kararlarını veriyor…")
             text = self.request_fn(self.provider, self.api_key, self.model,
                                    prompt + '\n' + FRAME_LABEL_NOTE,
@@ -183,6 +220,7 @@ class PromptEditWorker(QThread):
                                    instruction=edit_plan.INSTRUCTION)
             plan = edit_plan.parse_plan(text, [s['duration'] for s in self.sources],
                                         current_duration=edit_plan.primary_duration(self.timeline))
+            self.check_cancelled()
             self.completed.emit(plan, self.sources)
         except Exception as exc:
-            self.failed.emit(str(exc))
+            self.report_error(exc)
