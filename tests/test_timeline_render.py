@@ -71,6 +71,40 @@ class RenderTests(unittest.TestCase):
             for a, b in zip(preview_pixel, output_pixel):
                 self.assertLess(abs(a-b), 25)
 
+    def test_layers_start_on_their_exact_frame_and_preview_seeks_inputs(self):
+        import main
+        from PIL import Image
+        media = MediaService(main.ffmpeg_path())
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            red, blue = root / 'red.mp4', root / 'blue.mp4'
+            for path, color in ((red, 'red'), (blue, 'blue')):
+                self.assertEqual(media.run(['-y', '-f', 'lavfi', '-i', f'color={color}:s=160x90:r=30:d=4',
+                                            '-c:v', 'libx264', '-pix_fmt', 'yuv420p', path]).returncode, 0)
+            # 5/30 s is not exact in floating point: the overlay used to appear one frame late.
+            timeline = Timeline(tracks=[Track('video', 'v', [Clip(str(red), 0, 30, source_in=60, source_length=120)]),
+                                        Track('overlay', 'o', [Clip(str(blue), 5, 10, source_in=40, source_length=120)])])
+            renderer = TimelineRenderer(media, (160, 90))
+            output = root / 'out.mp4'
+            renderer.export(timeline, output)
+            for frame, expect_blue in ((4, False), (5, True), (14, True), (15, False)):
+                still, exported = root / f'p{frame}.png', root / f'e{frame}.png'
+                renderer.preview(timeline, frame, still)
+                self.assertEqual(media.run(['-y', '-i', output, '-vf', f'select=eq(n\\,{frame})',
+                                            '-frames:v', '1', exported]).returncode, 0)
+                for picture in (still, exported):
+                    with Image.open(picture) as image:
+                        r, _, b = image.convert('RGB').getpixel((80, 45))
+                    self.assertEqual(b > r, expect_blue, f'{picture.name}')
+            calls = []
+            spy = MediaService(main.ffmpeg_path())
+            original = spy.run
+            spy.run = lambda args, text=False: calls.append(list(map(str, args))) or original(args, text=text)
+            TimelineRenderer(spy, (160, 90)).preview(timeline, 20, root / 'seek.png')
+            args = calls[-1]
+            at = args.index(str(red))
+            self.assertEqual(args[at - 3:at], ['-ss', f'{80 / 30:.9f}', '-i'])  # 60 in + 20 played
+
 
 if __name__ == '__main__':
     unittest.main()

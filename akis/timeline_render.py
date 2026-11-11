@@ -112,8 +112,12 @@ class TimelineRenderer:
                     for clip in track.clips:
                         if clip.end <= frame < clip.end + outgoing_hold(track, clip):
                             planned_ids.add((track_index, clip.id))
+        # A still preview renders only from its own moment onward: every input is seeked straight to
+        # the frame instead of decoding from the start, so a frame ten minutes in costs the same as
+        # the first one. Output time 0 is timeline time `window`. Export keeps window = 0.
+        window = frame / fps if frame is not None else 0.0
         with tempfile.TemporaryDirectory(prefix='akis_render_') as tmp:
-            args = ['-y', '-f', 'lavfi', '-i', f'color=c=black:s={self.width}x{self.height}:r={timeline.fps_num}/{timeline.fps_den}:d={total/fps:.9f}']
+            args = ['-y', '-f', 'lavfi', '-i', f'color=c=black:s={self.width}x{self.height}:r={timeline.fps_num}/{timeline.fps_den}:d={total/fps - window:.9f}']
             graph = ['[0:v]format=yuv420p[base0]']
             base = 'base0'
             audio = []
@@ -126,17 +130,33 @@ class TimelineRenderer:
                     if (track_index, clip.id) not in planned_ids:
                         continue
                     start, length, source_in = clip.start/fps, clip.length/fps, clip.source_in/fps
+                    # skip: how far into this clip the preview moment lies (the last frame for a clip
+                    # held under the next clip's transition); placed: output time its remainder starts.
+                    skip = 0.0 if frame is None else min(max(0, frame - clip.start), clip.length - 1) / fps
+                    placed = max(0.0, start - window)
+                    local_start, end_at = start - window, clip.end / fps - window
+                    # Frame times are not exact in floating point; compare against half-frame edges so
+                    # a layer appears on its first frame rather than one frame late.
+                    on, off = local_start - 0.5 / fps, end_at - 0.5 / fps
                     if track.kind in ('video', 'overlay'):
                         if not Path(clip.source).is_file():
                             raise FileNotFoundError(clip.source)
-                        args += ['-i', clip.source]
                         layer += 1
                         hold = outgoing_hold(track, clip) / fps
-                        chain = f'[{index}:v]trim=start={source_in:.9f}:duration={length:.9f},setpts=PTS-STARTPTS'
+                        if frame is None:
+                            args += ['-i', clip.source]
+                            chain = f'[{index}:v]trim=start={source_in:.9f}:duration={length:.9f},setpts=PTS-STARTPTS'
+                        else:
+                            if source_in + skip > 0:
+                                args += ['-ss', f'{source_in + skip:.9f}']
+                            args += ['-i', clip.source]
+                            chain = f'[{index}:v]trim=duration={length - skip:.9f},setpts=PTS-STARTPTS'
                         if hold:
                             chain += f',tpad=stop_mode=clone:stop_duration={hold:.9f}'
                         chain += (f',scale={self.width}:{self.height}:force_original_aspect_ratio=decrease,'
                                   f'pad={self.width}:{self.height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1')
+                        if skip:  # restore clip-local time so transitions see where they are
+                            chain += f',setpts=PTS+{skip:.9f}/TB'
                         position = ''
                         transition = transition_of(track, clip)
                         if transition:
@@ -147,12 +167,12 @@ class TimelineRenderer:
                                 tint = 'white' if name == 'flash' else 'black'
                                 chain += f',fade=t=in:st=0:d={seconds:.9f}:color={tint}'
                             else:  # eased slide of the incoming picture over the held outgoing one
-                                ease = f'pow(max(0,1-(t-{start:.9f})/{seconds:.9f}),2)'
+                                ease = f'pow(max(0,1-(t-({local_start:.9f}))/{seconds:.9f}),2)'
                                 axis, extent = ('x', 'W') if name in ('slide_left', 'slide_right') else ('y', 'H')
                                 sign = '' if name in ('slide_left', 'slide_up') else '-'
                                 position = f"{axis}='{sign}{extent}*{ease}':"
-                        graph.append(f'{chain},setpts=PTS+{start:.9f}/TB[v{layer}]')
-                        graph.append(f'[{base}][v{layer}]overlay={position}eof_action=pass:enable=\'gte(t,{start:.9f})*lt(t,{(clip.end/fps + hold):.9f})\'[base{layer}]')
+                        graph.append(f'{chain},setpts=PTS-{skip:.9f}/TB+{placed:.9f}/TB[v{layer}]')
+                        graph.append(f'[{base}][v{layer}]overlay={position}eof_action=pass:enable=\'gte(t,{on:.9f})*lt(t,{(off + hold):.9f})\'[base{layer}]')
                         base = f'base{layer}'
                         if track.kind == 'video' and frame is None and self.media.has_audio(clip.source):
                             delay = round(start * 1000)
@@ -175,16 +195,17 @@ class TimelineRenderer:
                         picture = Path(tmp) / f'shape{layer}.png'
                         draw_shape(clip.style, (self.width, self.height), zlib.crc32(clip.id.encode())).save(picture)
                         args += ['-loop', '1', '-framerate', f'{timeline.fps_num}/{timeline.fps_den}',
-                                 '-t', f'{length:.9f}', '-i', str(picture)]
+                                 '-t', f'{length - skip:.9f}', '-i', str(picture)]
                         pop = min(0.2, length / 2)
-                        graph.append(f'[{index}:v]format=rgba,fade=t=in:st=0:d={pop:.9f}:alpha=1,setpts=PTS+{start:.9f}/TB[v{layer}]')
-                        graph.append(f'[{base}][v{layer}]overlay=eof_action=pass:enable=\'gte(t,{start:.9f})*lt(t,{clip.end/fps:.9f})\'[base{layer}]')
+                        graph.append(f'[{index}:v]format=rgba,setpts=PTS+{skip:.9f}/TB,fade=t=in:st=0:d={pop:.9f}:alpha=1,'
+                                     f'setpts=PTS-{skip:.9f}/TB+{placed:.9f}/TB[v{layer}]')
+                        graph.append(f'[{base}][v{layer}]overlay=eof_action=pass:enable=\'gte(t,{on:.9f})*lt(t,{off:.9f})\'[base{layer}]')
                         base = f'base{layer}'
                         index += 1
                     elif track.kind == 'text' and clip.text:
                         textfile = Path(tmp) / f'text{layer}.txt'
                         layer += 1
-                        window = f'enable=\'gte(t,{start:.9f})*lt(t,{clip.end/fps:.9f})\''
+                        visible = f'enable=\'gte(t,{on:.9f})*lt(t,{off:.9f})\''
                         common = f'[{base}]drawtext=textfile=\'{_escape_filter_path(textfile)}\':expansion=none'
                         if clip.style:
                             size = clip.style.get('size') if clip.style.get('size') in TEXT_SCALE else 'medium'
@@ -197,11 +218,11 @@ class TimelineRenderer:
                             graph.append(f'{common}:fontfile=\'{_escape_filter_path(font)}\':text_align=C:line_spacing=6'
                                          f':fontcolor={colour}:fontsize=h/18*{TEXT_SCALE[size]}:borderw={max(2, round(self.height / 300))}:bordercolor=black'
                                          f':x=\'max(10,min(w-text_w-10,w*{x:.4f}-text_w/2))\''
-                                         f':y=\'max(10,min(h-text_h-10,h*{y:.4f}-text_h/2))\':{window}[base{layer}]')
+                                         f':y=\'max(10,min(h-text_h-10,h*{y:.4f}-text_h/2))\':{visible}[base{layer}]')
                         else:
                             textfile.write_text(clip.text, encoding='utf-8')
                             graph.append(f'{common}:fontfile=\'{_escape_filter_path(self.font)}\':fontcolor=white:fontsize=h/18'
-                                         f':x=(w-text_w)/2:y=h*0.78:box=1:boxcolor=black@0.5:boxborderw=12:{window}[base{layer}]')
+                                         f':x=(w-text_w)/2:y=h*0.78:box=1:boxcolor=black@0.5:boxborderw=12:{visible}[base{layer}]')
                         base = f'base{layer}'
             graph.append(f'[{base}]eq=brightness={self.brightness/100:.3f}:contrast={1+self.contrast/100:.3f}:saturation={1+self.saturation/50:.3f}[graded]')
             base = 'graded'
@@ -209,7 +230,7 @@ class TimelineRenderer:
                 graph.append(''.join(audio) + f'amix=inputs={len(audio)}:duration=longest:normalize=0[aout]')
             args += ['-filter_complex', ';'.join(graph), '-map', f'[{base}]']
             if frame is not None:
-                args += ['-ss', f'{frame/fps:.9f}', '-frames:v', '1', '-an', str(output)]
+                args += ['-frames:v', '1', '-an', str(output)]
             else:
                 if audio:
                     args += ['-map', '[aout]', '-c:a', 'aac', '-b:a', '192k']
