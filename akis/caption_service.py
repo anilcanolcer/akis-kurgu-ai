@@ -32,8 +32,9 @@ def caption_track(timeline, source, segments):
     return len(track.clips)
 
 
-def snap_frame(timeline, frame, threshold, exclude=None):
-    edges = {0}
+def snap_frame(timeline, frame, threshold, exclude=None, extra=()):
+    """Pull frame onto the nearest clip edge, the start, or an extra point such as the playhead."""
+    edges = {0, *extra}
     for i, track in enumerate(timeline.tracks):
         for clip in track.clips:
             if exclude != (i, clip.id):

@@ -8,7 +8,6 @@ from __future__ import annotations
 import os
 import re
 import tempfile
-import textwrap
 import zlib
 from pathlib import Path
 from akis.frame_plan import plan_frame, plan_segments
@@ -21,9 +20,53 @@ TONE_MAP = ('zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=ton
             'zscale=t=bt709:m=bt709:r=tv,format=yuv420p')
 LIMITER = 'alimiter=limit=0.89:level=0:latency=1'  # -1 dB ceiling; no automatic gain, no added delay
 TEXT_SCALE = {'small': 0.75, 'medium': 1.0, 'large': 1.5}
-TEXT_WRAP = {'small': 30, 'medium': 22, 'large': 15}
 TEXT_COLORS = {'white': 'white', 'yellow': '#FFDD00', 'red': '#FF2D2D', 'green': '#39FF5A',
                'blue': '#3CA0FF', 'pink': '#FF50C8'}
+
+
+def fit_text(text, font, size, max_width, max_height):
+    """Wrap text to a pixel width and shrink it until the block fits; returns (lines, font size).
+
+    The user's own line breaks are kept. Measured with the same TrueType metrics drawtext uses, so a
+    long title never runs off the sides of the frame in preview or export. A single word that is wider
+    than the frame even at the smallest size is broken between characters.
+    """
+    paragraphs = [' '.join(part.split()) for part in str(text).replace('\r\n', '\n').replace('\r', '\n').rstrip('\n').split('\n')]
+    try:
+        from PIL import ImageFont
+        ImageFont.truetype(str(font), 10)
+        load = lambda value: ImageFont.truetype(str(font), max(1, round(value)))
+        measure = lambda face, value: face.getlength(value)
+    except (ImportError, OSError):  # no Pillow or the font cannot be read: assume an average glyph width
+        load = lambda value: value
+        measure = lambda face, value: len(value) * face * 0.56
+    smallest = max(10.0, size * 0.35)
+    while True:
+        face = load(size)
+        lines = []
+        for paragraph in paragraphs:
+            line = ''
+            for word in paragraph.split(' '):
+                candidate = f'{line} {word}'.strip()
+                if not line or measure(face, candidate) <= max_width:
+                    line = candidate
+                else:
+                    lines.append(line)
+                    line = word
+            lines.append(line)
+        widest = max((measure(face, line) for line in lines), default=0)
+        if (widest <= max_width and len(lines) * size * 1.25 <= max_height) or size <= smallest:
+            broken = []
+            for line in lines:
+                while len(line) > 1 and measure(face, line) > max_width:
+                    cut = len(line) - 1
+                    while cut > 1 and measure(face, line[:cut]) > max_width:
+                        cut -= 1
+                    broken.append(line[:cut])
+                    line = line[cut:]
+                broken.append(line)
+            return broken, max(1, round(size))
+        size = max(smallest, size * 0.9)
 
 
 def transition_of(track, clip):
@@ -79,14 +122,6 @@ def _escape_filter_path(path):
     """
     value = re.sub(r"([\\':])", r'\\\1', str(path).replace('\\', '/'))
     return re.sub(r"([\\'\[\],;])", r'\\\1', value)
-
-
-def _text_lines(text, width=None):
-    """The user's own line breaks kept (any of CRLF/CR/LF), each paragraph wrapped on its own."""
-    paragraphs = str(text).replace('\r\n', '\n').replace('\r', '\n').rstrip('\n').split('\n')
-    if width is None:
-        return '\n'.join(paragraphs)
-    return '\n'.join('\n'.join(textwrap.wrap(p, width)) or p for p in paragraphs)
 
 
 def partial_output_path(output):
@@ -252,19 +287,24 @@ class TimelineRenderer:
                         # Always LF: drawtext draws the CR of a CRLF as an extra blank line.
                         if clip.style:
                             size = clip.style.get('size') if clip.style.get('size') in TEXT_SCALE else 'medium'
-                            textfile.write_text(_text_lines(clip.text, TEXT_WRAP[size]), encoding='utf-8', newline='\n')
                             x, y = float(clip.style.get('x', 0.5)), float(clip.style.get('y', 0.78))
                             bold = Path(self.font).with_name('arialbd.ttf')
                             font = bold if bold.is_file() else self.font
+                            border = max(2, round(self.height / 300))
+                            lines, points = fit_text(clip.text, font, self.height / 18 * TEXT_SCALE[size],
+                                                     self.width * 0.9 - 2 * border, self.height * 0.45)
+                            textfile.write_text('\n'.join(lines), encoding='utf-8', newline='\n')
                             colour = TEXT_COLORS.get(clip.style.get('color'), 'white')
-                            graph.append(f'{common}:fontfile={_escape_filter_path(font)}:text_align=C:line_spacing=6'
-                                         f':fontcolor={colour}:fontsize=h/18*{TEXT_SCALE[size]}:borderw={max(2, round(self.height / 300))}:bordercolor=black'
+                            graph.append(f'{common}:fontfile={_escape_filter_path(font)}:text_align=C:line_spacing={max(2, points // 6)}'
+                                         f':fontcolor={colour}:fontsize={points}:borderw={border}:bordercolor=black'
                                          f':x=\'max(10,min(w-text_w-10,w*{x:.4f}-text_w/2))\''
                                          f':y=\'max(10,min(h-text_h-10,h*{y:.4f}-text_h/2))\':{visible}[base{layer}]')
                         else:
-                            textfile.write_text(_text_lines(clip.text), encoding='utf-8', newline='\n')
-                            graph.append(f'{common}:fontfile={_escape_filter_path(self.font)}:fontcolor=white:fontsize=h/18'
-                                         f':x=(w-text_w)/2:y=h*0.78:box=1:boxcolor=black@0.5:boxborderw=12:{visible}[base{layer}]')
+                            lines, points = fit_text(clip.text, self.font, self.height / 18, self.width * 0.9 - 24, self.height * 0.3)
+                            textfile.write_text('\n'.join(lines), encoding='utf-8', newline='\n')
+                            graph.append(f'{common}:fontfile={_escape_filter_path(self.font)}:text_align=C:line_spacing={max(2, points // 6)}'
+                                         f':fontcolor=white:fontsize={points}:x=(w-text_w)/2:y=\'min(h*0.78,h-text_h-24)\''
+                                         f':box=1:boxcolor=black@0.5:boxborderw=12:{visible}[base{layer}]')
                         base = f'base{layer}'
             graph.append(f'[{base}]eq=brightness={self.brightness/100:.3f}:contrast={1+self.contrast/100:.3f}:saturation={1+self.saturation/50:.3f}[graded]')
             base = 'graded'

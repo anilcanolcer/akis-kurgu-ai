@@ -327,14 +327,14 @@ class RenderFixTests(unittest.TestCase):
         timeline = Timeline(fps_num=10, tracks=[Track('text', 't', [
             Clip('', 0, 5, text='Bir\r\nİki\rÜç'),
             Clip('', 5, 5, text=f'Başlık\n\n{long}', style={'size': 'medium'})])])
-        with tempfile.TemporaryDirectory() as tmp:
-            TimelineRenderer(media, (160, 90)).export(timeline, Path(tmp) / 'out.mp4')
+        with tempfile.TemporaryDirectory() as tmp:  # narrow frame: the long paragraph must wrap to its width
+            TimelineRenderer(media, (64, 90)).export(timeline, Path(tmp) / 'out.mp4')
         plain, styled = (calls[0][2][name].decode('utf-8') for name in sorted(calls[0][2]))
         self.assertNotIn(b'\r', b''.join(calls[0][2].values()))
         self.assertEqual(plain, 'Bir\nİki\nÜç')
         lines = styled.split('\n')
         self.assertEqual(lines[:2], ['Başlık', ''])  # own break and empty line survive
-        self.assertGreater(len(lines), 3)  # the long paragraph is still wrapped
+        self.assertGreater(len(lines), 3)  # the long paragraph is still wrapped (to the frame's width)
         self.assertTrue(all(len(line) <= 22 for line in lines))
         self.assertEqual(' '.join(lines[2:]), long)
 

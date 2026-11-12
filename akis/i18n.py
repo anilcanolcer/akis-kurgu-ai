@@ -47,6 +47,15 @@ EN_UI = {
     "Doygunluk": "Saturation", "Canlı görünüm uygula": "Apply vivid look",
     "Doğal görünüme dön": "Reset to natural", "BAŞLIK KATMANI": "TITLE LAYER",
     "Videoda görünecek kısa başlık": "Short title shown on video",
+    "Üstte": "Top", "Ortada": "Middle", "Altta": "Bottom", "Küçük": "Small", "Orta": "Medium", "Büyük": "Large",
+    "Başlığı uygula": "Apply title",
+    "Seçili yazı klibini ya da oynatma çizgisindeki yazıyı düzenler; yoksa çizgiden başlayan 3 sn'lik bir başlık ekler. Metni boşaltıp uygularsanız yazı silinir. Uzun başlıklar ekrana sığacak şekilde satırlara bölünür.":
+        "Edits the selected text clip or the text under the playhead; otherwise adds a 3 s title at the playhead. Applying an empty field removes the text. Long titles are wrapped to fit the frame.",
+    "Son projeleriniz. Silinen proje Geri Dönüşüm Kutusu'na taşınır; kullandığı video dosyalarına dokunulmaz.":
+        "Your recent projects. A deleted project goes to the Recycle Bin; its video files are not touched.",
+    "＋ Yeni proje": "＋ New project", "Aç": "Open", "Başka proje aç…": "Open another project…", "Sil": "Delete",
+    "açık": "open",
+    "Henüz kayıtlı proje yok. Projeyi kaydettiğinizde burada görünür.": "No saved projects yet. Saved projects appear here.",
     "Başlık alt-orta güvenli bölgede, yüksek kontrastlı kutu içinde dışa aktarılır.":
         "The title is exported in a high-contrast box within the lower safe area.",
     "YAYIN PAKETİ": "PUBLISH PACKAGE", "Dışa aktarma profili": "Export profile",
@@ -126,6 +135,8 @@ EXPORT_PROFILES = ("Reels · 1080×1920", "TikTok · 1080×1920", "YouTube · 19
                    "4K Dikey · 2160×3840", "4K UHD · 3840×2160")
 EFFECTS = ("Yok", "Sinematik", "Siyah-beyaz", "Yumuşak")
 SPEEDS = (0.5, 0.75, 1.0, 1.25, 1.5, 2.0)
+TITLE_POSITIONS = ("Üstte", "Ortada", "Altta")
+TITLE_SIZES = ("Küçük", "Orta", "Büyük")
 DEFAULT_ASPECT = ASPECTS[0]
 DEFAULT_EXPORT_PROFILE = EXPORT_PROFILES[0]
 

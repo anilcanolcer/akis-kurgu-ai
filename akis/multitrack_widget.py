@@ -192,10 +192,12 @@ class MultitrackWidget(QWidget):
         try:
             if self.drag_mode == 'move':
                 target = max(0, self.original[0] + delta)
-                target = snap_frame(self.model, target, max(1, round(8 / self.zoom)), self.selected)
+                target = snap_frame(self.model, target, max(1, round(8 / self.zoom)), self.selected, (self.playhead,))
                 track.move(clip.id, target)
             else:
-                track.trim_end(clip.id, clip.start + max(1, self.original[1] + delta))
+                end = clip.start + max(1, self.original[1] + delta)
+                end = snap_frame(self.model, end, max(1, round(8 / self.zoom)), self.selected, (self.playhead,))
+                track.trim_end(clip.id, max(clip.start + 1, end))
         except ValueError:
             pass
         self.update()

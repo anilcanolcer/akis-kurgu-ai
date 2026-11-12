@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import copy
+from datetime import datetime
 import faulthandler
 import hashlib
 import json
@@ -22,7 +23,7 @@ from pathlib import Path
 if sys.platform == "win32":
     os.environ.setdefault("QT_MEDIA_BACKEND", "windows")
 
-from akis.timeline_model import Timeline, Track
+from akis.timeline_model import Clip, Timeline, Track
 from akis.multitrack_widget import MultitrackWidget
 from akis import project_service
 from akis.media_service import MediaService
@@ -51,13 +52,14 @@ from akis.inspiration_service import template_for
 from akis.story_dialog import StoryDialog
 from akis.temp_cleanup import cleanup_stale_temp_dirs
 
-from PySide6.QtCore import QLocale, QLockFile, QSettings, QStandardPaths, Qt, QThread, QTimer
+from PySide6.QtCore import QFile, QLocale, QLockFile, QSettings, QStandardPaths, Qt, QThread, QTimer
 from PySide6.QtGui import QAction, QDragEnterEvent, QDropEvent, QIcon, QImage, QKeySequence
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
+    QDialog,
     QFileDialog,
     QFormLayout,
     QFrame,
@@ -301,7 +303,8 @@ class MainWindow(QMainWindow):
         self.proxy_timer.setSingleShot(True)
         self.proxy_timer.setInterval(900)
         self.proxy_timer.timeout.connect(self.prepare_proxy)
-        self.settings = QSettings(ORG_NAME, APP_NAME)
+        override = os.environ.get('AKIS_SETTINGS_FILE')  # tests point this at a scratch file
+        self.settings = QSettings(override, QSettings.Format.IniFormat) if override else QSettings(ORG_NAME, APP_NAME)
         self.project_path = ""
         self._saved_signature = None  # project contents as last saved or opened
         self._close_confirmed = False
@@ -371,6 +374,8 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(0, self.report_update_result)
             QTimer.singleShot(5000, self.check_for_updates)
         self.set_status("Bir video sürükleyin veya “Video ekle” düğmesini kullanın.")
+        self._empty_project = self.open_snapshot()
+        self._empty_project['multitrack'] = copy.deepcopy(self.multitrack)
 
     def build_sidebar(self) -> QWidget:
         side = QFrame()
@@ -396,7 +401,7 @@ class MainWindow(QMainWindow):
             button.setProperty("active", index == 0)
             button.setCursor(Qt.CursorShape.PointingHandCursor)
             if index == 0:
-                button.clicked.connect(lambda: self.set_status("Proje düzenleyicisi açık."))
+                button.clicked.connect(self.show_projects)
             elif index == 1:
                 button.clicked.connect(self.show_inspiration)
             elif index == 2:
@@ -601,6 +606,7 @@ class MainWindow(QMainWindow):
         self.multitrack_view.edit_started.connect(self.on_timeline_drag_started)
         self.multitrack_view.changed.connect(self.on_timeline_dragged)
         self.multitrack_view.clip_activated.connect(self.edit_clip)
+        self.multitrack_view.selection_changed.connect(self.refresh_title_field)
         self.track_scroll = QScrollArea()
         self.track_scroll.setWidgetResizable(True)
         self.track_scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -865,10 +871,22 @@ class MainWindow(QMainWindow):
         v.addWidget(self.section("BAŞLIK KATMANI"))
         self.overlay = QLineEdit()
         self.overlay.setPlaceholderText("Videoda görünecek kısa başlık")
-        self.overlay.setEnabled(False)
-        self.overlay.setToolTip("Bu kontrol ortak timeline render yolunda henüz desteklenmiyor.")
+        self.overlay.returnPressed.connect(self.apply_title)
         v.addWidget(self.overlay)
-        hint = QLabel("Başlık alt-orta güvenli bölgede, yüksek kontrastlı kutu içinde dışa aktarılır.")
+        title_row = QHBoxLayout()
+        self.title_position = self.keyed_combo(i18n.TITLE_POSITIONS)
+        self.title_size = self.keyed_combo(i18n.TITLE_SIZES)
+        self.title_size.setCurrentIndex(2)
+        title_row.addWidget(self.title_position)
+        title_row.addWidget(self.title_size)
+        v.addLayout(title_row)
+        self.title_button = QPushButton("Başlığı uygula")
+        self.title_button.setObjectName("secondary")
+        self.title_button.clicked.connect(self.apply_title)
+        v.addWidget(self.title_button)
+        hint = QLabel("Seçili yazı klibini ya da oynatma çizgisindeki yazıyı düzenler; yoksa çizgiden başlayan 3 sn'lik "
+                      "bir başlık ekler. Metni boşaltıp uygularsanız yazı silinir. Uzun başlıklar ekrana sığacak şekilde "
+                      "satırlara bölünür.")
         hint.setWordWrap(True)
         hint.setObjectName("mutedSmall")
         v.addWidget(hint)
@@ -2051,6 +2069,219 @@ class MainWindow(QMainWindow):
         self.refresh_timeline_view()
         self.seek_timeline(self.timeline_frame)
 
+    TITLE_Y = (0.15, 0.5, 0.8)
+    TITLE_SIZE_KEYS = ('small', 'medium', 'large')
+
+    def title_target(self):
+        """The text clip the Edit tab's title field works on: the selected one, else the one under the playhead."""
+        track, clip = self.selected_clip()
+        if clip is not None and track.kind == 'text' and not clip.style.get('shape'):
+            return track, clip
+        for track in self.multitrack.tracks:
+            if track.kind == 'text' and not track.muted:
+                for clip in track.clips:
+                    if clip.text and not clip.style.get('shape') and clip.start <= self.timeline_frame < clip.end:
+                        return track, clip
+        return None, None
+
+    def refresh_title_field(self):
+        """Show the title the field would edit, unless the user is typing in it."""
+        if not hasattr(self, 'title_button') or self.overlay.hasFocus():
+            return
+        _, clip = self.title_target()
+        self.overlay.setText(clip.text if clip else '')
+        if clip is not None and clip.style:
+            y = float(clip.style.get('y', 0.8))
+            self.title_position.setCurrentIndex(min(range(3), key=lambda i: abs(self.TITLE_Y[i] - y)))
+            if clip.style.get('size') in self.TITLE_SIZE_KEYS:
+                self.title_size.setCurrentIndex(self.TITLE_SIZE_KEYS.index(clip.style['size']))
+
+    def apply_title(self):
+        """Edit, add or (with an empty field) remove a title from the Edit tab; one undo step."""
+        if not self.state.source:
+            self.set_status('Başlık eklemek için önce bir video ekleyin.')
+            return
+        text = self.overlay.text().strip()
+        style = {'x': 0.5, 'y': self.TITLE_Y[self.title_position.currentIndex()],
+                 'size': self.TITLE_SIZE_KEYS[self.title_size.currentIndex()]}
+        track, clip = self.title_target()
+        if clip is None and not text:
+            self.set_status('Önce başlık metnini yazın.')
+            return
+        with self.history_step():
+            if clip is not None and not text:
+                track.clips.remove(clip)
+                self.multitrack_view.selected = None
+                message = 'Başlık silindi.'
+            elif clip is not None:
+                clip.text = text
+                clip.style = {**clip.style, **style}
+                message = 'Başlık güncellendi.'
+            else:
+                fps = self.multitrack.fps_num / self.multitrack.fps_den
+                total = duration_frames(self.multitrack) or round(3 * fps)
+                start = min(self.timeline_frame, max(0, total - 1))
+                length = max(1, min(round(3 * fps), total - start))
+                clip = Clip('', start, length, text=text, style=dict(style, color='white'))
+                titles = [t for t in self.multitrack.tracks if t.kind == 'text' and t.name.startswith('Başlık')]
+                for track in titles + [None]:
+                    if track is None:
+                        name = 'Başlık' if not titles else f'Başlık {len(titles) + 1}'
+                        track = Track('text', name)
+                        self.multitrack.tracks.append(track)
+                    try:
+                        track.add(clip)
+                        break
+                    except ValueError:  # that title track is busy here; try the next one
+                        continue
+                self.multitrack_view.selected = (self.multitrack.tracks.index(track), clip.id)
+                message = f'Başlık eklendi ({length / fps:.1f} sn). Süresini zaman çizelgesinde klibin ucundan değiştirebilirsiniz.'
+        self.refresh_timeline_view()
+        self.seek_timeline(self.timeline_frame)
+        self.set_status(message)
+
+    # ------------------------------------------------------------------ projects
+    def recent_projects(self):
+        value = self.settings.value('recent_projects', [])
+        return [path for path in ([value] if isinstance(value, str) else list(value or [])) if path]
+
+    def remember_project(self, path, add=True):
+        """Keep the Projects list current: newest first, moved or deleted files dropped."""
+        paths = [p for p in self.recent_projects()
+                 if os.path.normcase(p) != os.path.normcase(path) and Path(p).is_file()]
+        if add:
+            paths.insert(0, path)
+        self.settings.setValue('recent_projects', paths[:20])
+
+    def show_projects(self):
+        """Projeler: recent projects to open or delete, and a fresh empty project, without restarting."""
+        code = self.language.currentData()
+        tr = lambda text: i18n.translate(text, code)
+        dialog = QDialog(self)
+        dialog.setWindowTitle(tr('Projeler'))
+        dialog.resize(580, 420)
+        layout = QVBoxLayout(dialog)
+        info = QLabel(tr("Son projeleriniz. Silinen proje Geri Dönüşüm Kutusu'na taşınır; kullandığı video dosyalarına dokunulmaz."))
+        info.setWordWrap(True)
+        info.setObjectName('muted')
+        layout.addWidget(info)
+        listing = QListWidget()
+        listing.setSpacing(4)
+        listing.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        listing.setTextElideMode(Qt.TextElideMode.ElideMiddle)
+        layout.addWidget(listing, 1)
+
+        def fill():
+            listing.clear()
+            for path in self.recent_projects():
+                file = Path(path)
+                if not file.is_file():
+                    continue
+                stamp = datetime.fromtimestamp(file.stat().st_mtime).strftime('%d.%m.%Y %H:%M')
+                is_open = self.project_path and os.path.normcase(path) == os.path.normcase(self.project_path)
+                parts = file.parent.parts
+                folder = str(file.parent) if len(parts) <= 3 else '…\\' + '\\'.join(parts[-2:])
+                name = file.name[:-len('.akis.json')] if file.name.lower().endswith('.akis.json') else file.stem
+                item = QListWidgetItem(f"{name}{'  ·  ' + tr('açık') if is_open else ''}\n{stamp}  ·  {folder}")
+                item.setData(Qt.ItemDataRole.UserRole, path)
+                item.setToolTip(path)
+                listing.addItem(item)
+            if listing.count():
+                listing.setCurrentRow(0)
+            else:
+                empty = QListWidgetItem(tr('Henüz kayıtlı proje yok. Projeyi kaydettiğinizde burada görünür.'))
+                empty.setFlags(Qt.ItemFlag.NoItemFlags)
+                listing.addItem(empty)
+
+        def chosen():
+            item = listing.currentItem()
+            return item.data(Qt.ItemDataRole.UserRole) if item else None
+
+        def open_selected():
+            path = chosen()
+            if path and self.can_start_work() and self.confirm_close():
+                dialog.accept()
+                self.open_project_file(path)
+
+        def delete_selected():
+            path = chosen()
+            if path and self.delete_project(path):
+                fill()
+
+        def new_project():
+            if self.new_project():
+                dialog.accept()
+
+        def open_other():
+            dialog.accept()
+            self.open_project()
+
+        fill()
+        listing.itemDoubleClicked.connect(lambda _item: open_selected())
+        buttons = QHBoxLayout()
+        for label, handler, style in (('＋ Yeni proje', new_project, 'secondary'), ('Aç', open_selected, 'primary'),
+                                      ('Başka proje aç…', open_other, 'ghost'), ('Sil', delete_selected, 'ghost')):
+            button = QPushButton(tr(label))
+            button.setObjectName(style)
+            button.clicked.connect(handler)
+            buttons.addWidget(button)
+        buttons.addStretch()
+        close = QPushButton(tr('Kapat'))
+        close.clicked.connect(dialog.reject)
+        buttons.addWidget(close)
+        layout.addLayout(buttons)
+        dialog.exec()
+
+    def delete_project(self, path, *, confirm=True) -> bool:
+        """Move a project file, its autosave and saved versions to the recycle bin; media is never touched."""
+        if not self.can_start_work():
+            return False
+        file = Path(path)
+        name = file.name[:-len('.akis.json')] if file.name.lower().endswith('.akis.json') else file.stem
+        if confirm and QMessageBox.question(
+                self, APP_NAME, f"“{name}” projesi Geri Dönüşüm Kutusu'na taşınsın mı?\n\n"
+                                "Kullandığı video ve ses dosyaları silinmez.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
+            return False
+        is_open = bool(self.project_path) and os.path.normcase(path) == os.path.normcase(self.project_path)
+        failed = [target for target in (path, path + '.autosave', path + '.versions')
+                  if os.path.exists(target) and not QFile(target).moveToTrash()]
+        if failed:
+            QMessageBox.warning(self, APP_NAME, "Şu dosyalar Geri Dönüşüm Kutusu'na taşınamadı:\n" + '\n'.join(failed))
+        if path not in failed:
+            self.remember_project(path, add=False)
+            if is_open:  # its file is gone: the window must not keep saving into it
+                self.reset_project()
+        self.set_status(f'“{name}” projesi silindi.' if not failed else 'Proje tamamen silinemedi.')
+        return True
+
+    def new_project(self) -> bool:
+        """Close the current project (asking to save unsaved work) and start empty, without restarting."""
+        if not self.can_start_work() or not self.confirm_close():
+            return False
+        self.reset_project()
+        return True
+
+    def reset_project(self) -> None:
+        """Put the window back to how it starts: no video, empty timeline, default settings, no history."""
+        empty = dict(self._empty_project)
+        empty['state'] = copy.deepcopy(self._empty_project['state'])
+        empty['multitrack'] = copy.deepcopy(self._empty_project['multitrack'])
+        empty['media'], empty['history'] = [], ([], [])
+        self.stop_proxy_playback(refresh=False)
+        self.discard_autosave()
+        self.restore_open_snapshot(empty)
+        self._source_rate = (30, 1)
+        self.video.reset_zoom()
+        self.video.set_image(None)
+        self.overlay.clear()
+        self.ai_result.clear()
+        code = self.language.currentData()
+        self.project_title.setText(i18n.translate("Yeni proje", code))
+        self.project_subtitle.setText(i18n.translate("Video ekleyerek başlayın", code))
+        self.set_status('Yeni proje. Bir video sürükleyin veya “Video ekle” düğmesini kullanın.')
+
     def edit_text_clip(self):
         track, clip = self.selected_clip()
         if not clip or track.kind != 'text':
@@ -2218,6 +2449,8 @@ class MainWindow(QMainWindow):
         self.multitrack_view.update()
         fps = self.multitrack.fps_num / self.multitrack.fps_den
         self.time_label.setText(f'{format_time(self.timeline_frame/fps)} / {format_time(total/fps)}')
+        if not from_clock:
+            self.refresh_title_field()
         try:
             canvas = self.canvas_size()
         except (ValueError, RuntimeError, OSError) as exc:  # e.g. "Kaynak oranı" with the first clip missing
@@ -2347,6 +2580,7 @@ class MainWindow(QMainWindow):
             return
         self.project_path = path
         self.mark_saved()
+        self.remember_project(path)
         self.discard_autosave()  # the project file now holds everything the autosave did
         self.set_status("Proje ve sürüm anlık görüntüsü kaydedildi.")
 
@@ -2431,6 +2665,7 @@ class MainWindow(QMainWindow):
         # The previous project was saved or discarded in confirm_close; never delete the file just recovered.
         self.discard_autosave(keep=load_from if recovered else None)
         self.project_path = project_path
+        self.remember_project(project_path)
         if recovered:
             self._saved_signature = None  # recovered work is not in any saved file yet
             self.set_status('Kurtarılan çalışma açıldı; kalıcı olması için projeyi kaydedin.')
