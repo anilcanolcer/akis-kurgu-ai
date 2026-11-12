@@ -252,6 +252,11 @@ EN_UI = {
     'Yanlış yazılan isimleri ve terimleri buraya ekleyin; tanıma bunları bekler.': 'Add names and terms that come out misspelled; recognition will expect them.',
     'Konuşma metne çevriliyor…': 'Transcribing the speech…',
     '{name} uygulandı; medyayı izlere ekleyin.': '{name} applied; add your media to the tracks.',
+    # Export by copying (akis.fast_export).
+    'Bu kurgu yalnızca kesimlerden oluşuyor. Yeniden kodlamadan, hızlı dışa aktarılsın mı?\n\nKalite hiç düşmez ve işlem çok daha kısa sürer. Kesim noktaları en yakın anahtar kareye kayabilir; her parçanın başında genellikle iki saniyeden kısa bir fazlalık kalabilir ve birleşme yerinde tek bir kare atlanabilir.\n\n“Hayır” derseniz olağan (kare hassasiyetli) dışa aktarma yapılır.':
+        'This edit is nothing but cuts. Export it quickly, without encoding it again?\n\nNo quality is lost and it takes far less time. Cuts may move to the nearest keyframe; each piece may start with usually less than two extra seconds, and a single frame may be skipped at a join.\n\nChoose “No” for the normal, frame-accurate export.',
+    'Hızlı dışa aktarma yapılamadı: {error}\n\nYeniden dışa aktarıp soruya “Hayır” diyerek olağan dışa aktarmayı kullanın.':
+        'The quick export failed: {error}\n\nExport again and answer “No” to use the normal export.',
     # What left the computer (akis.privacy_log).
     'Bu oturumda bilgisayarınızdan hiçbir şey gönderilmedi.': 'Nothing has been sent from your computer in this session.',
     'Bu oturumda gönderilenler:': 'Sent in this session:',
