@@ -156,7 +156,9 @@ class MultitrackWidget(QWidget):
             self.selected = (ti, clip.id) if clip else None
             self.selection_changed.emit()
             if clip:
-                self.drag_mode = 'trim' if abs(x - self.x_for(clip.end)) < 9 else 'move'
+                # Either edge trims; the right edge wins on a clip too narrow to tell them apart.
+                self.drag_mode = ('trim' if abs(x - self.x_for(clip.end)) < 9
+                                  else 'trim_start' if abs(x - self.x_for(clip.start)) < 9 else 'move')
                 self.drag_anchor = frame
                 self.original = (clip.start, clip.length)
                 self.edit_started.emit()
@@ -194,6 +196,8 @@ class MultitrackWidget(QWidget):
                 target = max(0, self.original[0] + delta)
                 target = snap_frame(self.model, target, max(1, round(8 / self.zoom)), self.selected)
                 track.move(clip.id, target)
+            elif self.drag_mode == 'trim_start':
+                track.trim_start(clip.id, max(0, self.original[0] + delta))
             else:
                 track.trim_end(clip.id, clip.start + max(1, self.original[1] + delta))
         except ValueError:
@@ -201,7 +205,7 @@ class MultitrackWidget(QWidget):
         self.update()
 
     def mouseReleaseEvent(self, event):
-        if self.drag_mode in ('move', 'trim') and self.original and self.selected:
+        if self.drag_mode in ('move', 'trim', 'trim_start') and self.original and self.selected:
             ti, clip_id = self.selected
             clip = next((c for c in self.model.tracks[ti].clips if c.id == clip_id), None)
             if clip and (clip.start, clip.length) != self.original:
