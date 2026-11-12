@@ -155,7 +155,10 @@ def add_plan_markers(timeline, plan):
         timeline.markers.append({'frame': round(seconds * fps), 'label': f"AI: {label} — {plan.get('title', '')}"})
 
 
-def local_transcribe(path, model_name, *, download=False, model_factory=None, timed=False):
+def local_transcribe(path, model_name, *, download=False, model_factory=None, timed=False,
+                     language=None, vocabulary=None):
+    """language / vocabulary default to the editor's speech settings (akis.speech_settings)."""
+    from akis import speech_settings
     if model_factory is None:
         try:
             from faster_whisper import WhisperModel
@@ -168,6 +171,8 @@ def local_transcribe(path, model_name, *, download=False, model_factory=None, ti
         if not download:
             raise RuntimeError(f'Yerel Whisper modeli ({model_name}) bulunamadı. İlk kullanımda internet bağlantısıyla “Modeli indir” seçeneğini işaretleyin. Ayrıntı: {exc}') from exc
         raise
-    segments, _ = model.transcribe(str(path), language='tr', vad_filter=True)
+    # initial_prompt is how Whisper is told which names and terms to expect; None leaves it out.
+    segments, _ = model.transcribe(str(path), language=speech_settings.language(language), vad_filter=True,
+                                   initial_prompt=speech_settings.vocabulary(vocabulary) or None)
     items = [{'start': segment.start, 'end': segment.end, 'text': segment.text.strip()} for segment in segments if segment.text.strip()]
     return items if timed else ' '.join(item['text'] for item in items)
