@@ -252,6 +252,15 @@ EN_UI = {
     'Yanlış yazılan isimleri ve terimleri buraya ekleyin; tanıma bunları bekler.': 'Add names and terms that come out misspelled; recognition will expect them.',
     'Konuşma metne çevriliyor…': 'Transcribing the speech…',
     '{name} uygulandı; medyayı izlere ekleyin.': '{name} applied; add your media to the tracks.',
+    # The start panel of an empty project (akis.start_panel).
+    'Üç adımda ilk videonuz': 'Your first video in three steps',
+    'Video ekleyin': 'Add your video',
+    'Bilgisayarınızdan bir video seçin ya da pencereye sürükleyin.': 'Choose a video from your computer or drop it on the window.',
+    'Video seç': 'Choose video',
+    'Nasıl kurgulanacağını seçin': 'Choose how to edit it',
+    'Hazır bir şablon uygulayın ya da AI sekmesine isteğinizi yazın.': 'Apply a ready-made template or write what you want in the AI tab.',
+    'Dışa aktarın': 'Export it',
+    'Beğendiğinizde sağ üstteki “Dışa aktar” düğmesiyle videonuzu kaydedin.': 'When you like it, save your video with the “Export” button at the top right.',
     # Export by copying (akis.fast_export).
     'Bu kurgu yalnızca kesimlerden oluşuyor. Yeniden kodlamadan, hızlı dışa aktarılsın mı?\n\nKalite hiç düşmez ve işlem çok daha kısa sürer. Kesim noktaları en yakın anahtar kareye kayabilir; her parçanın başında genellikle iki saniyeden kısa bir fazlalık kalabilir ve birleşme yerinde tek bir kare atlanabilir.\n\n“Hayır” derseniz olağan (kare hassasiyetli) dışa aktarma yapılır.':
         'This edit is nothing but cuts. Export it quickly, without encoding it again?\n\nNo quality is lost and it takes far less time. Cuts may move to the nearest keyframe; each piece may start with usually less than two extra seconds, and a single frame may be skipped at a join.\n\nChoose “No” for the normal, frame-accurate export.',
