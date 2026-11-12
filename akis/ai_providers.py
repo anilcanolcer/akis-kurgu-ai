@@ -47,6 +47,7 @@ GEMINI_PLAN_MAX_TOKENS = 32768    # includes thinking tokens; the non-streaming 
 TRANSCRIPTION_MODELS = {'OpenAI': ('gpt-4o-mini-transcribe', 'gpt-4o-transcribe', 'whisper-1'), 'xAI': ('grok-voice-transcribe-2.0', 'grok-voice-transcribe-1.0'), 'Gemini': ('gemini-2.5-flash', 'gemini-2.5-pro')}
 
 PLAN_TIMEOUT = 300           # image-heavy planning calls can take minutes
+PLAN_DEADLINE = 2 * PLAN_TIMEOUT  # whole plan request, Gemini fallback chain and retries included
 TRANSCRIBE_TIMEOUT = 180
 ANTHROPIC_MAX_TOKENS = 16384
 RETRY_STATUS = frozenset({408, 409, 429, 500, 502, 503, 504, 529})
@@ -181,8 +182,12 @@ def _is_transient_connection_error(exc):
     return isinstance(reason, (ConnectionResetError, ConnectionAbortedError, BrokenPipeError))
 
 
+def _deadline_error(provider):
+    return RuntimeError(f'{provider} izin verilen toplam sürede yanıt vermedi. Başka bir model deneyin veya tekrar deneyin.')
+
+
 def post_json(provider, url, body, headers, timeout, *, opener=None, sleep=None, rand=None, backoff=BACKOFF,
-              max_wait=MAX_WAIT, retry_timeout=True):
+              max_wait=MAX_WAIT, retry_timeout=True, deadline=None, clock=None):
     """POST and decode JSON.
 
     Busy/transient failures (408, 409, 429, 5xx, 529, dropped connections) are retried with exponential
@@ -190,16 +195,34 @@ def post_json(provider, url, body, headers, timeout, *, opener=None, sleep=None,
     immediately unless ``retry_timeout`` is False. A 429 saying the model's free-tier limit is 0 is never
     retried (FreeTierUnavailableError). Failures carry a Turkish explanation and the provider's own message,
     never the key. ``sleep``/``rand`` are injectable; an injected ``sleep`` without ``rand`` means no jitter.
+    ``deadline`` (a ``clock()`` / time.monotonic value) bounds all attempts and waits together: each attempt's
+    timeout is cut to what is left, and a retry that would not fit is not started.
     """
     opener = opener or urlopen
     if rand is None:
         rand = random.random if sleep is None else (lambda: 0.0)
     sleep = sleep or time.sleep
+    clock = clock or time.monotonic
     waits = list(backoff)
     timed_out = False
+
+    def left():
+        return None if deadline is None else deadline - clock()
+
+    def wait(delay):
+        remaining = left()
+        if remaining is not None and delay >= remaining:
+            return False
+        sleep(delay)
+        return True
+
     while True:
+        remaining = left()
+        if remaining is not None and remaining <= 0:
+            raise _deadline_error(provider)
+        attempt_timeout = timeout if remaining is None else max(1.0, min(timeout, remaining))
         try:
-            with opener(Request(url, data=body, headers=headers, method='POST'), timeout=timeout) as response:
+            with opener(Request(url, data=body, headers=headers, method='POST'), timeout=attempt_timeout) as response:
                 return json.load(response)
         except HTTPError as exc:
             raw_detail = _http_detail(exc) if exc.code == 429 else None
@@ -217,8 +240,7 @@ def post_json(provider, url, body, headers, timeout, *, opener=None, sleep=None,
                     delay = requested + 0.5 * rand()
                 else:
                     delay = None  # Provider asks for a long pause (quota); report it instead of hanging.
-                if delay is not None:
-                    sleep(delay)
+                if delay is not None and wait(delay):
                     continue
             detail = _scrub(raw_detail if raw_detail is not None else _http_detail(exc), headers)
             hint = _http_hint(provider, exc.code, detail)
@@ -231,11 +253,12 @@ def post_json(provider, url, body, headers, timeout, *, opener=None, sleep=None,
                     timed_out = True  # The timeout itself was the wait; try once more straight away.
                     waits.pop(0)
                     continue
-                raise RuntimeError(f'{provider} {timeout} saniyede yanıt vermedi. Başka bir model deneyin veya tekrar deneyin.') from exc
+                seconds = attempt_timeout if deadline is None else round(attempt_timeout)
+                raise RuntimeError(f'{provider} {seconds} saniyede yanıt vermedi. Başka bir model deneyin veya tekrar deneyin.') from exc
             if _is_transient_connection_error(exc) and waits:
                 base = waits.pop(0)
-                sleep(min(max_wait, base + base * 0.25 * rand()))
-                continue
+                if wait(min(max_wait, base + base * 0.25 * rand())):
+                    continue
             reason = _scrub(str(getattr(exc, 'reason', exc)), headers)
             raise RuntimeError(f'{provider} sunucusuna bağlanılamadı. İnternet bağlantınızı kontrol edin. ({reason})') from exc
         except (json.JSONDecodeError, UnicodeDecodeError) as exc:
@@ -249,6 +272,15 @@ def save_key(service, provider, key):
 def load_key(service, provider):
     import keyring
     return keyring.get_password(service, provider.lower() + '_api_key') or ''
+
+def delete_key(service, provider):
+    """Remove the stored key; a key that was never stored is not an error."""
+    import keyring
+    from keyring.errors import PasswordDeleteError
+    try:
+        keyring.delete_password(service, provider.lower() + '_api_key')
+    except PasswordDeleteError:
+        pass
 
 
 def _label(at):
@@ -350,12 +382,69 @@ def _gemini_text(provider, result):
     return _done(provider, text)
 
 
-def request_plan(provider, key, model, prompt, frames, transport=None, instruction=None, *, timeout=PLAN_TIMEOUT):
+def _read_text(reader, provider, result):
+    """Run a response reader; an answer of an unexpected shape becomes a ProviderResponseError."""
+    if not isinstance(result, dict):
+        raise ProviderResponseError(f'{provider} beklenmeyen bir yanıt döndürdü; daha sonra tekrar deneyin.')
+    try:
+        return reader(provider, result)
+    except ProviderResponseError:
+        raise
+    except (AttributeError, TypeError, KeyError, IndexError) as exc:
+        raise ProviderResponseError(f'{provider} beklenmeyen biçimde bir yanıt döndürdü (yanıt okunamadı); '
+                                    'daha sonra tekrar deneyin ya da başka bir model seçin.') from exc
+
+
+class PlanText(str):
+    """request_plan's answer: a plain str that also names the model that answered.
+
+    ``requested_model`` is what the caller asked for; ``fallback_reason`` (Turkish) says why it was skipped
+    when a Gemini fallback model answered instead, '' otherwise.
+    """
+    model = ''
+    requested_model = ''
+    fallback_reason = ''
+
+    @property
+    def fell_back(self):
+        return bool(self.requested_model) and self.model != self.requested_model
+
+
+def _plan_text(text, model, requested, reasons=()):
+    out = PlanText(text)
+    out.model, out.requested_model, out.fallback_reason = model, requested, '; '.join(reasons)
+    return out
+
+
+def fallback_note(text):
+    """Turkish sentence saying a fallback model answered instead of the selected one, or ''."""
+    if not getattr(text, 'fell_back', False):
+        return ''
+    why = f' ({text.fallback_reason})' if getattr(text, 'fallback_reason', '') else ''
+    return f'Seçilen model {text.requested_model} yanıt vermediği için yedek model {text.model} kullanıldı{why}.'
+
+
+def _skip_reason(model, exc):
+    if isinstance(exc, FreeTierUnavailableError):
+        why = 'ücretsiz katmanda kullanılamıyor'
+    elif isinstance(exc, ProviderHTTPError):
+        why = {404: 'bulunamadı', 429: 'istek sınırına takıldı'}.get(exc.code, f'yoğun (HTTP {exc.code})')
+    else:
+        why = 'zamanında yanıt vermedi'
+    return f'{model} {why}'
+
+
+def request_plan(provider, key, model, prompt, frames, transport=None, instruction=None, *, timeout=PLAN_TIMEOUT,
+                 deadline=PLAN_DEADLINE):
     """Send ordered JPEG frames to the selected provider. transport enables isolated tests.
 
     frames: [(label, jpeg_bytes)] where label is a number of seconds or a ready-made text label.
+    A timed-out plan request is not retried automatically (it would double the wait and maybe the cost);
+    ``deadline`` seconds bound the whole call, Gemini's fallback chain and retries included.
+    Returns a PlanText (a str; ``.model`` names the model that answered, see fallback_note).
     Raises ResponseBlockedError / ResponseTruncatedError / EmptyResponseError (all RuntimeError).
     """
+    ends = None if deadline is None else time.monotonic() + deadline
     if provider not in PROVIDERS or not key or not model:
         raise ValueError('Sağlayıcı, API anahtarı ve model gereklidir.')
     encoded = [(_label(at), base64.b64encode(data).decode('ascii')) for at, data in frames]
@@ -407,41 +496,37 @@ def request_plan(provider, key, model, prompt, frames, transport=None, instructi
         if model.startswith('gemini-2'):  # older models know thinkingBudget only
             del body['generationConfig']['thinkingConfig']
         chain = [model] + [m for m in GEMINI_TEXT_FALLBACKS.get(model, ()) if m != model]
+        reasons = []
         for index, candidate in enumerate(chain):
+            last = index == len(chain) - 1
             url = 'https://generativelanguage.googleapis.com/v1beta/models/' + quote(candidate, safe='') + ':generateContent'
             try:
+                if ends is not None and time.monotonic() >= ends:
+                    raise _deadline_error(provider)
                 if transport:
                     result = transport(url, headers, body)
                 else:
                     result = post_json(provider, url, json.dumps(body).encode(), headers, timeout,
-                                       retry_timeout=index == len(chain) - 1)
+                                       retry_timeout=False, deadline=ends)
                 break
             except Exception as exc:
-                if index == len(chain) - 1 or not is_fallback_error(exc):
+                if last or not is_fallback_error(exc) or (ends is not None and time.monotonic() >= ends):
                     raise
-        if not isinstance(result, dict):
-            raise ProviderResponseError(f'{provider} beklenmeyen bir yanıt döndürdü; daha sonra tekrar deneyin.')
-        return _gemini_text(provider, result)
+                reasons.append(_skip_reason(candidate, exc))
+        return _plan_text(_read_text(_gemini_text, provider, result), candidate, model, reasons)
     if transport:
         result = transport(url, headers, body)
     else:
-        result = post_json(provider, url, json.dumps(body).encode(), headers, timeout)
-    if not isinstance(result, dict):
-        raise ProviderResponseError(f'{provider} beklenmeyen bir yanıt döndürdü; daha sonra tekrar deneyin.')
-    if provider == 'OpenAI':
-        return _openai_text(provider, result)
-    if provider == 'Anthropic':
-        return _anthropic_text(provider, result)
-    if provider in ('xAI', 'Cloudflare'):
-        return _chat_text(provider, result)
-    return _gemini_text(provider, result)
+        result = post_json(provider, url, json.dumps(body).encode(), headers, timeout, retry_timeout=False,
+                           deadline=ends)
+    reader = {'OpenAI': _openai_text, 'Anthropic': _anthropic_text, 'xAI': _chat_text,
+              'Cloudflare': _chat_text}.get(provider, _gemini_text)
+    return _plan_text(_read_text(reader, provider, result), model, model)
 
 
 def transcribe(provider, key, model, audio):
     if provider == 'OpenAI':
-        from openai import OpenAI
-        with open(audio, 'rb') as handle:
-            return OpenAI(api_key=key).audio.transcriptions.create(model=model, file=handle, language='tr').text
+        return _openai_transcribe(key, model, audio)
     data = audio.read_bytes()
     if provider == 'Gemini':
         from urllib.parse import quote
@@ -461,11 +546,46 @@ def transcribe(provider, key, model, audio):
     else:
         raise ValueError('Bu sağlayıcı için transkripsiyon desteklenmiyor.')
     result = post_json(provider, url, body, headers, TRANSCRIBE_TIMEOUT)
-    if not isinstance(result, dict):
-        raise ProviderResponseError(f'{provider} beklenmeyen bir yanıt döndürdü; daha sonra tekrar deneyin.')
     if provider == 'xAI':
-        text = result.get('text')
-        if not isinstance(text, str) or not text.strip():
-            raise _empty(provider, 'konuşma metni yok')
-        return text
-    return _gemini_text(provider, result)
+        return _read_text(_stt_text, provider, result)
+    return _read_text(_gemini_text, provider, result)
+
+
+def _stt_text(provider, result):
+    text = result.get('text')
+    if not isinstance(text, str) or not text.strip():
+        raise _empty(provider, 'konuşma metni yok')
+    return text
+
+
+def _openai_transcribe(key, model, audio, client_factory=None):
+    """OpenAI speech-to-text through the SDK, with the same timeout, retry limit and error texts as the
+    raw-HTTP paths (the SDK's own default is 600 s and 2 retries, and its messages may quote the request)."""
+    provider = 'OpenAI'
+    import openai
+    factory = client_factory or openai.OpenAI
+    headers = {'Authorization': 'Bearer ' + key}
+    try:
+        client = factory(api_key=key, timeout=TRANSCRIBE_TIMEOUT, max_retries=1)
+        with open(audio, 'rb') as handle:
+            result = client.audio.transcriptions.create(model=model, file=handle, language='tr')
+    except openai.APITimeoutError as exc:
+        raise RuntimeError(f'{provider} {TRANSCRIBE_TIMEOUT} saniyede yanıt vermedi. '
+                           'Başka bir model deneyin veya tekrar deneyin.') from exc
+    except openai.APIConnectionError as exc:
+        raise RuntimeError(f'{provider} sunucusuna bağlanılamadı. İnternet bağlantınızı kontrol edin.') from exc
+    except openai.APIStatusError as exc:
+        code = getattr(exc, 'status_code', 0) or 0
+        body = getattr(exc, 'body', None)
+        error = body.get('error', body) if isinstance(body, dict) else body
+        detail = str(error.get('message', '') if isinstance(error, dict) else (error or ''))[:300]
+        detail = _scrub(detail, headers)
+        hint = _http_hint(provider, code, detail)
+        message = f'{provider} API hatası: HTTP {code}' + (f' — {detail}' if detail else '')
+        raise ProviderHTTPError(message + (f'\n{hint}' if hint else ''), code) from exc
+    except openai.OpenAIError as exc:
+        raise RuntimeError(_scrub(f'{provider} transkripsiyon hatası: {exc}', headers)) from exc
+    text = getattr(result, 'text', None)
+    if not isinstance(text, str):
+        raise ProviderResponseError(f'{provider} beklenmeyen bir yanıt döndürdü; daha sonra tekrar deneyin.')
+    return text

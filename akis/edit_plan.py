@@ -369,6 +369,21 @@ def _number(value, name):
     return number
 
 
+def _optional_number(item, key, default, label, warn):
+    """An optional cosmetic number: missing or null means ``default``; garbage is reported and ``default`` used.
+
+    Only for decoration (positions, sizes, colour); required timing stays strict through _number.
+    """
+    value = item.get(key) if isinstance(item, dict) else None
+    if value is None:
+        return default
+    try:
+        return _number(value, key)
+    except ValueError:
+        warn(f'{label}: geçersiz {key} değeri "{_short(value)}"; varsayılan kullanıldı.')
+        return default
+
+
 def _source_index(value, name):
     number = _number(value, name)
     if number != int(number):
@@ -500,8 +515,8 @@ def _parse_texts(raw, out_len, warn):
         if color is not None and (not isinstance(color, str) or color not in TEXT_COLORS):
             warn(f'{label}: bilinmeyen renk "{_short(color)}"; white kullanıldı.')
         texts.append({'start': a, 'end': b, 'text': body,
-                      'x': _clamp(_number(item.get('x', 0.5), 'text x'), 0.0, 1.0),
-                      'y': _clamp(_number(item.get('y', 0.78), 'text y'), 0.0, 1.0),
+                      'x': _clamp(_optional_number(item, 'x', 0.5, label, warn), 0.0, 1.0),
+                      'y': _clamp(_optional_number(item, 'y', 0.78, label, warn), 0.0, 1.0),
                       'size': size if isinstance(size, str) and size in TEXT_SCALE else 'medium',
                       'color': color if isinstance(color, str) and color in TEXT_COLORS else 'white'})
     return sorted(texts, key=lambda t: t['start'])
@@ -523,7 +538,8 @@ def _parse_marks(raw, durations, warn):
         if not isinstance(kind, str) or kind not in SHAPES:
             warn(f'{n}. işaret: bilinmeyen tür "{_short(kind)}" (circle veya arrow olmalı); atlandı.')
             continue
-        source = _source_index(item.get('source', 0), 'mark source')
+        raw_source = item.get('source')
+        source = 0 if raw_source is None else _source_index(raw_source, 'mark source')  # null = not given
         if not 0 <= source < len(durations):
             warn(f'{n}. işaret olmayan bir kaynağı ({source}) kullanıyor; atlandı.')
             continue
@@ -531,7 +547,7 @@ def _parse_marks(raw, durations, warn):
         a0 = _number(item.get('start', 0), 'mark start')
         label = f'{n}. işaret ({kind}, kaynak {source}, {a0:.2f} sn)'
         a = _clamp(a0, 0.0, limit)
-        b = _clamp(_number(item.get('end', a + 1.5), 'mark end'), 0.0, limit)
+        b = _clamp(_optional_number(item, 'end', a + 1.5, label, warn), 0.0, limit)
         if b - a < 0.3:
             b = min(limit, a + 1.5)
         if b - a < 0.3:
@@ -543,20 +559,25 @@ def _parse_marks(raw, durations, warn):
         if color is not None and (not isinstance(color, str) or color not in COLORS):
             warn(f'{label}: bilinmeyen renk "{_short(color)}"; red kullanıldı.')
         mark = {'type': kind, 'source': source, 'start': a, 'end': min(b, a + 4.0),
-                'x': _clamp(_number(item.get('x', 0.5), 'mark x'), 0.0, 1.0),
-                'y': _clamp(_number(item.get('y', 0.5), 'mark y'), 0.0, 1.0),
+                'x': _clamp(_optional_number(item, 'x', 0.5, label, warn), 0.0, 1.0),
+                'y': _clamp(_optional_number(item, 'y', 0.5, label, warn), 0.0, 1.0),
                 'color': color if isinstance(color, str) and color in COLORS else 'red'}
         if kind == 'circle':
-            mark['size'] = _clamp(_number(item.get('size', 0.3), 'mark size'), 0.08, 0.9)
+            mark['size'] = _clamp(_optional_number(item, 'size', 0.3, label, warn), 0.08, 0.9)
         elif item.get('from_x') is not None and item.get('from_y') is not None:
-            mark['from_x'] = _clamp(_number(item['from_x'], 'from_x'), 0.0, 1.0)
-            mark['from_y'] = _clamp(_number(item['from_y'], 'from_y'), 0.0, 1.0)
+            from_x = _optional_number(item, 'from_x', None, label, warn)
+            from_y = _optional_number(item, 'from_y', None, label, warn)
+            if from_x is not None and from_y is not None:
+                mark['from_x'] = _clamp(from_x, 0.0, 1.0)
+                mark['from_y'] = _clamp(from_y, 0.0, 1.0)
         marks.append(mark)
     return sorted(marks, key=lambda m: m['start'])
 
 
 def _level(data, name, label, warn):
-    value = _number(data[name], name)
+    value = _optional_number(data, name, None, label, warn)
+    if value is None:
+        return None
     clamped = _clamp(value, 0.0, 1.0)
     if abs(clamped - value) > 0.01:
         warn(f'{label} {value:g} geçersiz (0..1 olmalı); {clamped:.2f} kullanıldı.')
@@ -623,7 +644,9 @@ def parse_plan(text, durations, *, current_duration=None):
             for name in COLOR_KEYS:
                 if color.get(name) is None:
                     continue
-                value = _number(color[name], name)
+                value = _optional_number(color, name, None, f'Renk ({COLOR_NAMES[name]})', warn)
+                if value is None:
+                    continue
                 picked[name] = round(_clamp(value, -50, 50))
                 if abs(value) > 50.5:
                     warn(f'Renk ({COLOR_NAMES[name]}) {value:g} aralık dışı; {picked[name]:+d} kullanıldı.')
@@ -633,8 +656,8 @@ def parse_plan(text, durations, *, current_duration=None):
             if picked:
                 # Only the keys the model gave: applying merges them with the current grade.
                 plan['color'] = picked
-    if data.get('speed') is not None:
-        speed = _number(data['speed'], 'speed')
+    speed = _optional_number(data, 'speed', None, 'Hız (speed)', warn)
+    if speed is not None:
         plan['speed'] = min(SPEEDS, key=lambda s: abs(s - speed))
         if abs(plan['speed'] - speed) > 0.05:
             warn(f'Hız {speed:g}× desteklenmiyor; {plan["speed"]:.2f}× kullanıldı.')
@@ -643,10 +666,10 @@ def parse_plan(text, durations, *, current_duration=None):
         if aspect not in ASPECTS:
             raise ValueError(f'Plan desteklenmeyen bir oran istiyor: {aspect}')
         plan['aspect'] = aspect
-    if data.get('volume') is not None:
-        plan['volume'] = _level(data, 'volume', 'Ses seviyesi (volume)', warn)
-    if data.get('music_volume') is not None:
-        plan['music_volume'] = _level(data, 'music_volume', 'Müzik sesi (music_volume)', warn)
+    for name, label in (('volume', 'Ses seviyesi (volume)'), ('music_volume', 'Müzik sesi (music_volume)')):
+        level = _level(data, name, label, warn)
+        if level is not None:
+            plan[name] = level
     for name in ('title', 'caption'):
         if str(data.get(name) or '').strip():
             plan[name] = str(data[name]).strip()

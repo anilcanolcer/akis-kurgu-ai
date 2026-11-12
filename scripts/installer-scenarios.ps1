@@ -187,6 +187,13 @@ try {
         if ($fake) { Assert-Version $folder $oldDist; Assert (Test-Path (Join-Path $folder '_internal\old-only.dll')) 'old-only.dll missing' }
         Assert (Test-Path (Join-Path $folder 'Uninstall-Akis.exe')) 'uninstaller missing'
         Assert-Clean $folder
+        if ($fake) {
+            $entry = Get-ItemProperty -LiteralPath $testKey
+            Assert ($entry.InstallLocation -eq $folder) "InstallLocation is '$($entry.InstallLocation)'"
+            Assert ($entry.DisplayIcon -eq (Join-Path $folder 'AkisKurguAI.exe')) "DisplayIcon is '$($entry.DisplayIcon)'"
+            Assert ($entry.Publisher -and $entry.URLInfoAbout) 'Publisher or URLInfoAbout missing'
+            Assert ($entry.EstimatedSize -gt 0) "EstimatedSize is '$($entry.EstimatedSize)'"
+        }
     }
 
     Scenario 'update over existing install (/UPDATE, visible, unattended, app relaunched)' {
@@ -370,6 +377,19 @@ try {
         Assert (Test-Path (Join-Path $folder 'user-project.keep')) 'user file deleted'
         Assert-Clean $folder
         if ($fake) { Assert (-not (Test-Path -LiteralPath $testKey)) 'test uninstall key still present' }
+    }
+
+    if ($fake) {
+        Scenario 'uninstall while the app runs, /S: exit 10, nothing removed' {
+            $folder = Join-Path $WorkDir 'uninstall-running\App'
+            Install-Fresh $new $folder
+            $before = Get-Snapshot $folder
+            $null = Start-FakeApp (Join-Path $folder 'AkisKurguAI.exe') 120
+            $code = Invoke-Setup (Join-Path $folder 'Uninstall-Akis.exe') @('/S', "_?=$folder")
+            Assert ($code -eq 10) "expected exit code 10, got $code"
+            Assert ((Get-Snapshot $folder) -eq $before) 'install folder changed'
+            Assert (Test-Path -LiteralPath $testKey) 'uninstall key removed'
+        }
     }
 } catch {
     $failures++

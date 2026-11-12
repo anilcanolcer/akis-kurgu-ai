@@ -16,6 +16,7 @@ import sys
 import threading
 import time
 from dataclasses import asdict, dataclass
+from datetime import datetime
 from pathlib import Path
 
 # Prefer the native Windows backend; retain an explicit user override.
@@ -51,10 +52,11 @@ from akis.inspiration_service import template_for
 from akis.story_dialog import StoryDialog
 from akis.temp_cleanup import cleanup_stale_temp_dirs
 
-from PySide6.QtCore import QLocale, QLockFile, QSettings, QStandardPaths, Qt, QThread, QTimer
+from PySide6.QtCore import QByteArray, QLocale, QLockFile, QSettings, QStandardPaths, Qt, QThread, QTimer
 from PySide6.QtGui import QAction, QDragEnterEvent, QDropEvent, QIcon, QImage, QKeySequence
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import (
+    QAbstractSpinBox,
     QApplication,
     QCheckBox,
     QComboBox,
@@ -78,6 +80,7 @@ from PySide6.QtWidgets import (
     QSlider,
     QSplitter,
     QTabWidget,
+    QTextEdit,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -106,7 +109,10 @@ def ffmpeg_path() -> str:
 
 log = logging.getLogger("akis")
 log.addHandler(logging.NullHandler())  # without setup_logging (tests, tools) records are dropped, not printed
-RECOVERY_QUESTION = "Kurtarılmış çalışma bulundu, açılsın mı?"
+RECOVERY_QUESTION = "Kurtarılmış çalışma bulundu ({when}). Açılsın mı?"
+RECOVERY_DETAIL = ("“Sonra sor” şimdilik açmaz, dosyayı saklar ve daha sonra yeniden sorar. "
+                   "“Sil” kurtarma dosyasını kalıcı olarak siler.")
+IDEA_REPLACES_PROMPT_QUESTION = "Kurgu isteği kutusunda yazdığınız bir metin var. Fikirle değiştirilsin mi?"
 STALE_PLAN_QUESTION = "Zaman çizelgesi bu sırada değişti. Plan yine de uygulansın mı?"
 UPDATE_REMIND_AFTER = 24 * 3600  # a postponed update is not offered again for this many seconds
 CANCEL_ON_CLOSE_QUESTION = "Devam eden işlem iptal edilip çıkılsın mı?"
@@ -344,7 +350,16 @@ class MainWindow(QMainWindow):
         self.redo_action = QAction(self)
         self.redo_action.setShortcuts([QKeySequence("Ctrl+Y"), QKeySequence("Ctrl+Shift+Z")])
         self.redo_action.triggered.connect(self.redo)
-        for action in (self.undo_action, self.redo_action):
+        # Ctrl shortcuts work everywhere; Space and Delete stand back while a text field has focus.
+        self.shortcut_actions = {}
+        for keys, slot in (("Ctrl+S", "save_project"), ("Ctrl+O", "open_project"),
+                           ("Ctrl+E", "export_video"), ("Space", "shortcut_play"),
+                           ("Delete", "shortcut_delete")):
+            action = QAction(self)
+            action.setShortcut(QKeySequence(keys))
+            action.triggered.connect(lambda _checked=False, slot=slot: getattr(self, slot)())
+            self.shortcut_actions[keys] = action
+        for action in (self.undo_action, self.redo_action, *self.shortcut_actions.values()):
             action.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
             self.addAction(action)
         self.update_history_controls()
@@ -355,6 +370,10 @@ class MainWindow(QMainWindow):
         self._active_provider = self.provider.currentText()
         self.provider.currentTextChanged.connect(self.change_provider)
         self.load_key()
+        # Tests and scripted runs (offscreen) neither restore nor overwrite the user's saved window layout.
+        self._persist_ui = QApplication.platformName() not in ("offscreen", "minimal")
+        if self._persist_ui:
+            self.restore_ui_settings(self.settings)
         self.apply_language(self.settings.value("language", self.system_language_code()))
         self.autosave_timer = QTimer(self)
         self.autosave_timer.setInterval(30_000)
@@ -370,7 +389,47 @@ class MainWindow(QMainWindow):
         if getattr(sys, '_MEIPASS', None) and sys.platform == 'win32':
             QTimer.singleShot(0, self.report_update_result)
             QTimer.singleShot(5000, self.check_for_updates)
-        self.set_status("Bir video sürükleyin veya “Video ekle” düğmesini kullanın.")
+        self.set_status(self.ui_text("Bir video sürükleyin veya “Video ekle” düğmesini kullanın."))
+
+    def restore_ui_settings(self, settings) -> None:
+        """AI provider and model, window geometry and splitter sizes from the last session. A value that is
+        missing, of the wrong type or unknown is ignored, so a damaged setting never breaks the window."""
+        provider = settings.value("ui/provider", "")
+        if isinstance(provider, str) and provider in ai_providers.PROVIDERS and provider != self.provider.currentText():
+            self.provider.setCurrentText(provider)
+        model = settings.value("ui/model", "")
+        if isinstance(model, str) and 0 < len(model.strip()) <= 200:
+            self.model.setCurrentText(model.strip())
+        geometry = settings.value("ui/geometry")
+        if isinstance(geometry, QByteArray) and not geometry.isEmpty():
+            self.restoreGeometry(geometry)
+        sizes = settings.value("ui/splitter")
+        try:
+            sizes = [int(size) for size in sizes] if isinstance(sizes, (list, tuple)) else []
+        except (TypeError, ValueError):
+            sizes = []
+        if len(sizes) == self.splitter.count() and all(100 <= size <= 20000 for size in sizes):
+            self.splitter.setSizes(sizes)
+
+    def save_ui_settings(self, settings) -> None:
+        settings.setValue("ui/provider", self.provider.currentText())
+        settings.setValue("ui/model", self.model.currentText().strip())
+        settings.setValue("ui/geometry", self.saveGeometry())
+        settings.setValue("ui/splitter", [int(size) for size in self.splitter.sizes()])
+
+    def text_has_focus(self) -> bool:
+        """A field the user types into has the keyboard: single-key shortcuts must leave the key to it."""
+        widget = QApplication.focusWidget()
+        return (isinstance(widget, (QLineEdit, QPlainTextEdit, QTextEdit, QAbstractSpinBox))
+                or (isinstance(widget, QComboBox) and widget.isEditable()))
+
+    def shortcut_play(self) -> None:
+        if not self.text_has_focus() and duration_frames(self.multitrack):
+            self.toggle_play()
+
+    def shortcut_delete(self) -> None:
+        if not self.text_has_focus():
+            self.delete_clip()
 
     def build_sidebar(self) -> QWidget:
         side = QFrame()
@@ -391,12 +450,13 @@ class MainWindow(QMainWindow):
         for index, (text, icon) in enumerate([
             ("Projeler", "▦"), ("İlham", "✦"), ("Şablonlar", "◈"), ("Hikâye Stüdyosu", "✎"), ("Dışa aktarımlar", "⇧")
         ]):
+            # The whole label (icon included) is the EN_UI key, so apply_language translates it.
             button = QPushButton(f"{icon}   {text}")
             button.setProperty("nav", True)
             button.setProperty("active", index == 0)
             button.setCursor(Qt.CursorShape.PointingHandCursor)
             if index == 0:
-                button.clicked.connect(lambda: self.set_status("Proje düzenleyicisi açık."))
+                button.clicked.connect(lambda: self.set_status(self.ui_text("Proje düzenleyicisi açık.")))
             elif index == 1:
                 button.clicked.connect(self.show_inspiration)
             elif index == 2:
@@ -404,7 +464,7 @@ class MainWindow(QMainWindow):
             elif index == 3:
                 button.clicked.connect(self.show_story_studio)
             else:
-                button.clicked.connect(lambda: self.set_status("Dışa aktarmak için üstteki düğmeyi kullanın."))
+                button.clicked.connect(lambda: self.set_status(self.ui_text("Dışa aktarmak için üstteki düğmeyi kullanın.")))
             v.addWidget(button)
 
         v.addSpacing(20)
@@ -444,6 +504,13 @@ class MainWindow(QMainWindow):
         note.setObjectName("mutedSmall")
         lv.addWidget(note)
         v.addWidget(local)
+        # The running version, always in view; a click asks GitHub whether a newer one exists.
+        self.version_button = QPushButton(f"v{update_service.VERSION}")
+        self.version_button.setObjectName("versionTag")
+        self.version_button.setProperty("i18n_skip", True)  # a version number, the same in every language
+        self.version_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.version_button.clicked.connect(lambda: self.check_for_updates(manual=True))
+        v.addWidget(self.version_button)
         return side
 
     def build_workspace(self) -> QWidget:
@@ -474,14 +541,17 @@ class MainWindow(QMainWindow):
         header.addWidget(self.status_label)
         open_project = QPushButton("Proje aç")
         open_project.setObjectName("ghost")
+        open_project.setToolTip("Kayıtlı bir projeyi açar (Ctrl+O)")
         open_project.clicked.connect(self.open_project)
         header.addWidget(open_project)
         save_project = QPushButton("Projeyi kaydet")
         save_project.setObjectName("secondary")
+        save_project.setToolTip("Projeyi kaydeder (Ctrl+S)")
         save_project.clicked.connect(self.save_project)
         header.addWidget(save_project)
         export = QPushButton("Dışa aktar  ↗")
         export.setObjectName("primary")
+        export.setToolTip("Videoyu MP4 olarak dışa aktarır (Ctrl+E)")
         export.clicked.connect(self.export_video)
         header.addWidget(export)
         outer.addLayout(header)
@@ -491,6 +561,7 @@ class MainWindow(QMainWindow):
         split.addWidget(self.build_editor())
         split.addWidget(self.build_inspector())
         split.setSizes([900, 390])
+        self.splitter = split
         outer.addWidget(split, 1)
 
         self.progress = QProgressBar()
@@ -537,6 +608,7 @@ class MainWindow(QMainWindow):
         self.play_button.setObjectName("roundButton")
         self.play_button.setFixedSize(40, 40)
         self.play_button.clicked.connect(self.toggle_play)
+        self.play_button.setToolTip("Oynat / duraklat (Boşluk)")  # the button is i18n_skip: apply_language sets it
         controls.addWidget(self.play_button)
         self.time_label = QLabel("00:00.00 / 00:00.00")
         self.time_label.setObjectName("mono")
@@ -572,6 +644,8 @@ class MainWindow(QMainWindow):
                               ('Ripple sil', self.ripple_delete), ('Klip sesi', self.set_clip_volume), ('Metni düzenle', self.edit_text_clip)]:
             button = QPushButton(label)
             button.clicked.connect(action)
+            if label == 'Ripple sil':
+                button.setToolTip('Seçili klibi siler ve boşluğu kapatır. Delete tuşu klibi boşluk bırakarak siler.')
             tools.addWidget(button)
         self.undo_button = QPushButton('↶ Geri al')
         self.undo_button.setToolTip('Son adımı geri al (Ctrl+Z)')
@@ -686,6 +760,7 @@ class MainWindow(QMainWindow):
         v.addWidget(self.api_key)
         key_row = QHBoxLayout()
         self.remember_key = QCheckBox("Windows'ta güvenli sakla")
+        self.remember_key.clicked.connect(self.on_remember_key_clicked)  # user clicks only, not load_key
         key_row.addWidget(self.remember_key)
         key_row.addStretch()
         reveal = QToolButton()
@@ -864,11 +939,12 @@ class MainWindow(QMainWindow):
 
         v.addWidget(self.section("BAŞLIK KATMANI"))
         self.overlay = QLineEdit()
-        self.overlay.setPlaceholderText("Videoda görünecek kısa başlık")
+        self.overlay.setPlaceholderText("Videoda görünecek kısa başlık (henüz yok)")
         self.overlay.setEnabled(False)
         self.overlay.setToolTip("Bu kontrol ortak timeline render yolunda henüz desteklenmiyor.")
         v.addWidget(self.overlay)
-        hint = QLabel("Başlık alt-orta güvenli bölgede, yüksek kontrastlı kutu içinde dışa aktarılır.")
+        # The overlay field is disabled and not exported; say so instead of describing how it would export.
+        hint = QLabel("Başlık katmanı henüz yok. Videoya yazıyı AI kurgusu, şablonlar veya altyazılar ekler.")
         hint.setWordWrap(True)
         hint.setObjectName("mutedSmall")
         v.addWidget(hint)
@@ -906,7 +982,7 @@ class MainWindow(QMainWindow):
         profile_hint.setWordWrap(True)
         v.addWidget(profile_hint)
         # Not supported by the shared timeline renderer yet: shown disabled, not saved in projects.
-        self.noise_reduction = QCheckBox("Temel gürültü azaltma")
+        self.noise_reduction = QCheckBox("Temel gürültü azaltma (henüz yok)")
         self.noise_reduction.setEnabled(False)
         self.noise_reduction.setToolTip("Ortak timeline render yolunda henüz desteklenmiyor.")
         v.addWidget(self.noise_reduction)
@@ -972,7 +1048,7 @@ class MainWindow(QMainWindow):
         self.multitrack_view.refresh_waveforms()
         self.multitrack_view.update()
         self.seek_timeline(self.timeline_frame)
-        self.set_status('Video zaman çizelgesine eklendi.')
+        self.set_status(self.ui_text('Video zaman çizelgesine eklendi.'))
 
     def load_video(self, path: str) -> bool:
         """Make `path` the main video; returns False (and has told the user why) when it was refused."""
@@ -995,7 +1071,13 @@ class MainWindow(QMainWindow):
         self.play_timer.stop()
         self.playback_clock.stop()
         self.timeline_audio.stop()
-        if not self._pending_project:
+        # Work done before the first main video (a template, ＋ Medya clips, text) is kept: the video is
+        # appended to that timeline instead of replacing it, and the work stays unsaved until it is saved.
+        keep_timeline = not self._pending_project and not self.state.source and (
+            getattr(self, "_template_before_video", False) or self.has_content())
+        if keep_timeline:
+            self._template_before_video = True  # on_duration appends the video to the existing timeline
+        if not self._pending_project and not keep_timeline:
             self.project_path = ''
         self.caption_segments = []
         self.caption_source = ''
@@ -1004,21 +1086,23 @@ class MainWindow(QMainWindow):
                                brightness=self.brightness.value(), contrast=self.contrast.value(),
                                saturation=self.saturation.value(), speed=self.speed_value(),
                                export_profile=self.export_profile.currentData())
-        if not self._pending_project and not getattr(self, "_template_before_video", False):
+        if not self._pending_project and not keep_timeline:
             self.multitrack = Timeline.from_legacy({}, self._source_rate)
             self.multitrack_view.set_model(self.multitrack)
         self.project_title.setText(file.stem)
         self.project_subtitle.setText(f"{file.suffix.upper().lstrip('.')} · {file.stat().st_size / 1024 / 1024:.1f} MB")
-        self.media_bin.clear()
+        if not keep_timeline:
+            self.media_bin.clear()
         self.media_bin.add(str(file))
         self.refresh_media_bin()
         opening_project = self._pending_project is not None
         self.on_duration(round(duration * 1000))
-        # Undo steps belong to the previous video/project; restoring one here would mix sources.
-        self.clear_history()
-        self.mark_saved()
+        if not keep_timeline:
+            # Undo steps belong to the previous video/project; restoring one here would mix sources.
+            self.clear_history()
+            self.mark_saved()
         if not opening_project:
-            self.set_status("Video hazır. Sağdaki kutuya isteğinizi yazıp kurgulatabilirsiniz.")
+            self.set_status(self.ui_text("Video hazır. Sağdaki kutuya isteğinizi yazıp kurgulatabilirsiniz."))
         return True
 
     def on_duration(self, milliseconds: int) -> None:
@@ -1038,8 +1122,10 @@ class MainWindow(QMainWindow):
             if not any(t.clips for t in self.multitrack.tracks):  # nothing placed yet: frames can still change meaning
                 self.multitrack.fps_num, self.multitrack.fps_den = self._source_rate
             # The first video track, or a new one if the template's video tracks were removed meanwhile.
-            timeline_service.append_video(self.multitrack, self.state.source, duration)
+            with self.history_step():  # earlier steps stay valid: they edit this same timeline
+                timeline_service.append_video(self.multitrack, self.state.source, duration)
             self.multitrack_view.set_model(self.multitrack)
+            self.refresh_timeline_view()
             self.seek_timeline(0)
         elif not any(t.clips for t in self.multitrack.tracks):
             self.multitrack = Timeline.from_legacy(asdict(self.state), self._source_rate)
@@ -1047,7 +1133,7 @@ class MainWindow(QMainWindow):
             self.seek_timeline(0)
 
     def toggle_play(self) -> None:
-        if not self.state.source:
+        if not self.state.source and not duration_frames(self.multitrack):
             self.choose_video()
             return
         if self._play_when_ready or self.proxy.playing:
@@ -1068,7 +1154,7 @@ class MainWindow(QMainWindow):
                     self.proxy.play(self.timeline_frame, self.state.speed, self.master_volume)
                 else:
                     self._play_when_ready = True
-                    self.set_status('Akıcı önizleme hazırlanıyor…')
+                    self.set_status(self.ui_text('Akıcı önizleme hazırlanıyor…'))
                     self.progress.show()
                     self.prepare_proxy()
                 return
@@ -1112,8 +1198,8 @@ class MainWindow(QMainWindow):
         if self.proxy.is_ready(self.proxy_signature()):
             if self._play_when_ready:
                 self._play_when_ready = False
-                self.progress.hide()
-                self.set_status('Oynatılıyor.')
+                self.hide_progress_if_idle()
+                self.set_status(self.ui_text('Oynatılıyor.'))
                 self.proxy.play(self.timeline_frame, self.state.speed, self.master_volume)
         else:  # the edit changed while rendering
             self.prepare_proxy()
@@ -1132,12 +1218,17 @@ class MainWindow(QMainWindow):
         was_active = self._play_when_ready or self.proxy.playing
         self._play_when_ready = False
         self.proxy.pause()
-        self.progress.hide()
+        self.hide_progress_if_idle()
         self.play_button.setText('▶')
         if was_active:
-            self.set_status('Duraklatıldı.')
+            self.set_status(self.ui_text('Duraklatıldı.'))
         if was_active and refresh:
             self.seek_timeline(self.timeline_frame)  # exact full-quality still for the paused frame
+
+    def hide_progress_if_idle(self):
+        """The progress bar is shared with export and AI work: playback only hides it when nothing runs."""
+        if not self._workers:
+            self.progress.hide()
 
     def on_proxy_ended(self):
         self.stop_proxy_playback()
@@ -1161,7 +1252,7 @@ class MainWindow(QMainWindow):
         key = self.api_key.text().strip()
         model = self.model.currentText().strip()
         if not key or not model:
-            QMessageBox.information(self, APP_NAME, "API anahtarı ve model belirtin.")
+            QMessageBox.information(self, APP_NAME, self.ui_text("API anahtarı ve model belirtin."))
             return None
         self._provider_keys[self.provider.currentText()] = key
         if self.remember_key.isChecked():
@@ -1184,9 +1275,28 @@ class MainWindow(QMainWindow):
             self._provider_keys[self.provider.currentText()] = key
             self._saved_providers.add(self.provider.currentText())
             self.remember_key.setChecked(True)
-            self.set_status('API anahtarı sistem kasasına kaydedildi.')
+            self.set_status(self.ui_text('API anahtarı sistem kasasına kaydedildi.'))
         except Exception as exc:
             self.set_status(f'Anahtar güvenli kasaya kaydedilemedi: {exc}')
+
+    def on_remember_key_clicked(self, checked: bool) -> None:
+        """Unticking "Windows'ta güvenli sakla" removes the stored key of this provider from the vault."""
+        if checked:
+            return  # saved on the next use or with "Anahtarı güvenli kaydet"
+        provider = self.provider.currentText()
+        delete_key = getattr(ai_providers, 'delete_key', None)
+        if not callable(delete_key):
+            self._saved_providers.discard(provider)
+            self.set_status(self.ui_text('Anahtar artık kaydedilmeyecek; kayıtlı anahtar bu sürümde silinemiyor.'))
+            return
+        try:
+            delete_key(APP_NAME, provider)
+        except Exception as exc:
+            log.warning("Anahtar silinemedi (%s): %s", provider, exc)
+            self.set_status(self.ui_text('Kayıtlı anahtar silinemedi: {error}', error=exc))
+            return
+        self._saved_providers.discard(provider)
+        self.set_status(self.ui_text('{provider} anahtarı sistem kasasından silindi.', provider=provider))
 
     def load_key(self) -> None:
         provider = self.provider.currentText()
@@ -1207,18 +1317,29 @@ class MainWindow(QMainWindow):
 
     def show_templates(self):
         """Şablonlar: ready-made structure (tracks, aspect ratio, colour style, tempo)."""
-        dialog = TemplateDialog(self)
-        if dialog.exec():
+        code = self.ui_language()
+        aspect = i18n.translate(str(self.aspect.currentData() or ""), code).split(" · ")[0]
+        dialog = TemplateDialog(self, language=code, current_aspect=aspect, timeline=self.multitrack)
+        if dialog.exec() and dialog.selection()[0] is not None:
             self.apply_template_choice(*dialog.selection())
 
     def show_inspiration(self):
         """İlham: creative ideas. An idea becomes the edit request; its matching template is optional."""
-        dialog = InspirationDialog(self)
+        dialog = InspirationDialog(self, language=self.ui_language())
         if not dialog.exec():
             return
         idea, action = dialog.selection()
         if idea is None:
             return
+        current = self.ai_prompt.toPlainText().strip()
+        if current and current != idea.prompt.strip():
+            # The edit request is the user's own text and the box has no undo across setPlainText.
+            answer = QMessageBox.question(self, APP_NAME, self.ui_text(IDEA_REPLACES_PROMPT_QUESTION),
+                                          QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                          QMessageBox.StandardButton.No)
+            if answer != QMessageBox.StandardButton.Yes:
+                self.set_status(self.ui_text('Kurgu isteğiniz korundu; fikir uygulanmadı.'))
+                return
         self.ai_prompt.setPlainText(idea.prompt)
         template = template_for(idea) if action == 'prompt+template' else None
         if template is not None:
@@ -1436,7 +1557,7 @@ class MainWindow(QMainWindow):
         self._redo_stack.append(step)
         self.apply_edit_snapshot(step['before'], self.snapshot_changes(step['before'], step['after']))
         self.update_history_controls()
-        self.set_status('Son adım geri alındı.')
+        self.set_status(self.ui_text('Son adım geri alındı.'))
         return True
 
     def redo(self) -> bool:
@@ -1447,7 +1568,7 @@ class MainWindow(QMainWindow):
         self._undo_stack.append(step)
         self.apply_edit_snapshot(step['after'], self.snapshot_changes(step['before'], step['after']))
         self.update_history_controls()
-        self.set_status('Adım yinelendi.')
+        self.set_status(self.ui_text('Adım yinelendi.'))
         return True
 
     def on_timeline_drag_started(self):
@@ -1654,7 +1775,7 @@ class MainWindow(QMainWindow):
         self.state.aspect = self.aspect.currentData()
         self.state.export_profile = self.export_profile.currentData()
         self.worker = TimelineRenderWorker(self.multitrack, path, canvas, ffmpeg_path(), adjustments=self.render_adjustments())
-        self.begin_work("Dışa aktarma hazırlanıyor…")
+        self.begin_work(self.ui_text("Dışa aktarma hazırlanıyor…"))
         self.worker.completed.connect(self.on_exported)
         self.worker.failed.connect(self.on_worker_error)
         self.worker.cancelled.connect(self.on_export_cancelled)
@@ -1672,14 +1793,14 @@ class MainWindow(QMainWindow):
     def on_exported(self, path: str) -> None:
         if self._shutting_down:
             return
-        self.finish_work("Dışa aktarma tamamlandı.")
-        QMessageBox.information(self, APP_NAME, f"Video başarıyla oluşturuldu:\n{path}")
+        self.finish_work(self.ui_text("Dışa aktarma tamamlandı."))
+        QMessageBox.information(self, APP_NAME, self.ui_text("Video başarıyla oluşturuldu:\n{path}", path=path))
 
     def apply_preset(self, brightness: int, contrast: int, saturation: int) -> None:
         self.brightness.setValue(brightness)
         self.contrast.setValue(contrast)
         self.saturation.setValue(saturation)
-        self.set_status("Renk görünümü güncellendi; dışa aktarmada uygulanacak.")
+        self.set_status(self.ui_text("Renk görünümü güncellendi; dışa aktarmada uygulanacak."))
 
     def copy_publish_text(self) -> None:
         text = "\n\n".join(filter(None, [
@@ -1688,17 +1809,17 @@ class MainWindow(QMainWindow):
             self.publish_tags.toPlainText().strip(),
         ]))
         QApplication.clipboard().setText(text)
-        self.set_status("Yayın metni panoya kopyalandı.")
+        self.set_status(self.ui_text("Yayın metni panoya kopyalandı."))
 
     def ensure_video(self) -> bool:
         if not self.state.source or not self.state.duration:
-            QMessageBox.information(self, APP_NAME, "Önce bir video ekleyin ve yüklenmesini bekleyin.")
+            QMessageBox.information(self, APP_NAME, self.ui_text("Önce bir video ekleyin ve yüklenmesini bekleyin."))
             return False
         return True
 
     def can_start_work(self) -> bool:
         if self._workers:
-            self.set_status('Bir işlem devam ediyor; lütfen bitmesini bekleyin.')
+            self.set_status(self.ui_text('Bir işlem devam ediyor; lütfen bitmesini bekleyin.'))
             return False
         return True
 
@@ -1726,7 +1847,7 @@ class MainWindow(QMainWindow):
             return
         worker.cancel()
         self.cancel_button.setEnabled(False)
-        self.set_status('İptal ediliyor…')
+        self.set_status(self.ui_text('İptal ediliyor…'))
 
     def begin_work(self, text: str) -> None:
         self.progress.show()
@@ -1740,17 +1861,17 @@ class MainWindow(QMainWindow):
         if self._shutting_down:
             return
         self.progress.hide()
-        self.set_status("İşlem tamamlanamadı.")
+        self.set_status(self.ui_text("İşlem tamamlanamadı."))
         QMessageBox.critical(self, APP_NAME, message)
 
     def on_worker_cancelled(self) -> None:
         self._prompt_revision = None
         if not self._shutting_down:
-            self.finish_work('İşlem iptal edildi.')
+            self.finish_work(self.ui_text('İşlem iptal edildi.'))
 
     def on_export_cancelled(self) -> None:
         if not self._shutting_down:
-            self.finish_work('Dışa aktarma iptal edildi.')
+            self.finish_work(self.ui_text('Dışa aktarma iptal edildi.'))
 
     # Self-update: check the version, ask, download with a progress dialog into one fixed folder (the install
     # folder is not touched), check free space, ask again, verify, hand over to the installer helper.
@@ -1763,7 +1884,7 @@ class MainWindow(QMainWindow):
 
     def ui_text(self, template: str, **values) -> str:
         """A whole-string translation of `template` into the current UI language, then filled in."""
-        return i18n.translate(template, self.language.currentData() or "tr").format(**values)
+        return i18n.translate(template, self.ui_language()).format(**values)
 
     def report_update_result(self) -> None:
         """At startup: say that an update worked, or (once) that it failed, and remember the failed version.
@@ -1796,14 +1917,42 @@ class MainWindow(QMainWindow):
         update_service.cleanup_update_dir(self.update_folder())
         self.set_status(self.ui_text("Akış Kurgu AI {version} sürümüne güncellendi.", version=current))
 
-    def check_for_updates(self) -> None:
-        if self._shutting_down or any(t is not None and t.isRunning() for t in (self.update_check, self.update_download)):
+    def check_for_updates(self, manual: bool = False) -> None:
+        """Ask GitHub for a newer release. `manual` (the version tag was clicked) reports every outcome
+        and asks again about a version the user postponed; the check at startup stays silent."""
+        if self._shutting_down:
+            return
+        if manual and not (getattr(sys, '_MEIPASS', None) and sys.platform == 'win32'):
+            # Run from source: there is no installed copy to update.
+            self.set_status(self.ui_text("Sürüm {version} · kaynak koddan çalışıyor; güncelleme denetimi kurulu "
+                                         "sürümde yapılır.", version=update_service.VERSION))
+            return
+        if any(t is not None and t.isRunning() for t in (self.update_check, self.update_download)):
+            if manual:
+                self.set_status(self.ui_text("Güncelleme denetimi veya indirmesi zaten sürüyor."))
             return
         update_service.cleanup_legacy_temp()
         self.update_check = UpdateCheckWorker()
         self.update_check.available.connect(self.offer_update)
         self.update_check.up_to_date.connect(lambda: update_service.cleanup_update_dir(self.update_folder()))
+        if manual:
+            self._declined_updates.clear()
+            self.settings.remove("update/postponed_until")
+            # Bound methods, so the results are delivered on the UI thread.
+            self.update_check.up_to_date.connect(self.report_up_to_date)
+            self.update_check.failed.connect(self.report_update_check_failed)
+            self.set_status(self.ui_text("Güncellemeler denetleniyor…"))
         self.update_check.start()
+
+    def report_up_to_date(self) -> None:
+        if not self._shutting_down:
+            self.set_status(self.ui_text("Akış Kurgu AI güncel: {version} en son sürüm.",
+                                         version=update_service.VERSION))
+
+    def report_update_check_failed(self, _message: str = "") -> None:
+        if not self._shutting_down:
+            self.set_status(self.ui_text("Güncellemeler denetlenemedi. İnternet bağlantınızı kontrol edip yeniden "
+                                         "deneyin."))
 
     def update_postponed(self, version: str) -> bool:
         """The user said "later" to this version in this session, or within UPDATE_REMIND_AFTER."""
@@ -1879,7 +2028,7 @@ class MainWindow(QMainWindow):
         if self.update_dialog is None or self.update_dialog.version != update['version']:
             if self.update_dialog is not None:
                 self.update_dialog.deleteLater()
-            self.update_dialog = UpdateProgressDialog(update['version'], self.language.currentData() or "tr", self)
+            self.update_dialog = UpdateProgressDialog(update['version'], self.ui_language(), self)
             self.update_dialog.cancel_requested.connect(self.cancel_update_download)
             self.update_dialog.retry_requested.connect(self.retry_update_download)
         self.update_dialog.start()
@@ -2035,7 +2184,7 @@ class MainWindow(QMainWindow):
     def remove_track(self):
         index = self.multitrack_view.selected_track
         if index is None or not 0 <= index < len(self.multitrack.tracks):
-            self.set_status('Silinecek izi seçin.')
+            self.set_status(self.ui_text('Silinecek izi seçin.'))
             return
         track = self.multitrack.tracks[index]
         if track.clips and QMessageBox.question(
@@ -2054,7 +2203,7 @@ class MainWindow(QMainWindow):
     def edit_text_clip(self):
         track, clip = self.selected_clip()
         if not clip or track.kind != 'text':
-            self.set_status('Önce bir metin klibi seçin.')
+            self.set_status(self.ui_text('Önce bir metin klibi seçin.'))
             return
         self.edit_clip(self.multitrack_view.selected[0], clip.id)
 
@@ -2142,7 +2291,7 @@ class MainWindow(QMainWindow):
         index = self.multitrack_view.selected_track
         track = self.multitrack.tracks[index] if index is not None and index < len(self.multitrack.tracks) else None
         if track is None:
-            self.set_status('Önce hedef izi seçin.')
+            self.set_status(self.ui_text('Önce hedef izi seçin.'))
             return
         if track.kind not in ('video', 'audio', 'overlay'):
             self.set_status('Bu sürümde medya yalnızca video/ses izine eklenir.')
@@ -2156,7 +2305,7 @@ class MainWindow(QMainWindow):
             seconds = media.duration(path)
             timeline_service.validate_track_media(media, track.kind, path)
         except (ValueError, RuntimeError, OSError) as exc:
-            QMessageBox.warning(self, APP_NAME, f'Medya eklenemedi: {exc}')
+            QMessageBox.warning(self, APP_NAME, self.ui_text('Medya eklenemedi: {error}', error=exc))
             return
         with self.history_step():
             timeline_service.append_media(self.multitrack, index, path, seconds)
@@ -2165,22 +2314,43 @@ class MainWindow(QMainWindow):
         self.multitrack_view.refresh_waveforms()
         self.update_timeline_scroll()
         self.seek_timeline(self.timeline_frame)
+        self.set_status(self.ui_text('Medya zaman çizelgesine eklendi.'))
 
     def split_clip(self):
         track, clip = self.selected_clip()
-        if clip:
-            try:
-                with self.history_step():
-                    timeline_service.split_selected(self.multitrack, self.multitrack_view.selected, self.multitrack_view.playhead)
-                self.multitrack_view.update()
-            except ValueError as exc:
-                self.set_status(str(exc))
+        if not clip:
+            self.set_status(self.ui_text('Önce bölünecek klibi seçin.'))
+            return
+        try:
+            with self.history_step():
+                timeline_service.split_selected(self.multitrack, self.multitrack_view.selected, self.multitrack_view.playhead)
+        except ValueError as exc:  # the model's messages are English and technical
+            if str(exc) == 'Split must be inside clip':
+                self.set_status(self.ui_text('Klip bölünemedi: oynatma imlecini seçili klibin içine getirin.'))
+            else:
+                self.set_status(self.ui_text('Klip bölünemedi: {error}', error=exc))
+            return
+        self.multitrack_view.update()
+        self.set_status(self.ui_text('Klip bölündü.'))
+
+    def delete_clip(self):
+        """Delete key: remove the selected clip and leave its gap (Ripple sil closes the gap)."""
+        track, clip = self.selected_clip()
+        if not clip:
+            self.set_status(self.ui_text('Önce silinecek klibi seçin.'))
+            return
+        with self.history_step():
+            track.clips.remove(clip)
+        self.multitrack_view.selected = None
+        self.update_timeline_scroll()
+        self.seek_timeline(self.timeline_frame)
+        self.set_status(self.ui_text('Klip silindi. Ctrl+Z ile geri alabilirsiniz.'))
 
     def ripple_delete(self):
         """Delete the selected clip and close the gap on every track and on the markers (one undo step)."""
         track, clip = self.selected_clip()
         if not clip:
-            self.set_status('Önce silinecek klibi seçin.')
+            self.set_status(self.ui_text('Önce silinecek klibi seçin.'))
             return
         track_index = self.multitrack_view.selected[0]
         try:
@@ -2201,7 +2371,11 @@ class MainWindow(QMainWindow):
             self.timeline_frame = 0
             self.time_label.setText('00:00.00 / 00:00.00')
             self.multitrack_view.update()
+            self.preview.pending = None
+            self._preview_cleared = True  # a late frame of the removed clips must not come back
+            self.video.set_image(None)  # the placeholder, not the last clip's frame
             return
+        self._preview_cleared = False
         self.timeline_frame = min(max(0, frame), total - 1)
         if self.proxy.playing:
             if self.proxy.is_ready(self.proxy_signature()):
@@ -2239,7 +2413,7 @@ class MainWindow(QMainWindow):
             self.seek_timeline(self.timeline_frame)
 
     def show_timeline_frame(self, path):
-        if not self.proxy.playing:
+        if not self.proxy.playing and not getattr(self, '_preview_cleared', False):
             self.video.set_image(QImage(path))
 
     def advance_timeline(self):
@@ -2288,7 +2462,7 @@ class MainWindow(QMainWindow):
     def set_clip_volume(self):
         track, clip = self.selected_clip()
         if not clip or track.kind not in ('audio', 'video'):
-            self.set_status('Bir ses veya video klibi seçin.')
+            self.set_status(self.ui_text('Bir ses veya video klibi seçin.'))
             return
         value, ok = QInputDialog.getInt(self, 'Klip sesi / Clip volume', 'Ses / Volume (%)', round(clip.volume * 100), 0, 100)
         if ok:
@@ -2325,8 +2499,8 @@ class MainWindow(QMainWindow):
         project_service.save_with_snapshot(path, self.project_document(), snapshot)
 
     def save_project(self) -> None:
-        if not self.state.source:
-            QMessageBox.information(self, APP_NAME, "Kaydetmek için önce bir video ekleyin.")
+        if not self.has_content():
+            QMessageBox.information(self, APP_NAME, self.ui_text("Kaydetmek için önce bir video veya medya ekleyin."))
             return
         path = self.project_path
         if not path:
@@ -2348,7 +2522,7 @@ class MainWindow(QMainWindow):
         self.project_path = path
         self.mark_saved()
         self.discard_autosave()  # the project file now holds everything the autosave did
-        self.set_status("Proje ve sürüm anlık görüntüsü kaydedildi.")
+        self.set_status(self.ui_text("Proje ve sürüm anlık görüntüsü kaydedildi."))
 
     def project_signature(self) -> str:
         document = self.project_document()
@@ -2358,15 +2532,20 @@ class MainWindow(QMainWindow):
     def mark_saved(self) -> None:
         self._saved_signature = self.project_signature()
 
+    def has_content(self) -> bool:
+        """There is work to keep: a main video, or any clip on the timeline (media added with ＋ Medya or a
+        template's title before any video, text, ...). Save, autosave and the close prompt key off this."""
+        return bool(self.state.source) or any(track.clips for track in self.multitrack.tracks)
+
     def has_unsaved_changes(self) -> bool:
-        return bool(self.state.source) and self.project_signature() != self._saved_signature
+        return self.has_content() and self.project_signature() != self._saved_signature
 
     def confirm_close(self) -> bool:
         """Ask before work is lost. A hidden window (tests, scripted runs) has nobody to ask."""
         if self._close_confirmed or not self.isVisible() or not self.has_unsaved_changes():
             return True
         buttons = QMessageBox.StandardButton
-        answer = QMessageBox.question(self, APP_NAME, 'Projede kaydedilmemiş değişiklikler var. Kaydedilsin mi?',
+        answer = QMessageBox.question(self, APP_NAME, self.ui_text('Projede kaydedilmemiş değişiklikler var. Kaydedilsin mi?'),
                                       buttons.Save | buttons.Discard | buttons.Cancel, buttons.Save)
         if answer == buttons.Save:
             self.save_project()
@@ -2395,11 +2574,14 @@ class MainWindow(QMainWindow):
         except OSError:
             newer = False
         if newer:
-            answer = QMessageBox.question(self, APP_NAME, RECOVERY_QUESTION,
-                                          QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                                          QMessageBox.StandardButton.Yes)
-            if answer == QMessageBox.StandardButton.Yes:
+            answer = self.ask_recovery(autosave)
+            if answer == 'open':
                 load_from, recovered = str(autosave), True
+            elif answer == 'later':
+                # Opening the project now would let this window's autosave overwrite or remove the file.
+                self.set_status(self.ui_text('Proje açılmadı; kurtarma dosyası saklandı ve bir dahaki açılışta '
+                                             'yeniden sorulacak.'))
+                return False
             else:
                 self.remove_file(autosave)
         elif autosave.is_file():
@@ -2417,8 +2599,11 @@ class MainWindow(QMainWindow):
         snapshot = self.open_snapshot()
         try:
             document, source_path, missing = project_service.load_project(load_from)
-            self._pending_project = document
-            loaded = self.load_video(source_path)
+            if source_path:
+                self._pending_project = document
+                loaded = self.load_video(source_path)
+            else:  # saved before any main video was added
+                loaded = self.load_sourceless_project(document, project_path)
         except Exception as exc:
             log.exception("Proje açılamadı: %s", load_from)
             self.restore_open_snapshot(snapshot)
@@ -2433,11 +2618,35 @@ class MainWindow(QMainWindow):
         self.project_path = project_path
         if recovered:
             self._saved_signature = None  # recovered work is not in any saved file yet
-            self.set_status('Kurtarılan çalışma açıldı; kalıcı olması için projeyi kaydedin.')
+            self.set_status(self.ui_text('Kurtarılan çalışma açıldı; kalıcı olması için projeyi kaydedin.'))
         if missing:
             names = '\n'.join(f'• {item}' for item in missing)
             QMessageBox.warning(self, APP_NAME, f'Projede kullanılan şu medya dosyaları bulunamadı:\n{names}\n\n'
                                                 'Proje açıldı; bu dosyaları kullanan klipler önizlemede ve dışa aktarmada eksik kalabilir.')
+        return True
+
+    def load_sourceless_project(self, document: dict, project_path: str) -> bool:
+        """Open a project that has no main video yet (only ＋ Medya clips, text, a template...)."""
+        if not self.can_start_work():
+            return False
+        self.stop_proxy_playback(refresh=False)
+        self.play_timer.stop()
+        self.playback_clock.stop()
+        self.timeline_audio.stop()
+        self.caption_segments = []
+        self.caption_source = ''
+        self.apply_captions_button.setEnabled(False)
+        self._pending_project = None
+        self._template_before_video = False
+        self.state = EditState()
+        self.media_bin.clear()
+        name = Path(project_path).name.removesuffix('.akis.json').removesuffix('.json') if project_path else ''
+        self.project_title.setText(name or self.ui_text('Yeni proje'))
+        self.project_subtitle.setText(self.ui_text('Video ekleyerek başlayın'))
+        self.timeline_frame = 0
+        self.apply_project_state(document)
+        self.clear_history()
+        self.mark_saved()
         return True
 
     def project_controls(self):
@@ -2517,6 +2726,7 @@ class MainWindow(QMainWindow):
         merged["duration"] = self.state.duration
         self.state = EditState(**merged)
         self.multitrack = Timeline.from_dict(document['timeline']) if 'timeline' in document else Timeline.from_legacy(merged)
+        self.fill_source_lengths()
         self.multitrack_view.set_model(self.multitrack)
         self.refresh_timeline_view()
         for track in self.multitrack.tracks:
@@ -2545,9 +2755,32 @@ class MainWindow(QMainWindow):
         self.publish_tags.setPlainText(publish.get("hashtags", ""))
         self.ai_prompt.setPlainText(document.get("ai_prompt", self.ai_prompt.toPlainText()))
         self.update_timeline_scroll()
-        if duration_frames(self.multitrack):
-            self.seek_timeline(self.timeline_frame)
-        self.set_status("Proje açıldı ve son ayarlar geri yüklendi.")
+        self.seek_timeline(self.timeline_frame)  # an empty timeline clears the previous project's frame
+        self.set_status(self.ui_text("Proje açıldı ve son ayarlar geri yüklendi."))
+
+    def fill_source_lengths(self) -> None:
+        """Older projects stored media clips without their source's length, so trimming a clip's end could
+        stretch it past the media into a black, silent tail. Fill it in from the media's duration."""
+        fps = self.multitrack.fps_num / self.multitrack.fps_den
+        known = {self.state.source: self.state.duration} if self.state.source and self.state.duration else {}
+        media = None
+        for track in self.multitrack.tracks:
+            if track.kind not in ('video', 'audio', 'overlay'):
+                continue
+            for clip in track.clips:
+                if clip.source_length is not None or not clip.source:
+                    continue
+                if clip.source not in known:
+                    known[clip.source] = 0.0
+                    if Path(clip.source).is_file():
+                        try:
+                            media = media or MediaService(ffmpeg_path())
+                            known[clip.source] = media.duration(clip.source)
+                        except (ValueError, RuntimeError, OSError):
+                            log.warning("Medya süresi okunamadı: %s", clip.source)
+                frames = round(known[clip.source] * fps)
+                if frames > 0:  # never shorter than what the clip already uses
+                    clip.source_length = max(frames, clip.source_in + clip.length)
 
     def untitled_recovery_path(self) -> Path:
         """This instance's recovery file for an untitled project, with its lock taken (one per process)."""
@@ -2565,7 +2798,7 @@ class MainWindow(QMainWindow):
 
     def autosave_project(self) -> bool:
         """Write unsaved work where a crash can be recovered from. Returns whether a file was written."""
-        if not self.state.source or not self.has_unsaved_changes():
+        if not self.has_unsaved_changes():  # also False when there is nothing to keep
             return False
         try:
             path = self.autosave_path()
@@ -2600,14 +2833,34 @@ class MainWindow(QMainWindow):
             self._recovery_lock.unlock()
             self._recovery_lock = None
 
+    def ask_recovery(self, path) -> str:
+        """'open', 'later' (keep the file, ask again another time) or 'delete' for a recovery file."""
+        try:
+            when = datetime.fromtimestamp(Path(path).stat().st_mtime).strftime('%d.%m.%Y %H:%M')
+        except (OSError, ValueError, OverflowError):
+            when = '?'
+        box = QMessageBox(QMessageBox.Icon.Question, APP_NAME, self.ui_text(RECOVERY_QUESTION, when=when),
+                          QMessageBox.StandardButton.NoButton, self)
+        box.setInformativeText(self.ui_text(RECOVERY_DETAIL))
+        open_button = box.addButton(self.ui_text('Aç'), QMessageBox.ButtonRole.AcceptRole)
+        later_button = box.addButton(self.ui_text('Sonra sor'), QMessageBox.ButtonRole.RejectRole)
+        delete_button = box.addButton(self.ui_text('Sil'), QMessageBox.ButtonRole.DestructiveRole)
+        box.setDefaultButton(open_button)
+        box.setEscapeButton(later_button)  # closing the box never deletes anything
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is open_button:
+            return 'open'
+        return 'delete' if clicked is delete_button else 'later'
+
     def offer_recovery(self) -> bool:
         """At startup: offer untitled work left behind by an instance that is no longer running."""
         for path, lock in orphan_recovery_files():
             try:
-                answer = QMessageBox.question(self, APP_NAME, RECOVERY_QUESTION,
-                                              QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                                              QMessageBox.StandardButton.Yes)
-                if answer != QMessageBox.StandardButton.Yes:
+                answer = self.ask_recovery(path)
+                if answer == 'later':
+                    continue  # kept; the lock is released below, so the next launch offers it again
+                if answer != 'open':
                     self.remove_file(path)
                     continue
                 if not self.load_project_document(str(path), "", recovered=True):
@@ -2638,8 +2891,13 @@ class MainWindow(QMainWindow):
             widget.setProperty(prop, source)
         return i18n.translate(source, code)
 
+    def ui_language(self) -> str:
+        """The language the UI is shown in: the one apply_language last used, which messages and dialogs follow."""
+        return getattr(self, "_ui_language", None) or self.language.currentData() or "tr"
+
     def apply_language(self, code: str) -> None:
         """Show the UI in `code` ('tr' or 'en'). User content and saved values are never changed."""
+        self._ui_language = code if code in ("tr", "en") else "tr"
         for widget in self.findChildren(QWidget):
             if widget.property("i18n_skip"):
                 continue
@@ -2649,6 +2907,10 @@ class MainWindow(QMainWindow):
                     widget.setText(text)
             if isinstance(widget, (QLineEdit, QPlainTextEdit)) and widget.placeholderText():
                 widget.setPlaceholderText(self._retranslated(widget, "placeholder", widget.placeholderText(), code))
+            if widget.toolTip():
+                tip = self._retranslated(widget, "tooltip", widget.toolTip(), code)
+                if tip != widget.toolTip():
+                    widget.setToolTip(tip)
             if isinstance(widget, QTabWidget):
                 for index in range(widget.count()):
                     widget.setTabText(index, self._retranslated(widget, f"tab{index}", widget.tabText(index), code))
@@ -2658,6 +2920,11 @@ class MainWindow(QMainWindow):
                 for index in range(widget.count()):
                     widget.setItemText(index, i18n.translate(str(widget.itemData(index)), code))
                 widget.blockSignals(blocked)
+        self.version_button.setToolTip(i18n.translate(
+            "Kurulu sürüm: {version}. Güncellemeleri denetlemek için tıklayın.", code).format(
+                version=update_service.VERSION))
+        self.version_button.setAccessibleName(self.version_button.toolTip())
+        self.play_button.setToolTip(i18n.translate("Oynat / duraklat (Boşluk)", code))  # the button is i18n_skip
         if not self.state.source:  # the header shows placeholders until a video is loaded
             self.project_title.setText(i18n.translate("Yeni proje", code))
             self.project_subtitle.setText(i18n.translate("Video ekleyerek başlayın", code))
@@ -2667,6 +2934,20 @@ class MainWindow(QMainWindow):
         self.settings.setValue("language", code)
         self.apply_language(code)
         self.set_status("Language changed to English." if code == "en" else "Dil Türkçe olarak değiştirildi.")
+
+    @staticmethod
+    def stop_story_workers() -> None:
+        """Story Studio generation threads outlive a closed dialog; stop them when the module offers it."""
+        try:
+            from akis import story_workers
+        except Exception:
+            return
+        stop_all = getattr(story_workers, 'stop_all', None)
+        if callable(stop_all):
+            try:
+                stop_all()
+            except Exception:
+                log.exception("Hikâye işleri durdurulamadı")
 
     def closeEvent(self, event):
         if self._workers:
@@ -2680,11 +2961,23 @@ class MainWindow(QMainWindow):
             if answer != QMessageBox.StandardButton.Yes:
                 event.ignore()
                 return
+        # Unsaved story scenes (paid generations) first: its Cancel keeps the whole app open.
+        story_ok = getattr(self.story_dialog, 'confirm_close', None)
+        if callable(story_ok) and not story_ok():
+            event.ignore()
+            return
         if not self.confirm_close():
+            if self.story_dialog is not None and hasattr(self.story_dialog, '_close_approved'):
+                self.story_dialog._close_approved = False  # the app stays open: ask again next time
             event.ignore()
             return
         self.autosave_timer.stop()
         self.discard_autosave()  # clean close: saved or deliberately discarded, nothing to recover
+        if self._persist_ui:
+            try:
+                self.save_ui_settings(self.settings)
+            except Exception:
+                log.exception("Pencere ayarları kaydedilemedi")
         self.play_timer.stop()
         self.playback_clock.stop()
         self.timeline_audio.stop()
@@ -2692,6 +2985,7 @@ class MainWindow(QMainWindow):
         self.stop_workers()
         if self.story_dialog is not None:
             self.story_dialog.close()  # stops its own generation workers
+        self.stop_story_workers()
         # Bounded: a slow or stalled link must not hang the closing window. An interrupted download
         # deletes its partial file itself.
         self.stop_thread(self.update_download)
@@ -2740,6 +3034,8 @@ QPushButton#roundButton { border-radius: 20px; background: #7357f5; text-align: 
 QFrame#editor { background: #111218; border: 1px solid #252733; border-radius: 14px; }
 QFrame#privacyCard { background: #171921; border: 1px solid #282b37; border-radius: 10px; }
 QLabel#localTitle { color: #74d9ac; font-weight: 600; }
+QPushButton#versionTag { background: transparent; color: #7d8194; font-size: 11px; padding: 4px 2px; text-align: left; }
+QPushButton#versionTag:hover { color: #c9c2ff; text-decoration: underline; }
 QVideoWidget#video { background: #08090c; border-radius: 10px; }
 QLineEdit, QPlainTextEdit, QComboBox, QDoubleSpinBox { background: #171920; border: 1px solid #303340; border-radius: 8px; padding: 8px; selection-background-color: #7357f5; }
 QLineEdit:focus, QPlainTextEdit:focus, QComboBox:focus, QDoubleSpinBox:focus { border: 1px solid #7c5cff; }

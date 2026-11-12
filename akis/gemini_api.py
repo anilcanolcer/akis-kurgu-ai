@@ -16,7 +16,8 @@ from urllib.request import Request, urlopen
 
 from akis.ai_providers import (GEMINI_TEXT_FALLBACKS, EmptyResponseError, FreeTierUnavailableError,
                                ProviderHTTPError, ProviderResponseError, ResponseBlockedError,
-                               ResponseTruncatedError, _scrub, is_fallback_error, post_json)
+                               ResponseTruncatedError, _http_detail, _http_hint, _scrub, is_fallback_error,
+                               post_json)
 
 PROVIDER = 'Gemini'
 API_BASE = 'https://generativelanguage.googleapis.com/v1beta'  # image docs show /v1/: change here only
@@ -330,7 +331,12 @@ def list_models(key, *, getter=None, timeout=30):
         try:
             payload = json.loads(getter(url, headers, timeout).decode('utf-8'))
         except HTTPError as exc:
-            raise ProviderHTTPError(f'{PROVIDER} model listesi alınamadı: HTTP {exc.code}', exc.code) from exc
+            detail = _clean(_http_detail(exc), key)
+            hint = _http_hint(PROVIDER, exc.code, detail)
+            if exc.code == 400 and 'api key' in detail.lower():  # Google answers a bad key with 400
+                hint = _http_hint(PROVIDER, 401, detail)
+            message = f'{PROVIDER} model listesi alınamadı: HTTP {exc.code}' + (f' — {detail}' if detail else '')
+            raise ProviderHTTPError(message + (f'\n{hint}' if hint else ''), exc.code) from exc
         except (URLError, OSError, ValueError) as exc:
             raise RuntimeError(_clean(f'{PROVIDER} model listesi alınamadı: {exc}', key)) from exc
         for item in payload.get('models') or []:

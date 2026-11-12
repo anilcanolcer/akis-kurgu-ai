@@ -198,7 +198,11 @@ class Timeline:
         start = round(float(state.get('start', 0)) * fps_num / fps_den)
         end = round(float(state.get('end', 0)) * fps_num / fps_den)
         source = state.get('source', '')
-        clips = [Clip(source=source, start=0, source_in=start, length=end-start)] if source and end > start else []
+        # The source's length bounds trims, so the clip cannot be stretched into a black, silent tail.
+        duration = round(float(state.get('duration', 0) or 0) * fps_num / fps_den)
+        source_length = max(end, duration) if duration > 0 else None
+        clips = [Clip(source=source, start=0, source_in=start, length=end-start, source_length=source_length)] \
+            if source and end > start else []
         return cls(fps_num=fps_num, fps_den=fps_den,
                    tracks=[Track('video', 'Video', clips), Track('audio', 'Audio'),
                            Track('text', 'Text'), Track('overlay', 'Overlay')])

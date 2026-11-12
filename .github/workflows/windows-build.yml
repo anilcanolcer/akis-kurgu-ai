@@ -150,6 +150,10 @@ jobs:
     permissions:
       contents: write
     steps:
+      # Only the release notes are needed from the repository (checked out first: checkout cleans the folder).
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: docs/release-notes
       - uses: actions/download-artifact@v8
         with:
           name: AkisKurguAI-Windows-experimental
@@ -162,9 +166,20 @@ jobs:
           APP_VERSION: ${{ needs.windows.outputs.version }}
         run: |
           gh release view "v$env:APP_VERSION" *> $null
-          if ($LASTEXITCODE -eq 0) { Write-Host 'Release already exists'; exit 0 }
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "::warning::Release v$env:APP_VERSION already exists; nothing was published. Raise akis.__version__ to publish this build."
+            exit 0
+          }
           # The app reads this file when the GitHub API refuses it (anonymous rate limit).
           $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath 'package/AkisKurguAI-Setup.exe').Hash.ToLower()
           Set-Content -LiteralPath 'package/AkisKurguAI-Setup.exe.sha256' -Value "$hash  AkisKurguAI-Setup.exe" -Encoding ascii
-          gh release create "v$env:APP_VERSION" 'package/AkisKurguAI-Setup.exe' 'package/AkisKurguAI-Setup.exe.sha256' --target $env:GITHUB_SHA --title "Akış Kurgu AI $env:APP_VERSION" --notes 'Güncelleme bildirimi artık GitHub istek sınırına takılmaz: sınır dolduğunda (ortak modem, mobil operatör, iş yeri ağı) program en son sürümü sınırsız sayfalardan okur. 0.5.1 ile gelen görüntü ve ses kalitesi düzeltmelerini içerir. 0.5.1 ve öncesinde bildirim gelmediyse kurucuyu bir kez elle indirip çalıştırın. Dijital imzalı değildir; Windows veya güvenlik yazılımınız uyarı gösterebilir. Yerel Whisper modeli ilk kullanımda indirilir.'
+          # Release notes: docs/release-notes/v<version>.md (UTF-8), written before the version is raised.
+          $notesFile = "docs/release-notes/v$env:APP_VERSION.md"
+          if (Test-Path -LiteralPath $notesFile) {
+            $notes = @('--notes-file', $notesFile)
+          } else {
+            Write-Host "::warning::$notesFile not found; the release gets a generic note. Edit the release text on GitHub."
+            $notes = @('--notes', "Akış Kurgu AI $env:APP_VERSION. Dijital imzalı değildir; Windows veya güvenlik yazılımınız uyarı gösterebilir. Yerel Whisper modeli ilk kullanımda indirilir.")
+          }
+          gh release create "v$env:APP_VERSION" 'package/AkisKurguAI-Setup.exe' 'package/AkisKurguAI-Setup.exe.sha256' --target $env:GITHUB_SHA --title "Akış Kurgu AI $env:APP_VERSION" @notes
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
