@@ -82,6 +82,7 @@ class MainWindowFlowTests(unittest.TestCase):
         self.assertLess(x, window.multitrack_view.width())
         QTest.mouseClick(window.multitrack_view, Qt.MouseButton.LeftButton, pos=QPoint(x, 45))
         self.assertEqual(window.multitrack_view.selected, (0, clip.id))
+        window._close_confirmed = True  # a visible window with clips now asks before closing
         window.close()
 
     def test_profile_changes_real_export_size_and_aspect(self):

@@ -134,15 +134,15 @@ class ProjectRecoveryTests(WindowCase):
 
     def reopen(self, answer):
         with patch('main.QFileDialog.getOpenFileName', return_value=(str(self.project), '')), \
-             patch('main.QMessageBox.question', return_value=answer) as ask, \
+             patch.object(self.window, 'ask_recovery', return_value=answer) as ask, \
              patch('main.QMessageBox.critical') as critical:
             self.window.open_project()
         critical.assert_not_called()
         return ask
 
     def test_accepting_loads_autosave_but_keeps_real_project_path(self):
-        ask = self.reopen(YES)
-        self.assertEqual(ask.call_args.args[2], main.RECOVERY_QUESTION)
+        ask = self.reopen('open')
+        ask.assert_called_once_with(self.autosave)
         w = self.window
         self.assertEqual(w.publish_title.text(), 'kurtarılacak')
         self.assertEqual(w.project_path, str(self.project))
@@ -153,16 +153,23 @@ class ProjectRecoveryTests(WindowCase):
         saved = json.loads(self.project.read_text(encoding='utf-8'))
         self.assertEqual(saved['publish']['title'], 'kurtarılacak')
 
-    def test_declining_deletes_autosave_and_opens_project(self):
-        self.reopen(NO)
+    def test_delete_removes_autosave_and_opens_project(self):
+        self.reopen('delete')
         self.assertFalse(self.autosave.exists())
         self.assertEqual(self.window.publish_title.text(), '')
         self.assertFalse(self.window.has_unsaved_changes())
 
+    def test_ask_later_keeps_autosave_and_does_not_open(self):
+        self.window.publish_title.setText('açık olan')
+        self.reopen('later')
+        self.assertTrue(self.autosave.exists())
+        self.assertEqual(self.window.publish_title.text(), 'açık olan')  # nothing was loaded
+        self.assertIn('kurtarma dosyası saklandı', self.window.status_label.text())
+
     def test_older_autosave_is_not_offered(self):
         future = time.time() + 60
         os.utime(self.project, (future, future))
-        ask = self.reopen(YES)
+        ask = self.reopen('open')
         ask.assert_not_called()
         self.assertFalse(self.autosave.exists())
 
@@ -179,9 +186,9 @@ class UntitledRecoveryTests(WindowCase):
 
     def test_accepting_orphan_loads_it_untitled_and_unsaved(self):
         orphan = self.orphan()
-        with patch('main.QMessageBox.question', return_value=YES) as ask:
+        with patch.object(self.window, 'ask_recovery', return_value='open') as ask:
             self.assertTrue(self.window.offer_recovery())
-        self.assertEqual(ask.call_args.args[2], main.RECOVERY_QUESTION)
+        ask.assert_called_once_with(orphan)
         w = self.window
         self.assertEqual(w.publish_title.text(), 'yetim')
         self.assertEqual(w.project_path, '')
@@ -190,19 +197,52 @@ class UntitledRecoveryTests(WindowCase):
         self.assertTrue((self.recovery / f'recovery-{os.getpid()}.akis.json').exists())  # now our own copy
         self.assertFalse((self.recovery / f'recovery-{999_999_9}.lock').exists())
 
-    def test_declining_orphan_deletes_it(self):
+    def test_delete_removes_orphan(self):
         orphan = self.orphan()
-        with patch('main.QMessageBox.question', return_value=NO):
+        with patch.object(self.window, 'ask_recovery', return_value='delete'):
             self.assertFalse(self.window.offer_recovery())
         self.assertFalse(orphan.exists())
         self.assertFalse(self.window.has_unsaved_changes())
+
+    def test_ask_later_keeps_orphan_for_the_next_launch(self):
+        orphan = self.orphan()
+        with patch.object(self.window, 'ask_recovery', return_value='later'):
+            self.assertFalse(self.window.offer_recovery())
+        self.assertTrue(orphan.exists())
+        found = main.orphan_recovery_files(self.recovery)  # its lock was released: offered again
+        self.assertEqual([path for path, _lock in found], [orphan])
+        for _path, lock in found:
+            lock.unlock()
+
+    def test_prompt_shows_date_and_three_choices(self):
+        orphan = self.orphan()
+        stamp = time.mktime((2026, 3, 4, 15, 7, 0, 0, 0, -1))
+        os.utime(orphan, (stamp, stamp))
+        seen = []
+
+        def click(label):
+            def exec_(box):
+                seen.append((box.text(), [b.text() for b in box.buttons()]))
+                next(b for b in box.buttons() if b.text() == label).click()
+                return 0
+            return exec_
+
+        for label, expected in (('Aç', 'open'), ('Sonra sor', 'later'), ('Sil', 'delete')):
+            with patch.object(QMessageBox, 'exec', new=click(label)):
+                self.assertEqual(self.window.ask_recovery(orphan), expected)
+        text, buttons = seen[0]
+        self.assertIn('04.03.2026 15:07', text)
+        self.assertEqual(sorted(buttons), sorted(['Aç', 'Sonra sor', 'Sil']))
+        with patch.object(QMessageBox, 'exec', new=lambda box: 0):  # closed without a choice
+            self.assertEqual(self.window.ask_recovery(orphan), 'later')
+        self.assertTrue(orphan.exists())
 
     def test_file_of_running_instance_is_not_offered(self):
         orphan = self.orphan(pid=4242)
         live = main.recovery_lock(orphan)
         self.assertTrue(live.tryLock(0))  # held by a running process (this one)
         self.addCleanup(live.unlock)
-        with patch('main.QMessageBox.question') as ask:
+        with patch.object(self.window, 'ask_recovery') as ask:
             self.assertFalse(self.window.offer_recovery())
         ask.assert_not_called()
         self.assertTrue(orphan.exists())

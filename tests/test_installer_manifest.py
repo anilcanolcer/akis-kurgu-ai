@@ -83,7 +83,8 @@ class InstallerScriptTests(unittest.TestCase):
         boxes = [line for line in code_lines(NSI).splitlines() if 'MessageBox' in line]
         self.assertTrue(boxes)
         for line in boxes:
-            self.assertIn('/SD IDOK', line)
+            # /SD answers the box in silent mode; a Retry/Cancel box must default to cancelling.
+            self.assertIn('/SD IDCANCEL' if 'MB_RETRYCANCEL' in line else '/SD IDOK', line)
         fail = block('!macro FAIL', '!macroend')
         self.assertLess(fail.index('Quit'), fail.index('MessageBox'))  # update/silent mode quits before any box
         self.assertRegex(fail, r'\$UpdateMode == 1\s+\$\{OrIf\} \$\{Silent\}\s+Quit')
@@ -167,6 +168,72 @@ class InstallerScriptTests(unittest.TestCase):
             if 'HKLM' in line and '!define' not in line:
                 self.assertIn('LEGACY_KEY', line)  # the only literal HKLM use, compiled out in test builds
         self.assertRegex(NSI, r'!ifndef TEST_USER_LEVEL\s+ReadRegStr \$1 HKLM')
+
+    def test_version_comes_from_the_app_package(self):
+        self.assertNotRegex(NSI, r'!define PRODUCT_VERSION "\d')  # no hard-coded default that can drift
+        match = re.search(r'^!searchparse /file "akis\\__init__.py" "([^"]*)" APP_SOURCE_VERSION "([^"]*)"$', NSI, re.M)
+        self.assertIsNotNone(match)
+        source = (ROOT / 'akis' / '__init__.py').read_text(encoding='utf-8')
+        found = re.search(re.escape(match.group(1)) + r'(.*?)' + re.escape(match.group(2)), source)
+        self.assertIsNotNone(found, 'the !searchparse pattern no longer matches akis/__init__.py')
+        import akis
+        self.assertEqual(found.group(1), akis.__version__)
+        self.assertRegex(NSI, r'!ifndef TEST_USER_LEVEL\s+!if "\$\{PRODUCT_VERSION\}" != "\$\{APP_SOURCE_VERSION\}"\s+!error')
+
+    def test_uninstaller_refuses_while_the_app_runs(self):
+        init = code_lines(block('Function un.onInit', 'FunctionEnd'))
+        self.assertIn('CHECK_NOT_RUNNING "$INSTDIR\\AkisKurguAI.exe"', init)
+        self.assertIn('CHECK_NOT_RUNNING "$INSTDIR\\_internal\\ffmpeg.exe"', init)
+        self.assertRegex(init, r'\$\{If\} \$\{Silent\}\s+SetErrorLevel \$\{ERR_IN_USE\}\s+Quit')
+        self.assertLess(init.index('${Silent}'), init.index('MessageBox'))  # silent never reaches the box
+        self.assertIn('MB_RETRYCANCEL', init)
+
+    def test_install_location_is_remembered_and_proposed_again(self):
+        section = code_lines(block('Section "Install"'))
+        checked = section[section.index('WriteUninstaller'):section.index('CreateShortcut')]
+        for value in ('InstallLocation', 'DisplayIcon', 'Publisher', 'URLInfoAbout', 'EstimatedSize'):
+            self.assertIn(f'"{value}"', checked)  # inside the error-checked, rolled-back registry step
+        self.assertIn('"InstallLocation" "$INSTDIR"', checked)
+        self.assertIn('"DisplayName" "${DISPLAY_NAME}"', checked)
+        self.assertIn('!define DISPLAY_NAME "Ak\u0131\u015f Kurgu AI"', NSI)
+        init = code_lines(block('Function .onInit', 'FunctionEnd'))
+        read = init.index('ReadRegStr $R1 ${REG_ROOT} "${UNINSTALL_KEY}" "InstallLocation"')
+        self.assertLess(init.index('$INSTDIR == "$PROGRAMFILES64\\AkisKurguAI"'), read)  # /D= wins
+        self.assertLess(read, init.index('"/DIR="'))  # /DIR= wins
+        self.assertIn('InstallDir "$PROGRAMFILES64\\AkisKurguAI"', NSI)
+
+    def test_directory_page_refuses_another_programs_internal_folder(self):
+        self.assertRegex(NSI, r'!define MUI_PAGE_CUSTOMFUNCTION_LEAVE CheckInstallDir\n'
+                              r'!define MUI_PAGE_CUSTOMFUNCTION_PRE SkipPageInUpdateMode\n'
+                              r'!insertmacro MUI_PAGE_DIRECTORY')
+        check = code_lines(block('Function CheckInstallDir', 'FunctionEnd'))
+        self.assertIn('${If} ${FileExists} "$INSTDIR\\_internal\\*.*"', check)
+        for ours in ('AkisKurguAI.exe', 'AkisKurguAI.exe.old', 'AkisKurguAI.exe.new', '_internal.old\\*.*'):
+            self.assertIn(f'${{AndIfNot}} ${{FileExists}} "$INSTDIR\\{ours}"', check)
+        self.assertIn('Abort', check)
+
+    def test_finish_page_offers_an_unelevated_launch(self):
+        finish = NSI[NSI.index('!insertmacro MUI_PAGE_INSTFILES'):NSI.index('!insertmacro MUI_PAGE_FINISH')]
+        self.assertIn('!define MUI_FINISHPAGE_RUN\n', finish)
+        self.assertIn('!define MUI_FINISHPAGE_RUN_FUNCTION RelaunchApp', finish)
+        self.assertIn('explorer.exe', block('Function RelaunchApp', 'FunctionEnd'))
+
+    def test_release_notes_come_from_the_repository(self):
+        workflow = (ROOT / '.github' / 'workflows' / 'windows-build.yml').read_text(encoding='utf-8')
+        release = workflow[workflow.index('\n  release:'):]
+        self.assertNotIn("--notes '", release)  # no hard-coded notes of one version
+        self.assertIn('$notesFile = "docs/release-notes/v$env:APP_VERSION.md"', release)
+        self.assertIn("@('--notes-file', $notesFile)", release)
+        self.assertEqual(release.count('::warning::'), 2)  # release exists; notes file missing
+        self.assertLess(release.index('actions/checkout'), release.index('actions/download-artifact'))
+        self.assertIn('sparse-checkout: docs/release-notes', release)
+        notes = list((ROOT / 'docs' / 'release-notes').iterdir())
+        self.assertTrue(notes)
+        for path in notes:
+            self.assertRegex(path.name, r'^v\d+\.\d+\.\d+\.md$')
+            data = path.read_bytes()
+            self.assertFalse(data.startswith(b'\xef\xbb\xbf'), f'{path.name} has a BOM')
+            self.assertTrue(data.decode('utf-8').strip())
 
     @unittest.skipUnless(shutil.which('powershell.exe'), 'Windows PowerShell not available')
     def test_end_to_end_script_parses(self):

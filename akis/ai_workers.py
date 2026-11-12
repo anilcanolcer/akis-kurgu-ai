@@ -1,13 +1,16 @@
 """Background API-based planning and transcription."""
 import tempfile
+import threading
 from pathlib import Path
 from PySide6.QtCore import QThread, Signal
 from akis.media_service import MediaService, RenderCancelled
 from akis.ai_service import parse_suggestions
-from akis.ai_providers import request_plan, transcribe
+from akis.ai_providers import fallback_note, request_plan, transcribe
 from akis.ai_service import local_transcribe
 from akis.timeline_model import Timeline
 from akis import edit_plan
+
+POLL_SECONDS = 0.1
 
 
 class WorkerCancelled(Exception):
@@ -15,8 +18,9 @@ class WorkerCancelled(Exception):
 
 
 class CancellableWorker(QThread):
-    """A worker whose FFmpeg stages stop at once on cancel(); a network call in progress is not interrupted,
-    its result is discarded. Exactly one of completed / failed / cancelled is emitted per run."""
+    """A worker whose FFmpeg stages stop at once on cancel(). A network call cannot be interrupted, so it
+    runs on a daemon helper thread (see call()): on cancel the worker ends within ~0.1 s and the call's
+    result is discarded. Exactly one of completed / failed / cancelled is emitted per run."""
     cancelled = Signal()
 
     def __init__(self, executable) -> None:
@@ -32,6 +36,33 @@ class CancellableWorker(QThread):
     def check_cancelled(self) -> None:
         if self.isInterruptionRequested() or self.media.cancelled:
             raise WorkerCancelled()
+
+    def call(self, fn, *args, **kwargs):
+        """Run a blocking call on a daemon thread, checking for cancel every POLL_SECONDS.
+
+        Returns its result or raises its error; once cancelled, raises WorkerCancelled at once and the
+        call's eventual result is dropped (the helper thread ends on its own; the request's own timeout
+        and deadline bound it).
+        """
+        self.check_cancelled()
+        box = {}
+        done = threading.Event()
+
+        def target():
+            try:
+                box['result'] = fn(*args, **kwargs)
+            except BaseException as exc:  # handed to the worker thread below
+                box['error'] = exc
+            finally:
+                done.set()
+
+        threading.Thread(target=target, name='akis-ai-call', daemon=True).start()
+        while not done.wait(POLL_SECONDS):
+            self.check_cancelled()
+        self.check_cancelled()
+        if 'error' in box:
+            raise box['error']
+        return box.get('result')
 
     def report_error(self, exc: Exception) -> None:
         if isinstance(exc, (WorkerCancelled, RenderCancelled)) or self.isInterruptionRequested() or self.media.cancelled:
@@ -86,10 +117,13 @@ class AIWorker(CancellableWorker):
                 )
                 self.check_cancelled()
                 self.status.emit("AI kurgu planı hazırlanıyor…")
-                text = request_plan(self.provider, self.api_key, self.model, prompt,
-                                    [(at, path.read_bytes()) for at, path in frames])
+                text = self.call(request_plan, self.provider, self.api_key, self.model, prompt,
+                                 [(at, path.read_bytes()) for at, path in frames])
                 suggestions = parse_suggestions(text, self.duration)
             self.check_cancelled()
+            note = fallback_note(text)
+            if note:  # format_suggestion lists notes, so every suggestion says which model wrote it
+                suggestions = [dict(s, notes=list(s.get('notes') or []) + [note]) for s in suggestions]
             self.completed.emit(suggestions)
         except Exception as exc:
             self.report_error(exc)
@@ -110,14 +144,15 @@ class TranscriptWorker(CancellableWorker):
     def run(self) -> None:
         try:
             self.status.emit("Ses parçası hazırlanıyor…")
-            with tempfile.TemporaryDirectory(prefix="akis_audio_") as temp:
+            # A cancelled upload may still hold the file open on its helper thread.
+            with tempfile.TemporaryDirectory(prefix="akis_audio_", ignore_cleanup_errors=True) as temp:
                 audio = Path(temp) / "audio.mp3"
                 result = self.media.extract_audio(self.video, audio)
                 self.check_cancelled()
                 if result.returncode != 0 or not audio.exists():
                     raise RuntimeError("Videodan ses parçası çıkarılamadı.")
                 self.status.emit("Türkçe konuşma metne çevriliyor…")
-                text = transcribe(self.provider, self.api_key, self.model, audio)
+                text = self.call(transcribe, self.provider, self.api_key, self.model, audio)
             self.check_cancelled()
             self.completed.emit(text)
         except Exception as exc:
@@ -219,12 +254,15 @@ class PromptEditWorker(CancellableWorker):
             prompt = edit_plan.build_prompt(self.request, self.sources, self.timeline, settings=self.settings)
             self.check_cancelled()
             self.status.emit("AI kurgu kararlarını veriyor…")
-            text = self.request_fn(self.provider, self.api_key, self.model,
-                                   prompt + '\n' + FRAME_LABEL_NOTE,
-                                   [(frame_label(index, at), data) for index, at, data in frames],
-                                   instruction=edit_plan.INSTRUCTION)
+            text = self.call(self.request_fn, self.provider, self.api_key, self.model,
+                             prompt + '\n' + FRAME_LABEL_NOTE,
+                             [(frame_label(index, at), data) for index, at, data in frames],
+                             instruction=edit_plan.INSTRUCTION)
             plan = edit_plan.parse_plan(text, [s['duration'] for s in self.sources],
                                         current_duration=edit_plan.primary_duration(self.timeline))
+            note = fallback_note(text)
+            if note:  # shown by edit_plan.describe with the other warnings
+                plan.setdefault('warnings', []).insert(0, note)
             self.check_cancelled()
             self.completed.emit(plan, self.sources)
         except Exception as exc:
