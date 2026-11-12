@@ -192,6 +192,18 @@ EN_UI = {
     "Çevrimdışı Windows sistem sesi kullanılır; dil ve ses işletim sisteminde yüklü seslere bağlıdır.":
         "Uses the offline Windows system voice; the language and voice depend on the voices installed in Windows.",
     "Temel gürültü azaltma (henüz yok)": "Basic noise reduction (not available yet)",
+    # Şablonlarım (the user's own templates).
+    "Şablonlarım": "My templates", "Şablonlarım…": "My templates…",
+    "Kendi projelerinizden kaydettiğiniz şablonlar.": "Templates you saved from your own projects.",
+    "Bir projenizin izlerini, tuval oranını, renk ve hız ayarını, ses düğmelerini şablon olarak saklayın; sonraki videoya tek seçimle uygulayın.":
+        "Keep a project's tracks, canvas ratio, colour and speed settings and sound switches as a template; apply it to the next video in one choice.",
+    "Bu projeyi şablon olarak kaydet": "Save this project as a template", "Şablonu sil": "Delete template",
+    "Henüz kayıtlı şablonunuz yok.": "You have no saved templates yet.",
+    "Şablon olarak kaydet": "Save as template", "Şablonun adı:": "Template name:",
+    "“{name}” adlı şablon zaten var. Üzerine yazılsın mı?": "A template named “{name}” already exists. Overwrite it?",
+    "Şablon kaydedilemedi: {error}": "The template could not be saved: {error}",
+    "“{name}” şablonu silinsin mi? Bu geri alınamaz.": "Delete the template “{name}”? This cannot be undone.",
+    "Şablon silinemedi: {error}": "The template could not be deleted: {error}",
     "Videoda görünecek kısa başlık (henüz yok)": "Short title shown on video (not available yet)",
     "Başlık katmanı henüz yok. Videoya yazıyı AI kurgusu, şablonlar veya altyazılar ekler.":
         "The title layer is not available yet. Text is added to the video by AI edits, templates or captions.",
