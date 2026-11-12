@@ -10,7 +10,7 @@
   !define PRODUCT_NAME "Akis Kurgu AI"
 !endif
 !ifndef PRODUCT_VERSION
-  !define PRODUCT_VERSION "0.5.1"
+  !define PRODUCT_VERSION "0.5.2"
 !endif
 !ifndef SOURCE_DIR
   !define SOURCE_DIR "dist\AkisKurguAI"
