@@ -14,9 +14,13 @@ class UpdateTests(unittest.TestCase):
     def test_version_single_source(self):
         self.assertEqual(update_service.VERSION, akis.__version__)
         nsi = (Path(__file__).resolve().parents[1] / 'installer.nsi').read_text(encoding='utf-8-sig')
-        match = re.search(r'^\s*!define\s+PRODUCT_VERSION\s+"([^"]+)"', nsi, re.M)
-        self.assertIsNotNone(match)
-        self.assertEqual(match.group(1), akis.__version__)
+        # The installer reads the version from akis/__init__.py itself, and refuses a different /D value.
+        self.assertIn('!searchparse /file "akis\\__init__.py" "__version__ = \'" APP_SOURCE_VERSION "\'"', nsi)
+        self.assertRegex(nsi, r'(?m)^\s*!define PRODUCT_VERSION "\$\{APP_SOURCE_VERSION\}"')
+        self.assertIn('!error "PRODUCT_VERSION ${PRODUCT_VERSION} does not match', nsi)
+        self.assertEqual(re.search(r"__version__ = '([^']+)'",
+                                   (Path(__file__).resolve().parents[1] / 'akis' / '__init__.py').read_text()).group(1),
+                         akis.__version__)
     def test_new_verified_release(self):
         asset={'name':'AkisKurguAI-Setup.exe','browser_download_url':'https://github.com/anilcanolcer/akis-kurgu-ai/releases/download/v0.3.2/AkisKurguAI-Setup.exe','digest':'sha256:'+'a'*64}
         self.assertEqual(find_update({'tag_name':'v0.3.2','assets':[asset]}, current='0.3.1')['version'],'v0.3.2')

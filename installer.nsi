@@ -6,11 +6,26 @@
 ; Build-time overrides (makensis /D...), used by scripts/installer-scenarios.ps1 so the real dist is
 ; never needed there: SOURCE_DIR, OUTPUT_FILE, UNINSTALL_LIST, PRODUCT_NAME, UNINSTALL_KEY_NAME, and
 ; TEST_USER_LEVEL (no UAC prompt; registry and shortcut go to the current user).
+; PRODUCT_NAME names the Start-menu folder and shortcut (kept ASCII so existing shortcuts stay valid);
+; DISPLAY_NAME is what Add/Remove Programs shows.
 !ifndef PRODUCT_NAME
   !define PRODUCT_NAME "Akis Kurgu AI"
+  !define DISPLAY_NAME "Akış Kurgu AI"
 !endif
+!ifndef DISPLAY_NAME
+  !define DISPLAY_NAME "${PRODUCT_NAME}"
+!endif
+; The version comes from akis/__init__.py (makensis runs in the script's folder), so a local build without
+; /DPRODUCT_VERSION cannot drift from the app. A different /DPRODUCT_VERSION is refused for real builds;
+; only the test builds of scripts/installer-scenarios.ps1 (TEST_USER_LEVEL) use made-up versions.
+!searchparse /file "akis\__init__.py" "__version__ = '" APP_SOURCE_VERSION "'"
 !ifndef PRODUCT_VERSION
-  !define PRODUCT_VERSION "0.5.2"
+  !define PRODUCT_VERSION "${APP_SOURCE_VERSION}"
+!endif
+!ifndef TEST_USER_LEVEL
+  !if "${PRODUCT_VERSION}" != "${APP_SOURCE_VERSION}"
+    !error "PRODUCT_VERSION ${PRODUCT_VERSION} does not match akis/__init__.py (${APP_SOURCE_VERSION})"
+  !endif
 !endif
 !ifndef SOURCE_DIR
   !define SOURCE_DIR "dist\AkisKurguAI"
@@ -77,9 +92,13 @@ Var Failed
 !define MUI_CUSTOMFUNCTION_GUIINIT OnGuiInit
 !define MUI_PAGE_CUSTOMFUNCTION_PRE SkipPageInUpdateMode
 !insertmacro MUI_PAGE_WELCOME
+!define MUI_PAGE_CUSTOMFUNCTION_LEAVE CheckInstallDir
 !define MUI_PAGE_CUSTOMFUNCTION_PRE SkipPageInUpdateMode
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
+; Interactive installs only: the finish page is skipped in update mode and not shown with /S.
+!define MUI_FINISHPAGE_RUN
+!define MUI_FINISHPAGE_RUN_FUNCTION RelaunchApp
 !define MUI_PAGE_CUSTOMFUNCTION_PRE SkipPageInUpdateMode
 !insertmacro MUI_PAGE_FINISH
 !insertmacro MUI_UNPAGE_CONFIRM
@@ -156,6 +175,19 @@ Function .onInit
   ${IfNot} ${Errors}
     StrCpy $UpdateMode 1
   ${EndIf}
+  ; Propose the folder of the existing install instead of the default (a reinstall over a custom folder
+  ; would otherwise create a second copy). Only while $INSTDIR is still the InstallDir default, so /D=
+  ; (which NSIS applies before .onInit) and /DIR= (below) keep precedence. Read here rather than with
+  ; InstallDirRegKey because the key is written in the 64-bit registry view.
+  ${If} $INSTDIR == "$PROGRAMFILES64\AkisKurguAI"
+    SetRegView 64
+    ReadRegStr $R1 ${REG_ROOT} "${UNINSTALL_KEY}" "InstallLocation"
+    SetRegView default
+    ${If} $R1 != ""
+    ${AndIf} ${FileExists} "$R1\AkisKurguAI.exe"
+      StrCpy $INSTDIR $R1
+    ${EndIf}
+  ${EndIf}
   ClearErrors
   ${GetOptions} $R0 "/DIR=" $R1
   ${IfNot} ${Errors}
@@ -177,6 +209,20 @@ FunctionEnd
 
 Function SkipPageInUpdateMode
   ${If} $UpdateMode == 1
+    Abort
+  ${EndIf}
+FunctionEnd
+
+; Directory page (interactive only): the swap renames and later deletes $INSTDIR\_internal, so refuse a
+; folder whose _internal belongs to another program (another PyInstaller app). Ours always has the exe,
+; or during an interrupted update its .old/.new copies, next to _internal.
+Function CheckInstallDir
+  ${If} ${FileExists} "$INSTDIR\_internal\*.*"
+  ${AndIfNot} ${FileExists} "$INSTDIR\AkisKurguAI.exe"
+  ${AndIfNot} ${FileExists} "$INSTDIR\AkisKurguAI.exe.old"
+  ${AndIfNot} ${FileExists} "$INSTDIR\AkisKurguAI.exe.new"
+  ${AndIfNot} ${FileExists} "$INSTDIR\_internal.old\*.*"
+    MessageBox MB_OK|MB_ICONEXCLAMATION "Seçilen klasörde başka bir programa ait bir _internal klasörü var. Akış Kurgu AI bu klasöre kurulursa o program bozulur.$\r$\n$\r$\nLütfen başka (boş) bir klasör seçin." /SD IDOK
     Abort
   ${EndIf}
 FunctionEnd
@@ -381,14 +427,23 @@ Section "Install"
     !insertmacro FAIL ${ERR_EXTRACT} "files could not be written; the previous version was restored" "Yeni dosyalar yazılamadı (disk dolu olabilir). Önceki sürüm geri yüklendi."
   ${EndIf}
 
-  ; 5. Uninstaller, registry and shortcut.
+  ; 5. Uninstaller, registry and shortcut. The size (KB) counts only the new copy: the .old copies are
+  ;    still present here.
+  ${GetSize} "$INSTDIR\_internal" "/S=0K" $2 $3 $4
+  ${GetSize} "$INSTDIR" "/M=AkisKurguAI.exe /S=0K /G=0" $3 $4 $5
+  IntOp $2 $2 + $3
   StrCpy $Failed 0
   ClearErrors
   WriteUninstaller "$INSTDIR\Uninstall-Akis.exe"
   SetRegView 64
-  WriteRegStr ${REG_ROOT} "${UNINSTALL_KEY}" "DisplayName" "${PRODUCT_NAME}"
+  WriteRegStr ${REG_ROOT} "${UNINSTALL_KEY}" "DisplayName" "${DISPLAY_NAME}"
   WriteRegStr ${REG_ROOT} "${UNINSTALL_KEY}" "DisplayVersion" "${PRODUCT_VERSION}"
   WriteRegStr ${REG_ROOT} "${UNINSTALL_KEY}" "UninstallString" '"$INSTDIR\Uninstall-Akis.exe"'
+  WriteRegStr ${REG_ROOT} "${UNINSTALL_KEY}" "InstallLocation" "$INSTDIR"
+  WriteRegStr ${REG_ROOT} "${UNINSTALL_KEY}" "DisplayIcon" "$INSTDIR\AkisKurguAI.exe"
+  WriteRegStr ${REG_ROOT} "${UNINSTALL_KEY}" "Publisher" "Anılcan Ölçer"
+  WriteRegStr ${REG_ROOT} "${UNINSTALL_KEY}" "URLInfoAbout" "https://github.com/anilcanolcer/akis-kurgu-ai"
+  WriteRegDWORD ${REG_ROOT} "${UNINSTALL_KEY}" "EstimatedSize" $2
   WriteRegDWORD ${REG_ROOT} "${UNINSTALL_KEY}" "NoModify" 1
   WriteRegDWORD ${REG_ROOT} "${UNINSTALL_KEY}" "NoRepair" 1
   ${If} ${Errors}
@@ -445,6 +500,28 @@ Function .onInstFailed
   ${If} $Relaunch == 1
     Call RelaunchApp
   ${EndIf}
+FunctionEnd
+
+; Refuse to uninstall while the app (or an ffmpeg it started) runs from here: its locked files would stay
+; while everything else, including the Add/Remove Programs entry, is removed. Same check as the installer
+; uses before the swap. Interactive: retry or cancel. Silent: exit code ${ERR_IN_USE}, nothing removed.
+Function un.onInit
+  ${Do}
+    StrCpy $Failed 0
+    !insertmacro CHECK_NOT_RUNNING "$INSTDIR\AkisKurguAI.exe"
+    !insertmacro CHECK_NOT_RUNNING "$INSTDIR\_internal\ffmpeg.exe"
+    ${If} $Failed == 0
+      ${ExitDo}
+    ${EndIf}
+    ${If} ${Silent}
+      SetErrorLevel ${ERR_IN_USE}
+      Quit
+    ${EndIf}
+    MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "Akış Kurgu AI şu anda açık. Kaldırmadan önce uygulamayı kapatıp Yeniden Dene'ye basın." /SD IDCANCEL IDRETRY retry
+    SetErrorLevel 1  ; cancelled by the user
+    Quit
+    retry:
+  ${Loop}
 FunctionEnd
 
 Section "Uninstall"

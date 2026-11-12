@@ -19,6 +19,7 @@ class InspirationFlowTests(unittest.TestCase):
     def setUp(self):
         with patch('akis.ai_providers.load_key', return_value=''):
             self.window = main.MainWindow()
+        self.window.apply_language('tr')  # the sidebar is found by its Turkish text, whatever the machine's language
         self.addCleanup(self.window.deleteLater)
 
     def nav_button(self, word):

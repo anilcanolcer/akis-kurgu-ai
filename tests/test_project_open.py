@@ -127,9 +127,11 @@ class ProjectOpenTests(unittest.TestCase):
         self.assertEqual(w._undo_stack, [])
         self.assertFalse(w.undo_edit_button.isEnabled())
 
-    def test_loading_new_main_video_clears_undo_history(self):
+    def test_loading_new_main_video_into_an_empty_timeline_clears_undo_history(self):
         w = self.window
         w.state.source = ''  # as after closing the video: the next add_video becomes the main video
+        for track in w.multitrack.tracks:
+            track.clips.clear()  # nothing left to keep
         other = Path(self.tmp.name) / 'other.mp4'
         other.touch()
         w.add_video(str(other))
@@ -137,6 +139,19 @@ class ProjectOpenTests(unittest.TestCase):
         self.assertEqual(w._undo_stack, [])
         self.assertFalse(w.undo_edit_button.isEnabled())
         self.assertEqual(w.project_path, '')
+
+    def test_new_main_video_keeps_clips_already_on_the_timeline(self):
+        w = self.window
+        w.state.source = ''  # clips are still on the timeline: they are work, not to be wiped
+        steps = len(w._undo_stack)
+        other = Path(self.tmp.name) / 'other.mp4'
+        other.touch()
+        w.add_video(str(other))
+        self.assertEqual(w.state.source, str(other))
+        self.assertEqual([c.source for c in w.multitrack.tracks[0].clips], [str(self.video_a), str(other)])
+        self.assertEqual(len(w._undo_stack), steps + 1)  # the earlier steps plus adding the video
+        self.assertEqual(w.project_path, str(self.project_a))
+        self.assertTrue(w.has_unsaved_changes())
 
 
 if __name__ == '__main__': unittest.main()

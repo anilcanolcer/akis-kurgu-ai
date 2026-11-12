@@ -190,6 +190,8 @@ def load_project(path):
         usable = next((clip['source'] for track in timeline.get('tracks', []) if track.get('kind') == 'video'
                        for clip in sorted(track.get('clips', []), key=lambda c: c.get('start', 0))
                        if clip.get('source') and clip['source'] in resolved.values()), None)
+        if usable is None and not source:
+            return document, '', missing  # work saved before any video was added (audio, text, ...)
         if usable is None:
             raise FileNotFoundError('Projede kullanılan kaynak video bulunamadı.')
         state['source'] = usable
