@@ -11,7 +11,7 @@ import tempfile
 import textwrap
 import zlib
 from pathlib import Path
-from akis import audio_polish
+from akis import audio_polish, clip_fit
 from akis.frame_plan import plan_frame, plan_segments
 
 TRANSITIONS = ('fade', 'flash', 'dip', 'slide_left', 'slide_right', 'slide_up', 'slide_down')
@@ -231,10 +231,11 @@ class TimelineRenderer:
                         chain = f'[{index}:v]{self._trim("trim", lead, length - skip)},setpts=PTS-STARTPTS'
                         if hold:
                             chain += f',tpad=stop_mode=clone:stop_duration={hold:.9f}'
-                        chain += f',scale={self.width}:{self.height}:force_original_aspect_ratio=decrease'
+                        scale, place = clip_fit.filters(clip.style, self.width, self.height)  # fit inside, or fill and crop
+                        chain += f',{scale}'
                         if self._needs_tone_mapping(clip.source):  # after scaling: the float maths is costly
                             chain += f',{TONE_MAP}'
-                        chain += (f',pad={self.width}:{self.height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1')
+                        chain += f',{place},setsar=1'
                         if skip:  # restore clip-local time so transitions see where they are
                             chain += f',setpts=PTS+{skip:.9f}/TB'
                         position = ''

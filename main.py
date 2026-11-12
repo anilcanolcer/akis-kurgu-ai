@@ -52,6 +52,7 @@ from akis.silence_dialog import SilenceDialog
 from akis import export_progress
 from akis import shortcuts
 from akis import speech_settings
+from akis import clip_fit
 from akis.inspiration_service import template_for
 from akis.story_dialog import StoryDialog
 from akis.temp_cleanup import cleanup_stale_temp_dirs
@@ -650,7 +651,7 @@ class MainWindow(QMainWindow):
         tools.setContentsMargins(0, 0, 0, 0)
         for label, action in [('＋ İz', self.add_track), ('− İz', self.remove_track),
                               ('＋ Medya', self.add_timeline_media), ('Böl', self.split_clip),
-                              ('Ripple sil', self.ripple_delete), ('Klip sesi', self.set_clip_volume), ('Metni düzenle', self.edit_text_clip)]:
+                              ('Ripple sil', self.ripple_delete), ('Klip sesi', self.set_clip_volume), ('Kadraj', self.set_clip_fit), ('Metni düzenle', self.edit_text_clip)]:
             button = QPushButton(label)
             button.clicked.connect(action)
             if label == 'Ripple sil':
@@ -2557,6 +2558,23 @@ class MainWindow(QMainWindow):
                 timeline_service.set_clip_volume(self.multitrack, self.multitrack_view.selected, value / 100)
             self.sync_timeline_audio(force=True)
             self.set_status(f'Klip sesi: %{value}')
+
+    def set_clip_fit(self):
+        """Fit the selected video clip inside the canvas or let it fill the canvas (cropped), one undo step."""
+        track, clip = self.selected_clip()
+        if not clip or track.kind not in ('video', 'overlay'):
+            self.set_status('Önce bir video klibi seçin.')
+            return
+        labels = [label for label, _, _ in clip_fit.CHOICES]
+        chosen, ok = QInputDialog.getItem(self, 'Kadraj', 'Klip tuvale nasıl yerleşsin?', labels,
+                                          clip_fit.choice_index(clip.style), False)
+        if not ok:
+            return
+        _, fit, focus = clip_fit.CHOICES[labels.index(chosen)]
+        with self.history_step():
+            clip_fit.apply(clip, fit, focus)
+        self.seek_timeline(self.timeline_frame)
+        self.set_status(f'Kadraj: {chosen}')
 
     def change_color(self, name, value):
         setattr(self.state, name, value)
