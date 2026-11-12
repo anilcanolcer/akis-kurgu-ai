@@ -210,11 +210,15 @@ class EnglishUiTests(WindowCase):
 
     def test_disabled_controls_say_not_available(self):
         w = self.window
-        self.assertFalse(w.noise_reduction.isEnabled())
-        self.assertIn('(henüz yok)', w.noise_reduction.text())
+        # Noise reduction and loudness now work (akis.audio_polish); the fade control is still a placeholder.
+        self.assertFalse(w.fade.isEnabled())
+        self.assertIn('(henüz yok)', w.fade.text())
         self.assertIn('(henüz yok)', w.overlay.placeholderText())
+        self.assertTrue(w.noise_reduction.isEnabled())
+        self.assertNotIn('(henüz yok)', w.noise_reduction.text())
         w.apply_language('en')
-        self.assertIn('(not available yet)', w.noise_reduction.text())
+        self.assertIn('(not available yet)', w.fade.text())
+        self.assertEqual(w.noise_reduction.text(), 'Basic noise reduction')
         w.apply_language('tr')
 
     def test_en_ui_stays_one_to_one(self):
