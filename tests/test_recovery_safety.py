@@ -32,6 +32,7 @@ class WindowCase(unittest.TestCase):
         patch('main.MediaService.duration', return_value=2.0).start()
         self.addCleanup(patch.stopall)
         self.window = MainWindow()
+        self.window.apply_language('tr')  # independent of the language saved on, or used by, this machine
         self.addCleanup(self.close_window)
         self.preview = patch.object(self.window.preview, 'request').start()
         self.video = self.root / 'a.mp4'

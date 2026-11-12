@@ -1317,7 +1317,7 @@ class MainWindow(QMainWindow):
 
     def show_templates(self):
         """Şablonlar: ready-made structure (tracks, aspect ratio, colour style, tempo)."""
-        code = self.language.currentData() or "tr"
+        code = self.ui_language()
         aspect = i18n.translate(str(self.aspect.currentData() or ""), code).split(" · ")[0]
         dialog = TemplateDialog(self, language=code, current_aspect=aspect, timeline=self.multitrack)
         if dialog.exec() and dialog.selection()[0] is not None:
@@ -1325,7 +1325,7 @@ class MainWindow(QMainWindow):
 
     def show_inspiration(self):
         """İlham: creative ideas. An idea becomes the edit request; its matching template is optional."""
-        dialog = InspirationDialog(self, language=self.language.currentData() or "tr")
+        dialog = InspirationDialog(self, language=self.ui_language())
         if not dialog.exec():
             return
         idea, action = dialog.selection()
@@ -1884,7 +1884,7 @@ class MainWindow(QMainWindow):
 
     def ui_text(self, template: str, **values) -> str:
         """A whole-string translation of `template` into the current UI language, then filled in."""
-        return i18n.translate(template, self.language.currentData() or "tr").format(**values)
+        return i18n.translate(template, self.ui_language()).format(**values)
 
     def report_update_result(self) -> None:
         """At startup: say that an update worked, or (once) that it failed, and remember the failed version.
@@ -2028,7 +2028,7 @@ class MainWindow(QMainWindow):
         if self.update_dialog is None or self.update_dialog.version != update['version']:
             if self.update_dialog is not None:
                 self.update_dialog.deleteLater()
-            self.update_dialog = UpdateProgressDialog(update['version'], self.language.currentData() or "tr", self)
+            self.update_dialog = UpdateProgressDialog(update['version'], self.ui_language(), self)
             self.update_dialog.cancel_requested.connect(self.cancel_update_download)
             self.update_dialog.retry_requested.connect(self.retry_update_download)
         self.update_dialog.start()
@@ -2891,8 +2891,13 @@ class MainWindow(QMainWindow):
             widget.setProperty(prop, source)
         return i18n.translate(source, code)
 
+    def ui_language(self) -> str:
+        """The language the UI is shown in: the one apply_language last used, which messages and dialogs follow."""
+        return getattr(self, "_ui_language", None) or self.language.currentData() or "tr"
+
     def apply_language(self, code: str) -> None:
         """Show the UI in `code` ('tr' or 'en'). User content and saved values are never changed."""
+        self._ui_language = code if code in ("tr", "en") else "tr"
         for widget in self.findChildren(QWidget):
             if widget.property("i18n_skip"):
                 continue
