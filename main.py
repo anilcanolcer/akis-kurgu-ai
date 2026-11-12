@@ -273,6 +273,10 @@ class EditState:
     saturation: int = 0
     speed: float = 1.0
     export_profile: str = i18n.DEFAULT_EXPORT_PROFILE
+    # Sound clean-up switches (akis.audio_polish), saved with the project.
+    audio_level: bool = False
+    audio_denoise: bool = False
+    audio_duck: bool = False
     # effect/fade/noise_reduction/loudness_normalization/overlay_text were dropped: their controls are
     # permanently disabled. apply_project_state ignores unknown keys, so older files holding them still load.
     ai_title: str = ""
@@ -987,15 +991,16 @@ class MainWindow(QMainWindow):
         profile_hint = QLabel('Profil oranı seçer; 4K seçenekleri seçili oranı iki kat çözünürlükte dışa aktarır.')
         profile_hint.setWordWrap(True)
         v.addWidget(profile_hint)
-        # Not supported by the shared timeline renderer yet: shown disabled, not saved in projects.
-        self.noise_reduction = QCheckBox("Temel gürültü azaltma (henüz yok)")
-        self.noise_reduction.setEnabled(False)
-        self.noise_reduction.setToolTip("Ortak timeline render yolunda henüz desteklenmiyor.")
-        v.addWidget(self.noise_reduction)
-        self.loudness = QCheckBox("Ses yüksekliğini -14 LUFS'a normalleştir (henüz yok)")
-        self.loudness.setEnabled(False)
-        self.loudness.setToolTip("Ortak timeline render yolunda henüz desteklenmiyor.")
-        v.addWidget(self.loudness)
+        v.addWidget(self.section("SES İYİLEŞTİRME"))
+        self.loudness = QCheckBox("Ses yüksekliğini -14 LUFS'a normalleştir")
+        self.loudness.setToolTip("Kısık çekilmiş videoyu yayın düzeyine çıkarır; önizlemede ve dışa aktarmada uygulanır.")
+        self.noise_reduction = QCheckBox("Temel gürültü azaltma")
+        self.noise_reduction.setToolTip("Videonun kendi sesindeki uğultu ve hışırtıyı hafifletir; müziğe dokunmaz. Sonucu dinleyerek karar verin.")
+        self.music_duck = QCheckBox("Konuşurken müziği kıs")
+        self.music_duck.setToolTip("Videoda biri konuşurken ses izlerindeki müzik alçalır, susunca geri yükselir.")
+        for box, name in self.audio_boxes():
+            box.toggled.connect(lambda checked, name=name: self.change_audio(name, checked))
+            v.addWidget(box)
         v.addWidget(QLabel("AI Başlık"))
         self.publish_title = QLineEdit()
         self.publish_title.setPlaceholderText("Başlık önerisi")
@@ -2515,9 +2520,23 @@ class MainWindow(QMainWindow):
             self.playback_clock.set_speed(self.multitrack, self.state.speed)
             self.sync_timeline_audio(force=True)
 
+    def audio_boxes(self):
+        """The sound clean-up checkboxes with the EditState field each one sets."""
+        return ((self.loudness, 'audio_level'), (self.noise_reduction, 'audio_denoise'), (self.music_duck, 'audio_duck'))
+
+    def change_audio(self, name, checked):
+        setattr(self.state, name, bool(checked))
+        if hasattr(self, 'multitrack_view') and duration_frames(self.multitrack):
+            self.seek_timeline(self.timeline_frame)  # the playback copy is rebuilt with the new sound
+
     def render_adjustments(self):
-        return {'brightness': self.state.brightness, 'contrast': self.state.contrast,
-                'saturation': self.state.saturation, 'speed': self.state.speed}
+        adjustments = {'brightness': self.state.brightness, 'contrast': self.state.contrast,
+                       'saturation': self.state.saturation, 'speed': self.state.speed}
+        audio = tuple(name[len('audio_'):] for name in ('audio_denoise', 'audio_duck', 'audio_level')
+                      if getattr(self.state, name))
+        if audio:  # absent when everything is off, so renders and signatures stay as they were
+            adjustments['audio'] = audio
+        return adjustments
 
     def project_document(self) -> dict:
         publish = {'title': self.publish_title.text(),
@@ -2776,6 +2795,11 @@ class MainWindow(QMainWindow):
         self.brightness.setValue(self.state.brightness)
         self.contrast.setValue(self.state.contrast)
         self.saturation.setValue(self.state.saturation)
+        for box, name in self.audio_boxes():
+            setattr(self.state, name, getattr(self.state, name) is True)  # only a real true switches it on
+            box.blockSignals(True)
+            box.setChecked(getattr(self.state, name))
+            box.blockSignals(False)
         self.state.speed = self.select_speed(self.state.speed)
         self.export_profile.blockSignals(True)
         self.state.export_profile = self.select_export_profile(self.state.export_profile)

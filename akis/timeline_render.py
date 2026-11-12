@@ -11,6 +11,7 @@ import tempfile
 import textwrap
 import zlib
 from pathlib import Path
+from akis import audio_polish
 from akis.frame_plan import plan_frame, plan_segments
 
 TRANSITIONS = ('fade', 'flash', 'dip', 'slide_left', 'slide_right', 'slide_up', 'slide_down')
@@ -130,7 +131,9 @@ def partial_output_path(output):
 
 
 class TimelineRenderer:
-    def __init__(self, media, size=(1080, 1920), font=None, *, brightness=0, contrast=0, saturation=0, speed=1.0, fast=False):
+    def __init__(self, media, size=(1080, 1920), font=None, *, brightness=0, contrast=0, saturation=0, speed=1.0, fast=False,
+                 audio=()):
+        self.audio = audio_polish.clean(audio)  # sound clean-up options, see akis.audio_polish
         self.fast = fast  # quick, larger encode for the in-app playback proxy
         self.media = media
         self.width, self.height = size
@@ -198,6 +201,8 @@ class TimelineRenderer:
             graph = ['[0:v]format=yuv420p[base0]']
             base = 'base0'
             audio = []
+            voices, music = [], []  # the same labels, split by what they are
+            voice_filter = audio_polish.voice_filter(self.audio)
             index = 1
             layer = 0
             for track_index, track in enumerate(timeline.tracks):
@@ -251,8 +256,9 @@ class TimelineRenderer:
                         base = f'base{layer}'
                         if track.kind == 'video' and frame is None and self.media.has_audio(clip.source):
                             delay = round(start * 1000)
-                            graph.append(f'[{index}:a]{self._trim("atrim", lead, length)},asetpts=PTS-STARTPTS,volume={clip.volume:.6f},adelay={delay}:all=1[a{index}]')
+                            graph.append(f'[{index}:a]{self._trim("atrim", lead, length)},asetpts=PTS-STARTPTS,{voice_filter}volume={clip.volume:.6f},adelay={delay}:all=1[a{index}]')
                             audio.append(f'[a{index}]')
+                            voices.append(f'[a{index}]')
                         index += 1
                     elif track.kind == 'audio':
                         if frame is not None:
@@ -263,6 +269,7 @@ class TimelineRenderer:
                         delay = round(start * 1000)
                         graph.append(f'[{index}:a]{self._trim("atrim", lead, length)},asetpts=PTS-STARTPTS,volume={clip.volume:.6f},adelay={delay}:all=1[a{index}]')
                         audio.append(f'[a{index}]')
+                        music.append(f'[a{index}]')
                         index += 1
                     elif track.kind == 'text' and clip.style.get('shape'):
                         from akis.shape_art import draw_shape
@@ -320,8 +327,7 @@ class TimelineRenderer:
                 # Sources are summed at full level (normalize=0 keeps a lone voice as loud as it was), so
                 # music under speech can exceed full scale: a limiter catches those peaks instead of
                 # letting the encoder clip them. Quieter material passes through unchanged.
-                limiter = f',{LIMITER}' if len(audio) > 1 else ''
-                graph.append(''.join(audio) + f'amix=inputs={len(audio)}:duration=longest:normalize=0{limiter}{tempo}[aout]')
+                graph += audio_polish.mix(voices, music, self.audio, LIMITER, tempo)
             # The graph grows with every clip; passed inline it overflows the Windows command line
             # (32,767 chars). ffmpeg >= 7 reads it from a file via -/filter_complex. The temp dir
             # outlives the ffmpeg call below.
