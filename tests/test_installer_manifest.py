@@ -1,6 +1,6 @@
 """Uninstall manifest generation, and static checks of installer.nsi's update mode and safe file swap.
 
-The installer logic itself is exercised for real by scripts/test-installer-update.ps1 (needs makensis; CI
+The installer logic itself is exercised for real by scripts/installer-scenarios.ps1 (needs makensis; CI
 runs it). These checks keep the properties that script relies on from silently regressing.
 """
 import re
@@ -93,30 +93,40 @@ class InstallerScriptTests(unittest.TestCase):
         section = code_lines(block('Section "Install"'))
         order = [section.index(text) for text in (
             'Call RecoverInterrupted',
-            'CHECK_NOT_RUNNING "$INSTDIR\\AkisKurguAI.exe"',
-            'Rename "$INSTDIR\\AkisKurguAI.exe" "$INSTDIR\\AkisKurguAI.exe.old"',
-            'Rename "$INSTDIR\\_internal" "$INSTDIR\\_internal.old"',
+            'Call TryMoveAside',
             'File /r',
             'File "/oname=AkisKurguAI.exe.new"',
-            'Rename "$INSTDIR\\AkisKurguAI.exe.new" "$INSTDIR\\AkisKurguAI.exe"',
+            'Rename "$INSTDIR\AkisKurguAI.exe.new" "$INSTDIR\AkisKurguAI.exe"',
             'WriteUninstaller',
             'WriteRegStr',
             'CreateShortcut',
             'NSIS installation completed.',
-            'RMDir /r "$INSTDIR\\_internal.old"',
-            'Delete "$INSTDIR\\AkisKurguAI.exe.old"',
+            'RMDir /r "$INSTDIR\_internal.old"',
+            'Delete "$INSTDIR\AkisKurguAI.exe.old"',
         )]
         self.assertEqual(order, sorted(order))
-        self.assertEqual(section.count('RMDir /r "$INSTDIR\\_internal.old"'), 1)
+        self.assertEqual(section.count('RMDir /r "$INSTDIR\_internal.old"'), 1)
         self.assertIn('SetOverwrite try', section)
         self.assertNotIn('SetOverwrite on', section)
+        aside = code_lines(block('Function TryMoveAside', 'FunctionEnd'))
+        steps = [aside.index(text) for text in (
+            'CHECK_NOT_RUNNING "$INSTDIR\AkisKurguAI.exe"',
+            'Rename "$INSTDIR\AkisKurguAI.exe" "$INSTDIR\AkisKurguAI.exe.old"',
+            'Rename "$INSTDIR\_internal" "$INSTDIR\_internal.old"',
+        )]
+        self.assertEqual(steps, sorted(steps))
 
     def test_failed_move_aside_is_undone_before_reporting_in_use(self):
-        section = block('Section "Install"')
-        refused = section[section.index('Rename "$INSTDIR\\_internal" "$INSTDIR\\_internal.old"'):]
+        aside = block('Function TryMoveAside', 'FunctionEnd')
+        refused = aside[aside.index('Rename "$INSTDIR\_internal" "$INSTDIR\_internal.old"'):]
         refused = refused[:refused.index('StrCpy $MovedLib 1')]
-        self.assertLess(refused.index('Rename "$INSTDIR\\AkisKurguAI.exe.old" "$INSTDIR\\AkisKurguAI.exe"'),
-                        refused.index('FAIL ${ERR_IN_USE}'))
+        self.assertLess(refused.index('Rename "$INSTDIR\AkisKurguAI.exe.old" "$INSTDIR\AkisKurguAI.exe"'),
+                        refused.index('StrCpy $Failed 1'))
+
+    def test_update_mode_waits_and_restarts_the_app_unelevated(self):
+        self.assertIn('"/WAIT="', NSI)
+        self.assertIn('$WINDIR\explorer.exe" "$INSTDIR\AkisKurguAI.exe"', NSI)
+        self.assertIn('VIProductVersion', NSI)
 
     def test_errors_roll_back_to_the_old_copy(self):
         self.assertEqual(block('Section "Install"').count('Call Rollback'), 2)  # extraction, finishing steps
@@ -160,7 +170,7 @@ class InstallerScriptTests(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which('powershell.exe'), 'Windows PowerShell not available')
     def test_end_to_end_script_parses(self):
-        script = ROOT / 'scripts' / 'test-installer-update.ps1'
+        script = ROOT / 'scripts' / 'installer-scenarios.ps1'
         check = ('$t=$null;$e=$null;[void][System.Management.Automation.Language.Parser]::ParseFile('
                  f"'{script}',[ref]$t,[ref]$e);$e.Count")
         result = subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', check],
@@ -169,8 +179,8 @@ class InstallerScriptTests(unittest.TestCase):
 
     def test_ci_runs_the_update_scenarios(self):
         workflow = (ROOT / '.github' / 'workflows' / 'windows-build.yml').read_text(encoding='utf-8')
-        self.assertIn('scripts/test-installer-update.ps1 -MakeNsis', workflow)
-        self.assertIn('scripts/test-installer-update.ps1 -Installer', workflow)
+        self.assertIn('scripts/installer-scenarios.ps1 -MakeNsis', workflow)
+        self.assertIn('python update_smoke.py', workflow)
 
 
 if __name__ == '__main__':
