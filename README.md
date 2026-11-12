@@ -21,6 +21,7 @@
 | **Hikâye Stüdyosu** | Gemini ile öncülden hikâye künyesi ve sahneler; sahnenin görseli (Nano Banana) ve kısa videosu (Omni Flash) üretilip zaman çizelgesine eklenir. |
 | **Çok izli zaman çizelgesi** | Video, ses, metin ve katman izleri; bölme, kırpma, tüm izleri kaydıran ripple silme, geri al / yinele (Ctrl+Z, Ctrl+Y). |
 | **Hızlı önizleme ve dışa aktarma** | Akıcı oynatma için arka planda proxy; H.264/AAC MP4, 4K profilleri, iptal edilebilir ve yarıda kalırsa eski dosyayı bozmayan dışa aktarma. |
+| **Kaynağa sadık çıktı** | Proje videonun kendi kare hızında çalışır (24–60 fps); HDR telefon çekimleri SDR'ye ton eşlemesiyle çevrilir; birden fazla ses karışınca sınırlayıcı patlamayı önler. |
 | **Altyazı ve seslendirme** | Yerel Whisper ile çevrimdışı konuşma dökümü ve altyazı; Windows sesleriyle metinden seslendirme. |
 | **İlham ve Şablonlar** | 23 hazır video fikri (çekim listesi ve kurgu isteğiyle) ve platforma göre iz, oran, renk ve tempo şablonları. |
 | **Sağlayıcı seçimi** | OpenAI, Anthropic, xAI, Google Gemini veya Cloudflare Workers AI; anahtarlar Windows Kimlik Bilgileri Yöneticisi'nde saklanır. |
@@ -94,48 +95,68 @@ PyInstaller çıktısı `dist/AkisKurguAI/` klasöründedir. FFmpeg içeren dağ
 
 Hata bildirirken Windows/Python/FFmpeg sürümlerini ve adımları paylaşın; API anahtarlarını veya kişisel medya dosyalarını depoya eklemeyin. Değişikliklerde mevcut proje dosyalarıyla uyumluluğu koruyun ve testleri çalıştırın.
 
-## Yol haritası
-
-1. **Phase 1:** Timeline ve önizleme/çıktı tutarlılığı, ses ve düzenleme kararlılığı.
-2. **Phase 2:** İsteğe bağlı yerel transkripsiyon ve ses araçları.
-3. **Phase 3:** Proxy, dışa aktarma ilerlemesi/kuyruğu ve ek görüntü araçları.
-4. **Phase 4:** Daha kapsamlı çeviriler, çalışma alanları ve güvenilirlik.
-
-Yol haritası hedefleri mevcut özellik değildir.
-
-
 Testler `tests/` klasöründedir; uygulama modülleri `akis/` altında bulunur.
 
-Windows kurucusu varsayılan olarak `C:\Program Files\AkisKurguAI` klasörünü kullanır ve yönetici onayı ister. Mevcut kullanıcı klasörü kurulumu otomatik olarak taşınmaz.
+## Özellik ayrıntıları
 
-## AI planları ve yerel konuşma metni
+### AI kurgu ve öneriler
 
-AI Kurgu panelinde sağlayıcı (OpenAI, Anthropic Claude, xAI Grok veya Google Gemini), model, platform, tempo, stil ve odak seçilerek birden fazla öneri istenebilir. Görsel giriş destekleyen bir model seçin; model alanı düzenlenebilir. Her sağlayıcının anahtarını ayrı girip “Anahtarı güvenli kaydet” ile Windows Credential Manager içinde saklayabilirsiniz. Anahtarlar proje dosyasına yazılmaz. Temsilci kareler seçilen sağlayıcıya gönderilir ve sağlayıcının ücretleri geçerli olabilir. Seçilen öneri zaman çizelgesine başlangıç ve bitiş işaretleri ekler; klipleri otomatik olarak kesmez. API anahtarı gerektirir.
+AI sekmesinde sağlayıcıyı (OpenAI, Anthropic Claude, xAI Grok, Google Gemini veya Cloudflare Workers AI) ve modeli seçin. Görsel giriş destekleyen bir model gerekir; model alanı düzenlenebilir. Her sağlayıcının anahtarı ayrı girilir ve “Anahtarı güvenli kaydet” ile Windows Kimlik Bilgileri Yöneticisi'nde saklanır; anahtarlar proje dosyasına yazılmaz. Videodan seçilen kareler seçtiğiniz sağlayıcıya gönderilir ve sağlayıcının ücretleri geçerli olabilir.
 
-Yerel Türkçe konuşma metni kaynak koddan çalıştırmada isteğe bağlıdır:
+- **Prompt ile kurgula:** isteğinizi uygular; kesimler, yazılar, işaretler, renk, hız ve oran tek adımda değişir ve tek adımda geri alınır.
+- **Öneri al:** platform, tempo, stil ve odağa göre en fazla üç öneri getirir. Seçilen öneri zaman çizelgesine başlangıç ve bitiş işaretleri ile yayın metnini ekler; klipleri kendisi kesmez.
+
+### İlham ve Şablonlar
+
+- **İlham:** 23 hazır video fikri. Her fikir çekim listesi ve hazır bir kurgu isteğiyle gelir; fikri seçince istek AI sekmesine yazılır, isterseniz eşleşen şablon da uygulanır.
+- **Şablonlar:** sekiz başlangıç düzeni. Önerilen oranı, izleri, renk stilini ve tempoyu uygular; mevcut klipleri koruyarak iz ve üç saniyelik bir başlık ekler. Tempo tüm projenin oynatma ve dışa aktarma hızını değiştirir; önerilen süre otomatik kesme yapmaz. Boş projede önce şablonu seçip ardından video ekleyebilirsiniz. Şablonlar özgün tanımlardır; üçüncü taraf varlık içermez.
+
+### Konuşma metni ve altyazı
+
+AI sekmesinde **Yerel Whisper** ile model boyutunu seçin. İlk kullanımda “Modeli indir” internet bağlantısı gerektirir; model indikten sonra çevrimdışı çalışır. Sonuç yayın açıklamasına aktarılır; “Yerel altyazıyı timeline’a ekle” konuşmayı mevcut video kliplerine eşleyip bir altyazı izi oluşturur. Yeniden uygulandığında önceki altyazı izinin yerine geçer. Yerel döküm Türkçe konuşma için ayarlıdır.
+
+API ile dökümde OpenAI, xAI veya Gemini seçilebilir; sonuç zamansız düz metindir. Gemini'de ses dosyası en fazla 14 MB olabilir. Claude için bu uygulamada döküm yoktur.
+
+Kaynak koddan çalıştırırken yerel döküm için ek bağımlılıklar gerekir (kurucuda hazır gelir):
 
 ```powershell
 python -m pip install -r requirements-local-ai.txt
 ```
 
-Panelde Yerel Whisper ve model boyutunu seçin. İlk kullanımda “Modeli indir” seçeneği internet bağlantısı gerektirir; model indirildikten sonra bu seçeneği kapatarak çevrimdışı kullanabilirsiniz. Yerel sonuç yayın açıklaması alanına aktarılır; “Yerel altyazıyı timeline’a ekle” kaynak zamanlarını mevcut video kliplerine eşleyip yeni bir metin izi oluşturur. Bu klipler ortak önizleme ve dışa aktarmada gösterilir. API transkripsiyonunda OpenAI, xAI veya Gemini ve bunların uygun modeli seçilebilir; sonuç düz metindir. Gemini inline ses sınırı 14 MB ile sınırlıdır. Claude için bu uygulamada transkripsiyon yoktur. Yerel Whisper bağımlılıkları kurucuya dahildir; model ayrıca indirilir. API transkripsiyonu ayrı seçenek olarak kalır.
+### Zaman çizelgesi ve ses
 
-Timeline cetveli ve klip taşıma, yakın klip kenarlarına sınırlı mesafede yapışır. Kliplerin bitişlerini hareket ettirirken yapışma henüz uygulanmaz. Ses ducking henüz yoktur; Windows sistem sesiyle çevrimdışı WAV oluşturulabilir.
+- Cetvel ve klip taşıma yakın klip kenarlarına yapışır; klibin bitişini kırparken yapışma yoktur.
+- Dalga biçimi ses içeren klipler için arka planda hesaplanır; kaynak başına ilk 60 dakika gösterilir.
+- **Klip sesi** ile klip başına sabit ses düzeyi ayarlanır (en fazla %100). Ses zarfı ve otomatik kısma (ducking) yoktur.
+- Birden fazla ses aynı anda çalıyorsa dışa aktarmada −1 dB sınırlayıcı uygulanır; tek ses olduğu gibi kalır.
+- Yerel seslendirme Windows sistem sesiyle çevrimdışı WAV dosyası oluşturur; kullanılabilir dil ve sesler Windows kurulumuna bağlıdır.
 
-Waveform: ses içeren video ve ses klipleri için arka planda FFmpeg ile hesaplanır; kaynak başına ilk 60 dakika gösterilir. Klip başına sabit ses düzeyi desteklenir; ses zarfı otomasyonu henüz yoktur.
+### Görüntü
 
+- Yeni proje, eklenen ilk videonun kare hızını alır (24, 25, 30, 50, 60 fps ve NTSC karşılıkları). Kayıtlı projeler kaydedildikleri hızda açılır; 60 fps üzerindeki ağır çekim kaynaklar 60 fps'e sabitlenir.
+- HDR (PQ/HLG) kaynaklar önizlemede ve dışa aktarmada SDR'ye çevrilir.
+- 4K profilleri sabit oranlarda 3840×2160 / 2160×3840 üretir; “Kaynak oranı”nda görüntü en fazla 4K'ya büyütülür.
+- Duraklatılmış kare, önizleme alanının boyutuna göre üretilir; yakınlaştırınca (Ctrl + tekerlek) yeniden netleştirilir.
 
-## Kurucu ve ses özellikleri
+### Kurulum ve güncelleme
 
-Windows kurucusu `installer.nsi` ve NSIS ile tek dosyalı `AkisKurguAI-Setup.exe` olarak oluşturulur. Önce `python scripts/generate-nsis-uninstall.py dist/AkisKurguAI dist/uninstall-files.nsh`, ardından `makensis installer.nsi` çalıştırılır. GitHub Actions, paketlenmiş Whisper tanılaması ve sessiz kurulum kontrolünden sonra kurucuyu artefakt olarak yükler. Güncel kurucu Releases sayfasında bulunur.
+Kurucu varsayılan olarak `C:\Program Files\AkisKurguAI` klasörünü kullanır ve yönetici onayı ister; başka bir klasör seçebilirsiniz.
 
-Klip seçip **Klip sesi** ile ses düzeyi ayarlanabilir. Yerel seslendirme Windows sistem sesini kullanarak çevrimdışı WAV oluşturur; kullanılabilir dil ve sesler Windows kurulumuna bağlıdır. Medya listesindeki arama dosya adlarını filtreler. Timeline waveform en fazla ilk 60 dakikayı önbelleğe alır.
+Uygulama açılışta yeni sürüme bakar. Yeni sürüm varsa sorar; kabul ederseniz kurucuyu indirir, SHA-256 özetini GitHub'daki sürüm bilgisiyle karşılaştırır ve kurucuyu görünür bir pencerede başlatır. Eski sürüm, yenisi tam olarak yazılana kadar silinmez; hata olursa geri yüklenir. Ayarlar ve projeler korunur. Özet karşılaştırması indirmenin bozulmadığını gösterir; dijital yayıncı imzası değildir.
 
-Uygulama açılışta yeni sürümü kontrol eder ve indirdiği kurucunun SHA-256 özetini GitHub sürüm verisiyle karşılaştırır; bu, dijital yayıncı imzası değildir. Uygun olduğunuzda açık projenizi kaydedip güncellemeyi onaylayabilirsiniz; ayarlar ve projeler korunur. Bu özellik için mevcut eski kurucudan bu sürüme bir kez geçmek gerekir.
+GitHub, giriş yapmadan gelen isteklere bağlantı (IP) başına saatlik sınır uygular. 0.5.2'den itibaren bu sınır dolduğunda uygulama en son sürümü normal sürüm sayfalarından okur. 0.5.1 ve öncesinde bildirim gelmiyorsa güncel kurucuyu bir kez elle indirip çalıştırın; 0.4.2 ve öncesinden geçişte de elle kurulum önerilir.
 
-### İlham / Şablonlar
+Kurucuyu kaynaktan oluşturmak için önce `python scripts/generate-nsis-uninstall.py dist/AkisKurguAI dist/uninstall-files.nsh`, ardından `makensis installer.nsi` çalıştırılır. GitHub Actions her gönderimde testleri, paketlenmiş uygulamanın açılışını, kurulumu, güncellemeyi ve kaldırmayı denetler; sürüm numarası değiştiğinde kurucuyu ve özet dosyasını yayınlar.
 
-Sol menüde İlham veya Şablonlar ile sekiz başlangıç düzeninden birini seçin. Kart listesinde önerilen oran, süre, izler ve düzenlenebilir başlık görülür. Stil renk ayarlarını, tempo ise tüm projenin oynatma/dışa aktarma hızını değiştirir. Uygulama mevcut klipleri koruyarak iz ve üç saniyelik başlık ekler; başlık klibini seçip “Metni düzenle” düğmesiyle değiştirebilirsiniz; medyayı izlere kendiniz ekleyin. Boş projede önce şablonu seçip ardından video ekleyebilirsiniz. Önerilen süre otomatik kesme yapmaz. Slideshow için bu sürümün desteklediği video dosyalarını kullanın. Şablonlar genel kurgu fikirlerinden esinlenen özgün tanımlardır; üçüncü taraf varlık içermez.
+## Planlananlar
+
+Bunlar hedeftir, mevcut özellik değildir:
+
+- Dışa aktarmada yüzde ve kalan süre
+- Klavye kısayolları (oynat, sil, kaydet), klibin baş tarafını kırpma, klibi başka ize taşıma
+- Fotoğraf ekleme; “doldur/kırp” yerleşimi
+- Yönetici izni istemeyen kurulum ve kod imzası
+- Eksiksiz İngilizce çeviri
 
 ## Lisans
 
@@ -145,7 +166,7 @@ Akış Kurgu AI, [GNU General Public License v3.0](LICENSE) ile yayımlanan özg
 
 Uygulama hesap gerektirmez, telemetri veya kullanım istatistiği toplamaz ve projelerinizi hiçbir yere göndermez. Ağ bağlantısı yalnızca şu durumlarda kurulur:
 
-- **Güncelleme denetimi:** açılışta GitHub'ın sürüm bilgisi okunur (`api.github.com`). Bu istekte size ait veri gönderilmez; indirme ve kurulum yalnızca siz onaylarsanız yapılır.
+- **Güncelleme denetimi:** açılışta GitHub'ın sürüm bilgisi okunur (`api.github.com`; istek sınırı dolmuşsa `github.com` üzerindeki sürüm sayfası ve özet dosyası). Bu isteklerde size ait veri gönderilmez; indirme ve kurulum yalnızca siz onaylarsanız yapılır.
 - **AI özellikleri:** yalnızca siz kendi API anahtarınızı girip bir AI işlemi başlattığınızda, seçtiğiniz sağlayıcıya (OpenAI, Anthropic, xAI, Google Gemini veya Cloudflare Workers AI) isteğiniz, videodan seçilen kareler ve varsa konuşma dökümü gönderilir. Bu veriler ilgili sağlayıcının gizlilik koşullarına tabidir. API anahtarları Windows Kimlik Bilgileri Yöneticisi'nde saklanır.
 - **Yerel Whisper modeli:** "Modeli indir" seçeneğini işaretlediğinizde model dosyaları Hugging Face üzerinden indirilir.
 
