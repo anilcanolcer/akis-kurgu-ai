@@ -276,6 +276,7 @@ class FakeRender(QThread):
     completed = Signal(str)
     failed = Signal(str)
     cancelled = Signal()
+    progress = Signal(int)
 
     def __init__(self, *args, **kwargs):
         super().__init__()
