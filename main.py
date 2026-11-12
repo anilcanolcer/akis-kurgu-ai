@@ -1539,19 +1539,21 @@ class MainWindow(QMainWindow):
             return
         segments = edit_plan.current_segments(self.multitrack, sources)
         if not segments:
-            QMessageBox.information(self, APP_NAME, 'Zaman çizelgesinde kesilecek video yok.')
+            QMessageBox.information(self, APP_NAME, self.ui_text('Zaman çizelgesinde kesilecek video yok.'))
             return
-        dialog = SilenceDialog(self, executable=ffmpeg_path(), sources=sources, segments=segments)
+        dialog = SilenceDialog(self, executable=ffmpeg_path(), sources=sources, segments=segments,
+                               language=self.ui_language())
         if not dialog.exec() or not dialog.cuts:  # exec() is 0 when the dialog is dismissed
             return
         try:
             timeline = edit_plan.apply_plan(self.multitrack, sources, {'segments': dialog.segments})
         except Exception as exc:
-            QMessageBox.warning(self, APP_NAME, f'Sessizlikler kesilemedi: {exc}')
+            QMessageBox.warning(self, APP_NAME, self.ui_text('Sessizlikler kesilemedi: {error}', error=exc))
             return
         with self.history_step():
             self.show_timeline(timeline)
-        self.set_status(f'{len(dialog.cuts)} sessiz yer kesildi. Beğenmezseniz geri alabilirsiniz (Ctrl+Z).')
+        self.set_status(self.ui_text('{count} sessiz yer kesildi. Beğenmezseniz geri alabilirsiniz (Ctrl+Z).',
+                                     count=len(dialog.cuts)))
 
     def run_prompt_edit(self) -> None:
         if not self.can_start_work() or not self.ensure_video():
@@ -1870,8 +1872,8 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, APP_NAME, f'Dışa aktarma boyutu belirlenemedi: {exc}')
             self.set_status('Dışa aktarma başlatılamadı.')
             return
-        findings = preflight.check(self.multitrack)
-        if findings and QMessageBox.question(self, APP_NAME, preflight.question(findings),
+        findings = preflight.check(self.multitrack, say=self.ui_template)
+        if findings and QMessageBox.question(self, APP_NAME, preflight.question(findings, self.ui_template),
                                              QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                                              QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
             self.set_status('Dışa aktarma başlatılmadı.')
@@ -1888,8 +1890,9 @@ class MainWindow(QMainWindow):
             return
         fps = self.multitrack.fps_num / self.multitrack.fps_den
         seconds = duration_frames(self.multitrack) / fps / self.state.speed
-        problem = export_progress.space_problem(path, export_progress.estimated_bytes(canvas, fps, seconds))
-        if problem and QMessageBox.question(self, APP_NAME, problem + '\n\nYine de devam edilsin mi?',
+        problem = export_progress.space_problem(path, export_progress.estimated_bytes(canvas, fps, seconds),
+                                                say=self.ui_template)
+        if problem and QMessageBox.question(self, APP_NAME, problem + '\n\n' + self.ui_text('Yine de devam edilsin mi?'),
                                             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                                             QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
             self.set_status('Dışa aktarma başlatılmadı.')
@@ -1912,7 +1915,7 @@ class MainWindow(QMainWindow):
         shown, remaining = self._export_estimator.update(percent / 100)
         self.progress.setRange(0, 100)
         self.progress.setValue(shown)
-        self.set_status(export_progress.text(shown, remaining))
+        self.set_status(export_progress.text(shown, remaining, self.ui_template))
 
     def confirm_overwrite(self, chosen: str, path: str) -> bool:
         """The file dialog only confirmed overwriting `chosen`; ask again when the final name differs and exists."""
@@ -2014,6 +2017,10 @@ class MainWindow(QMainWindow):
     @staticmethod
     def install_folder() -> Path:
         return Path(sys.executable).resolve().parent
+
+    def ui_template(self, template: str) -> str:
+        """`template` in the current UI language, placeholders left for the caller to fill."""
+        return i18n.translate(template, self.ui_language())
 
     def ui_text(self, template: str, **values) -> str:
         """A whole-string translation of `template` into the current UI language, then filled in."""
@@ -2608,10 +2615,10 @@ class MainWindow(QMainWindow):
         """Fit the selected video clip inside the canvas or let it fill the canvas (cropped), one undo step."""
         track, clip = self.selected_clip()
         if not clip or track.kind not in ('video', 'overlay'):
-            self.set_status('Önce bir video klibi seçin.')
+            self.set_status(self.ui_text('Önce bir video klibi seçin.'))
             return
-        labels = [label for label, _, _ in clip_fit.CHOICES]
-        chosen, ok = QInputDialog.getItem(self, 'Kadraj', 'Klip tuvale nasıl yerleşsin?', labels,
+        labels = [self.ui_text(label) for label, _, _ in clip_fit.CHOICES]
+        chosen, ok = QInputDialog.getItem(self, self.ui_text('Kadraj'), self.ui_text('Klip tuvale nasıl yerleşsin?'), labels,
                                           clip_fit.choice_index(clip.style), False)
         if not ok:
             return
@@ -2619,7 +2626,7 @@ class MainWindow(QMainWindow):
         with self.history_step():
             clip_fit.apply(clip, fit, focus)
         self.seek_timeline(self.timeline_frame)
-        self.set_status(f'Kadraj: {chosen}')
+        self.set_status(self.ui_text('Kadraj: {choice}', choice=chosen))
 
     def change_color(self, name, value):
         setattr(self.state, name, value)

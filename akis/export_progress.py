@@ -51,14 +51,13 @@ def clock(seconds):
     return f'{hours}:{minutes:02d}:{secs:02d}' if hours else f'{minutes}:{secs:02d}'
 
 
-def text(percent, remaining):
-    """Status line: "Dışa aktarılıyor… %42 · yaklaşık 1:10 kaldı"."""
-    line = f'Dışa aktarılıyor… %{percent}'
+def text(percent, remaining, say=str):
+    """Status line: "Dışa aktarılıyor… %42 · yaklaşık 1:10 kaldı". `say` translates a Turkish template."""
     if remaining is None:
-        return line
+        return say('Dışa aktarılıyor… %{percent}').format(percent=percent)
     if remaining < 5:
-        return f'{line} · bitmek üzere'
-    return f'{line} · yaklaşık {clock(remaining)} kaldı'
+        return say('Dışa aktarılıyor… %{percent} · bitmek üzere').format(percent=percent)
+    return say('Dışa aktarılıyor… %{percent} · yaklaşık {time} kaldı').format(percent=percent, time=clock(remaining))
 
 
 def estimated_bytes(size, fps, seconds):
@@ -67,7 +66,7 @@ def estimated_bytes(size, fps, seconds):
     return int((width * height * fps * BITS_PER_PIXEL + AUDIO_BITS_PER_SECOND) * max(0.0, seconds) / 8)
 
 
-def space_problem(target, needed, usage=None):
+def space_problem(target, needed, usage=None, say=str):
     """A Turkish warning when the target's drive probably cannot hold the export, else ''.
 
     The export is first written next to its target, so that drive is the one that matters.
@@ -81,5 +80,5 @@ def space_problem(target, needed, usage=None):
     if free >= max(MIN_FREE_BYTES, needed * SPACE_MARGIN):
         return ''
     megabytes = lambda value: f'{value / 1024 / 1024:,.0f} MB'.replace(',', '.')
-    return (f'Hedef sürücüde yaklaşık {megabytes(free)} boş yer var; bu video en çok {megabytes(needed)} '
-            'yer tutabilir. Yer biterse dışa aktarma yarıda kesilir.')
+    return say('Hedef sürücüde yaklaşık {free} boş yer var; bu video en çok {needed} yer tutabilir. '
+               'Yer biterse dışa aktarma yarıda kesilir.').format(free=megabytes(free), needed=megabytes(needed))

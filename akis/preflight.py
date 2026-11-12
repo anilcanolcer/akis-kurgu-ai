@@ -42,29 +42,31 @@ def picture_gaps(timeline):
     return gaps, cursor
 
 
-def check(timeline, *, exists=None):
-    """Findings as Turkish sentences, most serious first; [] when nothing stands out."""
+def check(timeline, *, exists=None, say=str):
+    """Findings as sentences, most serious first; [] when nothing stands out.
+    `say` translates a Turkish template (the default leaves it Turkish)."""
     fps = timeline.fps_num / timeline.fps_den
     findings = []
     missing = missing_files(timeline, exists)
     if missing:
         names = ', '.join(Path(path).name for path in missing[:MAX_LISTED]) + (' …' if len(missing) > MAX_LISTED else '')
-        findings.append(f'{len(missing)} kaynak dosya bulunamıyor ({names}); dışa aktarma bu yüzden durur.')
+        findings.append(say('{count} kaynak dosya bulunamıyor ({names}); dışa aktarma bu yüzden durur.')
+                        .format(count=len(missing), names=names))
     gaps, picture_end = picture_gaps(timeline)
     gaps = [(a, b) for a, b in gaps if (b - a) / fps >= MIN_GAP_SECONDS]
     if gaps and picture_end:
         places = ', '.join(_clock(a, fps) for a, _ in gaps[:MAX_LISTED]) + (' …' if len(gaps) > MAX_LISTED else '')
         total = sum(b - a for a, b in gaps)
-        findings.append(f'Videoda {len(gaps)} yerde görüntü yok (toplam {_seconds(total, fps)} sn, {places}); '
-                        'buralar siyah görünecek.')
+        findings.append(say('Videoda {count} yerde görüntü yok (toplam {seconds} sn, {places}); buralar siyah görünecek.')
+                        .format(count=len(gaps), seconds=_seconds(total, fps), places=places))
     whole = max((clip.end for track in timeline.tracks if not track.muted for clip in track.clips), default=0)
     if picture_end and whole - picture_end >= MIN_GAP_SECONDS * fps:
-        findings.append(f'Görüntü bittikten sonra {_seconds(whole - picture_end, fps)} sn daha yazı ya da ses sürüyor; '
-                        'bu bölüm siyah ekranla dışa aktarılır.')
+        findings.append(say('Görüntü bittikten sonra {seconds} sn daha yazı ya da ses sürüyor; '
+                            'bu bölüm siyah ekranla dışa aktarılır.').format(seconds=_seconds(whole - picture_end, fps)))
     return findings
 
 
-def question(findings):
+def question(findings, say=str):
     """The text of the "export anyway?" question."""
     lines = '\n'.join(f'• {finding}' for finding in findings)
-    return f'Dışa aktarmadan önce bilmeniz gerekenler:\n\n{lines}\n\nYine de dışa aktarılsın mı?'
+    return f"{say('Dışa aktarmadan önce bilmeniz gerekenler:')}\n\n{lines}\n\n{say('Yine de dışa aktarılsın mı?')}"

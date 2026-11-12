@@ -1,14 +1,17 @@
-"""Keyboard shortcuts for the editor window, and the help text that lists them.
+"""Timeline keys for the editor window, and the help text that lists every shortcut.
 
-Self-contained: install(window) is the only call the host makes. Plain keys (Space, S, arrows…) are left
-to whatever input widget has the focus, so typing a caption or nudging a slider works as before; they act
-on the timeline everywhere else. Ctrl combinations always act. Undo/redo keep their own actions.
+The window's own actions handle Ctrl+Z/Y, Ctrl+S/O/E, Space and Delete. This module adds the keys that
+move along the timeline and edit at the playhead, plus F1. Self-contained: install(window) is the only
+call the host makes. Plain keys are left to whatever input widget has the focus, so typing a caption or
+nudging a slider works as before; they act on the timeline everywhere else. Ctrl combinations always act.
 """
 import weakref
 
 from PySide6.QtCore import QEvent, QObject, Qt
 from PySide6.QtWidgets import (QAbstractSlider, QAbstractSpinBox, QApplication, QComboBox, QLineEdit,
                                QListWidget, QMessageBox, QPlainTextEdit, QTextEdit)
+
+from akis import i18n
 
 INPUTS = (QLineEdit, QPlainTextEdit, QTextEdit, QAbstractSpinBox, QComboBox, QAbstractSlider, QListWidget)
 CTRL = Qt.KeyboardModifier.ControlModifier
@@ -27,9 +30,7 @@ def _second(window):
 
 # (key, modifiers, text shown in the help, what it does, action(window))
 SHORTCUTS = (
-    (Qt.Key.Key_Space, NONE, 'Boşluk', 'Oynat / duraklat', lambda w: w.toggle_play() if w.state.source else None),
     (Qt.Key.Key_S, NONE, 'S', 'Seçili klibi oynatma çizgisinden böl', lambda w: w.split_clip()),
-    (Qt.Key.Key_Delete, NONE, 'Delete', 'Seçili klibi sil ve boşluğu kapat', lambda w: w.ripple_delete()),
     (Qt.Key.Key_Left, NONE, '←', 'Bir kare geri', lambda w: _step(w, -1)),
     (Qt.Key.Key_Right, NONE, '→', 'Bir kare ileri', lambda w: _step(w, 1)),
     (Qt.Key.Key_Left, SHIFT, 'Shift + ←', 'Bir saniye geri', lambda w: _step(w, -_second(w))),
@@ -37,28 +38,34 @@ SHORTCUTS = (
     (Qt.Key.Key_Home, NONE, 'Home', 'Başa git', lambda w: w.seek_timeline(0)),
     (Qt.Key.Key_End, NONE, 'End', 'Sona git', lambda w: w.seek_timeline(1 << 40)),
     (Qt.Key.Key_I, CTRL, 'Ctrl + I', 'Video ekle', lambda w: w.choose_video()),
-    (Qt.Key.Key_O, CTRL, 'Ctrl + O', 'Proje aç', lambda w: w.open_project()),
-    (Qt.Key.Key_S, CTRL, 'Ctrl + S', 'Projeyi kaydet', lambda w: w.save_project()),
-    (Qt.Key.Key_E, CTRL, 'Ctrl + E', 'Videoyu dışa aktar', lambda w: w.export_video()),
     (Qt.Key.Key_F1, NONE, 'F1', 'Bu kısayol listesini göster', lambda w: show_help(w)),
 )
-# Already handled by the window's own actions; listed so the help is complete.
-BUILT_IN = (('Ctrl + Z', 'Son adımı geri al'), ('Ctrl + Y', 'Geri alınan adımı yinele'))
+# Handled by the window's own actions; listed so the help is complete.
+BUILT_IN = (('Boşluk', 'Oynat / duraklat'), ('Delete', 'Seçili klibi sil ve boşluğu kapat'),
+            ('Ctrl + Z', 'Son adımı geri al'), ('Ctrl + Y', 'Geri alınan adımı yinele'),
+            ('Ctrl + O', 'Proje aç'), ('Ctrl + S', 'Projeyi kaydet'), ('Ctrl + E', 'Videoyu dışa aktar'))
 TITLE = 'Klavye kısayolları'
+NOTE = 'Yazı alanına yazarken tek tuşlu kısayollar çalışmaz; yazdığınız harf yazıya gider.'
+KEY_NAMES = ('Boşluk',)  # key names that are words and need translating; the rest are symbols or key caps
 
 
-def help_text():
-    rows = [(keys, what) for _, _, keys, what, _ in SHORTCUTS[:-1]] + list(BUILT_IN) + [SHORTCUTS[-1][2:4]]
+def help_text(language='tr'):
+    """Every shortcut, one per line, keys aligned."""
+    say = lambda text: i18n.translate(text, language)
+    rows = (list(BUILT_IN[:2]) + [(keys, what) for _, _, keys, what, _ in SHORTCUTS[:-1]] + list(BUILT_IN[2:])
+            + [SHORTCUTS[-1][2:4]])
+    rows = [(say(keys) if keys in KEY_NAMES else keys, say(what)) for keys, what in rows]
     width = max(len(keys) for keys, _ in rows)
     return '\n'.join(f'{keys.ljust(width)}   {what}' for keys, what in rows)
 
 
 def show_help(window):
+    language = window.ui_language() if hasattr(window, 'ui_language') else 'tr'
     box = QMessageBox(window)
-    box.setWindowTitle(TITLE)
+    box.setWindowTitle(i18n.translate(TITLE, language))
     box.setIcon(QMessageBox.Icon.Information)
-    box.setText('Yazı alanına yazarken tek tuşlu kısayollar çalışmaz; yazdığınız harf yazıya gider.')
-    box.setInformativeText(f'<pre>{help_text()}</pre>')
+    box.setText(i18n.translate(NOTE, language))
+    box.setInformativeText(f'<pre>{help_text(language)}</pre>')
     box.exec()
 
 
@@ -103,8 +110,7 @@ class ShortcutFilter(QObject):
         window = self.target()
         if window is None or not self.applies(event.modifiers(), QApplication.focusWidget()):
             return False
-        if not (event.isAutoRepeat() and event.key() == Qt.Key.Key_Space):  # holding Space must not flicker play
-            action(window)
+        action(window)
         return True
 
 
@@ -112,7 +118,7 @@ _filter = None
 
 
 def install(window):
-    """Give the window its shortcuts; returns the shared filter."""
+    """Give the window its timeline keys; returns the shared filter."""
     global _filter
     if _filter is None:
         _filter = ShortcutFilter(QApplication.instance())

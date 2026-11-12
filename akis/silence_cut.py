@@ -123,10 +123,14 @@ def clock(seconds):
     return f'{hours}:{minutes:02d}:{secs:02d}' if hours else f'{minutes}:{secs:02d}'
 
 
-def summary(before, after, cuts):
-    """One Turkish sentence for the dialog and the status bar."""
+NOTHING = 'Bu ayarlarla kesilecek sessizlik bulunamadı.'
+SUMMARY = '{count} sessiz yer kesilecek · {before} → {after} ({saved} sn kısalır)'
+
+
+def summary(before, after, cuts, say=str):
+    """One sentence for the dialog. `say` translates a Turkish template (the default leaves it Turkish)."""
     if not cuts:
-        return 'Bu ayarlarla kesilecek sessizlik bulunamadı.'
+        return say(NOTHING)
     saved = duration(before) - duration(after)
-    return (f'{len(cuts)} sessiz yer kesilecek · {clock(duration(before))} → {clock(duration(after))} '
-            f'({saved:.1f} sn kısalır)')
+    return say(SUMMARY).format(count=len(cuts), before=clock(duration(before)), after=clock(duration(after)),
+                               saved=f'{saved:.1f}')
