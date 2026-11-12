@@ -24,4 +24,28 @@ class CaptionRenderTest(unittest.TestCase):
                 self.assertGreater(a.convert('RGB').getbbox()[3], 0)
                 self.assertIsNotNone(ImageChops.difference(a.convert('RGB'), Image.new('RGB',a.size)).getbbox())
                 self.assertIsNotNone(ImageChops.difference(b.convert('RGB'), Image.new('RGB',b.size)).getbbox())
+
+    def test_long_caption_stays_inside_frame_for_every_aspect(self):
+        from PIL import Image
+        media=MediaService(ffmpeg_path())
+        text='Bu çok uzun bir altyazı satırıdır ve dikey videoda ekranın dışına taşmamalıdır kesinlikle'
+        for size in ((360,640),(640,360),(400,400)):
+            with self.subTest(size=size), tempfile.TemporaryDirectory() as folder:
+                root=Path(folder); video=root/'video.mp4'; frame=root/'frame.png'
+                r=media.run(['-y','-f','lavfi','-i',f'color=black:s={size[0]}x{size[1]}:r=10:d=1','-c:v','libx264',video])
+                self.assertEqual(r.returncode,0)
+                for styled in (False, True):
+                    tl=Timeline(fps_num=10, tracks=[Track('video','v',[Clip(str(video),0,10)])])
+                    caption_track(tl,str(video),[{'start':0,'end':1,'text':text}])
+                    if styled:
+                        tl.tracks[-1].clips[0].style={'size':'large','x':0.5,'y':0.78}
+                    TimelineRenderer(media,size).preview(tl,5,frame)
+                    with Image.open(frame) as img:
+                        # Grey box / white text must not touch the left or right edge column.
+                        rgb=img.convert('L')
+                        w,h=rgb.size
+                        edges=[rgb.getpixel((x,y)) for y in range(h) for x in (0,1,w-2,w-1)]
+                        self.assertLess(max(edges),40,f'{size} styled={styled} touches edge')
+                        self.assertIsNotNone(rgb.point(lambda v:255 if v>200 else 0).getbbox())
+
 if __name__ == '__main__': unittest.main()

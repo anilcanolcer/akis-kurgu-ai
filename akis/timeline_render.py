@@ -21,7 +21,6 @@ TONE_MAP = ('zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=ton
             'zscale=t=bt709:m=bt709:r=tv,format=yuv420p')
 LIMITER = 'alimiter=limit=0.89:level=0:latency=1'  # -1 dB ceiling; no automatic gain, no added delay
 TEXT_SCALE = {'small': 0.75, 'medium': 1.0, 'large': 1.5}
-TEXT_WRAP = {'small': 30, 'medium': 22, 'large': 15}
 TEXT_COLORS = {'white': 'white', 'yellow': '#FFDD00', 'red': '#FF2D2D', 'green': '#39FF5A',
                'blue': '#3CA0FF', 'pink': '#FF50C8'}
 
@@ -87,6 +86,40 @@ def _text_lines(text, width=None):
     if width is None:
         return '\n'.join(paragraphs)
     return '\n'.join('\n'.join(textwrap.wrap(p, width)) or p for p in paragraphs)
+
+
+def _font_px(width, height, scale=1.0):
+    """Text size from the canvas' shorter side, so a vertical (9:16) frame does not get
+    landscape-height letters that cannot fit across its narrow width."""
+    return max(12, round(min(height / 18, width / 12) * scale))
+
+
+def _fit_lines(text, font_path, px, max_width):
+    """Greedy word wrap by measured pixel width (user line breaks kept); a word wider than
+    the line is split by characters, so no line is ever wider than max_width."""
+    try:
+        from PIL import ImageFont
+        measure = ImageFont.truetype(str(font_path), px).getlength
+    except Exception:
+        measure = lambda s: len(s) * px * 0.62  # conservative Arial estimate
+    out = []
+    for paragraph in _text_lines(text).split('\n'):
+        line = ''
+        for word in paragraph.split():
+            candidate = f'{line} {word}' if line else word
+            if measure(candidate) <= max_width:
+                line = candidate
+                continue
+            if line:
+                out.append(line)
+            line = ''
+            for ch in word:
+                if line and measure(line + ch) > max_width:
+                    out.append(line)
+                    line = ''
+                line += ch
+        out.append(line)
+    return '\n'.join(out)
 
 
 def partial_output_path(output):
@@ -252,19 +285,27 @@ class TimelineRenderer:
                         # Always LF: drawtext draws the CR of a CRLF as an extra blank line.
                         if clip.style:
                             size = clip.style.get('size') if clip.style.get('size') in TEXT_SCALE else 'medium'
-                            textfile.write_text(_text_lines(clip.text, TEXT_WRAP[size]), encoding='utf-8', newline='\n')
                             x, y = float(clip.style.get('x', 0.5)), float(clip.style.get('y', 0.78))
                             bold = Path(self.font).with_name('arialbd.ttf')
                             font = bold if bold.is_file() else self.font
                             colour = TEXT_COLORS.get(clip.style.get('color'), 'white')
+                            px = _font_px(self.width, self.height, TEXT_SCALE[size])
+                            border = max(2, round(min(self.width, self.height) / 300))
+                            lines = _fit_lines(clip.text, font, px, self.width * 0.9 - 2 * border)
+                            textfile.write_text(lines, encoding='utf-8', newline='\n')
                             graph.append(f'{common}:fontfile={_escape_filter_path(font)}:text_align=C:line_spacing=6'
-                                         f':fontcolor={colour}:fontsize=h/18*{TEXT_SCALE[size]}:borderw={max(2, round(self.height / 300))}:bordercolor=black'
+                                         f':fontcolor={colour}:fontsize={px}:borderw={border}:bordercolor=black'
                                          f':x=\'max(10,min(w-text_w-10,w*{x:.4f}-text_w/2))\''
                                          f':y=\'max(10,min(h-text_h-10,h*{y:.4f}-text_h/2))\':{visible}[base{layer}]')
                         else:
-                            textfile.write_text(_text_lines(clip.text), encoding='utf-8', newline='\n')
-                            graph.append(f'{common}:fontfile={_escape_filter_path(self.font)}:fontcolor=white:fontsize=h/18'
-                                         f':x=(w-text_w)/2:y=h*0.78:box=1:boxcolor=black@0.5:boxborderw=12:{visible}[base{layer}]')
+                            px = _font_px(self.width, self.height)
+                            pad = max(6, round(px / 5))
+                            lines = _fit_lines(clip.text, self.font, px, self.width * 0.9 - 2 * pad)
+                            textfile.write_text(lines, encoding='utf-8', newline='\n')
+                            graph.append(f'{common}:fontfile={_escape_filter_path(self.font)}:fontcolor=white:fontsize={px}'
+                                         f':text_align=C:line_spacing=6'
+                                         f':x=(w-text_w)/2:y=\'min(h*0.78,h-text_h-{pad}-h*0.04)\''
+                                         f':box=1:boxcolor=black@0.5:boxborderw={pad}:{visible}[base{layer}]')
                         base = f'base{layer}'
             graph.append(f'[{base}]eq=brightness={self.brightness/100:.3f}:contrast={1+self.contrast/100:.3f}:saturation={1+self.saturation/50:.3f}[graded]')
             base = 'graded'
