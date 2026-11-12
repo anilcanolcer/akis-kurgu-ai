@@ -3175,15 +3175,33 @@ class MainWindow(QMainWindow):
         self.multitrack_view.stop_waveforms()
         super().closeEvent(event)
 
+    def open_path(self, path: str) -> bool:
+        """Open a file handed to the app from outside: the command line, “Open with”, or a drop on the window.
+        A project file opens as the project (after the usual unsaved-work question); a video is added."""
+        file = Path(path)
+        if not file.is_file():
+            self.set_status(self.ui_text('Dosya bulunamadı: {name}', name=file.name))
+            return False
+        suffix = file.suffix.lower()
+        if suffix == '.json':
+            if not self.can_start_work() or not self.confirm_close():
+                return False
+            return bool(self.open_project_file(str(file)))
+        if suffix in VIDEO_EXTS:
+            self.add_video(str(file))
+            return True
+        self.set_status(self.ui_text('Bu dosya türü açılamıyor: {name}', name=file.name))
+        return False
+
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:
         urls = event.mimeData().urls()
-        if urls and Path(urls[0].toLocalFile()).suffix.lower() in VIDEO_EXTS:
+        if urls and Path(urls[0].toLocalFile()).suffix.lower() in (*VIDEO_EXTS, '.json'):
             event.acceptProposedAction()
 
     def dropEvent(self, event: QDropEvent) -> None:
         urls = event.mimeData().urls()
         if urls:
-            self.add_video(urls[0].toLocalFile())
+            self.open_path(urls[0].toLocalFile())
             event.acceptProposedAction()
 
 
@@ -3237,6 +3255,16 @@ QToolTip { background: #232631; color: white; border: 1px solid #3a3e4e; padding
 """
 
 
+def startup_file(argv) -> str:
+    """The file the app was started with, or ''. Options (--name …) are not files."""
+    for argument in argv[1:]:
+        if argument.startswith('--'):
+            return ''
+        if argument.strip():
+            return argument
+    return ''
+
+
 def main() -> int:
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
     app = QApplication(sys.argv)
@@ -3254,7 +3282,10 @@ def main() -> int:
     start_temp_cleanup()
     window = MainWindow()
     window.show()
-    if not automated:
+    given = startup_file(sys.argv)
+    if given:  # started with a file (“Open with”, a file dropped on the program): open that, not a recovery
+        QTimer.singleShot(0, lambda: window.open_path(given))
+    elif not automated:
         QTimer.singleShot(0, window.offer_recovery)
     code = app.exec()
     wait_for_background_threads()

@@ -253,6 +253,8 @@ EN_UI = {
     'Konuşma metne çevriliyor…': 'Transcribing the speech…',
     '{name} uygulandı; medyayı izlere ekleyin.': '{name} applied; add your media to the tracks.',
     # Status messages that were still Turkish-only.
+    'Dosya bulunamadı: {name}': 'File not found: {name}',
+    'Bu dosya türü açılamıyor: {name}': 'This kind of file cannot be opened: {name}',
     'Öneri işaretleri projeye eklendi.': 'Suggestion markers were added to the project.',
     '{count} altyazı klibi eklendi.': '{count} caption clips were added.',
     'Akıcı önizleme kullanılamadı, kare kare önizlemeye geçildi: {error}': 'Smooth playback was not available; switched to frame-by-frame preview: {error}',
