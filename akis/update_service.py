@@ -18,6 +18,7 @@ import re
 import shutil
 import tempfile
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 from akis import __version__
@@ -25,6 +26,15 @@ from akis import __version__
 VERSION = __version__
 API = 'https://api.github.com/repos/anilcanolcer/akis-kurgu-ai/releases/latest'
 ASSET = 'AkisKurguAI-Setup.exe'
+# The API allows 60 anonymous requests an hour per IP address, shared by everyone behind one router or
+# mobile carrier. When it refuses, the same facts are read from pages that have no such limit: the
+# "latest release" redirect gives the version, and a small checksum file published with every release
+# gives the installer's SHA-256.
+LATEST_PAGE = 'https://github.com/anilcanolcer/akis-kurgu-ai/releases/latest'
+TAG_PAGE = 'https://github.com/anilcanolcer/akis-kurgu-ai/releases/tag/'
+CHECKSUM_ASSET = ASSET + '.sha256'
+API_REFUSED = (403, 429)
+CHECK_TIMEOUT = 15
 DOWNLOAD_PREFIX = 'https://github.com/anilcanolcer/akis-kurgu-ai/releases/download/'
 INSTALLER_PREFIX = 'AkisKurguAI-Setup-'
 INSTALL_LOG = 'install.log'
@@ -73,10 +83,42 @@ def find_update(data, current=VERSION):
     raise ValueError('Sürüm için doğrulanabilir kurucu bulunamadı.')
 
 
-def check_update():
+def check_update(current=VERSION, opener=None):
+    """The newer release as a dict (version, url, sha256, size), or None when this version is current."""
+    opener = opener or urllib.request.urlopen
     request = urllib.request.Request(API, headers={'User-Agent': 'AkisKurguAI', 'Accept': 'application/vnd.github+json'})
-    with urllib.request.urlopen(request, timeout=15) as response:
-        return find_update(json.load(response))
+    try:
+        with opener(request, timeout=CHECK_TIMEOUT) as response:
+            return find_update(json.load(response), current)
+    except urllib.error.HTTPError as exc:
+        if exc.code not in API_REFUSED and exc.code < 500:
+            raise
+    return check_update_without_api(current, opener)
+
+
+def check_update_without_api(current=VERSION, opener=None):
+    """check_update() from the release pages instead of the rate-limited API."""
+    opener = opener or urllib.request.urlopen
+    headers = {'User-Agent': 'AkisKurguAI', 'Accept': '*/*'}  # without Accept GitHub answers 404 for the checksum file
+    with opener(urllib.request.Request(LATEST_PAGE, headers=headers, method='HEAD'), timeout=CHECK_TIMEOUT) as response:
+        landed = response.geturl()
+    # Only this repository's own release page is believed; anything else is not a version.
+    tag = landed[len(TAG_PAGE):] if landed.startswith(TAG_PAGE) else ''
+    version = version_tuple(tag)
+    if version is None:
+        raise ValueError('En son sürüm okunamadı.')
+    if version <= version_tuple(current):
+        return None
+    try:
+        with opener(urllib.request.Request(f'{DOWNLOAD_PREFIX}{tag}/{CHECKSUM_ASSET}', headers=headers),
+                    timeout=CHECK_TIMEOUT) as response:
+            listed = response.read(4096).decode('ascii', 'replace')
+    except urllib.error.HTTPError as exc:
+        raise ValueError('Sürüm için doğrulanabilir kurucu bulunamadı.') from exc
+    match = re.match(r'\s*([0-9a-fA-F]{64})(?![0-9a-fA-F])', listed)
+    if not match:
+        raise ValueError('Sürüm için doğrulanabilir kurucu bulunamadı.')
+    return {'version': tag, 'url': f'{DOWNLOAD_PREFIX}{tag}/{ASSET}', 'sha256': match.group(1).lower(), 'size': None}
 
 
 def update_dir(app_data):
