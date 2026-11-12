@@ -10,6 +10,7 @@ class TimelineRenderWorker(QThread):
     completed = Signal(str)
     failed = Signal(str)
     cancelled = Signal()
+    progress = Signal(int)  # whole percent of an export, each value once
 
     def __init__(self, timeline, output, size, executable, frame=None, adjustments=None):
         super().__init__()
@@ -24,11 +25,17 @@ class TimelineRenderWorker(QThread):
         """Stops the render from any thread; returns at once. The export target is left untouched."""
         self.media.cancel()
 
+    def _report(self, fraction):
+        percent = int(fraction * 100)
+        if percent != getattr(self, '_percent', None):
+            self._percent = percent
+            self.progress.emit(percent)
+
     def run(self):
         try:
             renderer = TimelineRenderer(self.media, self.size, **self.adjustments)
             if self.frame is None:
-                renderer.export(self.timeline, self.output)
+                renderer.export(self.timeline, self.output, on_progress=self._report)
             else:
                 renderer.preview(self.timeline, self.frame, self.output)
             self.completed.emit(self.output)

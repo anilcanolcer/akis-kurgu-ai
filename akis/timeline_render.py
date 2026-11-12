@@ -175,7 +175,7 @@ class TimelineRenderer:
     def _trim(name, lead, duration):
         return f'{name}=start={lead:.9f}:duration={duration:.9f}' if lead else f'{name}=duration={duration:.9f}'
 
-    def _render(self, timeline, output, *, frame=None):
+    def _render(self, timeline, output, *, frame=None, on_progress=None):
         total = duration_frames(timeline)
         if total <= 0:
             raise ValueError('Timeline is empty')
@@ -343,7 +343,12 @@ class TimelineRenderer:
                 if speed != 1.0:  # retimed frames would otherwise round up to an extra frame or two
                     args += ['-t', f'{total / fps / speed:.9f}']
                 args += ['-r', f'{timeline.fps_num}/{timeline.fps_den}', '-c:v', 'libx264', *quality, '-pix_fmt', 'yuv420p', '-movflags', '+faststart', str(output)]
-            result = self.media.run(args, text=True)
+            if on_progress is None:
+                result = self.media.run(args, text=True)
+            else:  # ffmpeg reports seconds of output; the caller gets the share of the whole export
+                length = total / fps / speed
+                result = self.media.run(args, text=True,
+                                        on_progress=lambda seconds: on_progress(min(1.0, seconds / length)))
             if result.returncode:
                 raise RuntimeError('\n'.join(result.stderr.splitlines()[-12:]))
             if not Path(output).is_file():
@@ -353,14 +358,15 @@ class TimelineRenderer:
     def preview(self, timeline, frame, output):
         return self._render(timeline, output, frame=frame)
 
-    def export(self, timeline, output):
+    def export(self, timeline, output, on_progress=None):
         """Renders next to the target and moves it into place only when complete, so a failed or
-        cancelled export (RenderCancelled from the media service) leaves an existing file intact."""
+        cancelled export (RenderCancelled from the media service) leaves an existing file intact.
+        on_progress(fraction 0..1) is called from a helper thread as the render advances."""
         partial = partial_output_path(output)
         if output_overwrites_source(timeline, output) or output_overwrites_source(timeline, partial):
             raise ValueError('Çıktı dosyası kaynak medyayla aynı olamaz.')
         try:
-            self._render(timeline, partial)
+            self._render(timeline, partial, on_progress=on_progress)
             os.replace(partial, output)
         except BaseException:
             try:
