@@ -258,7 +258,7 @@ EN_UI = {
     'Akıcı önizleme kullanılamadı, kare kare önizlemeye geçildi: {error}': 'Smooth playback was not available; switched to frame-by-frame preview: {error}',
     'Kaydedilecek API anahtarını girin.': 'Enter the API key to save.',
     'Anahtar güvenli kasaya kaydedilemedi: {error}': 'The key could not be saved to the secure store: {error}',
-    '“{idea}” fikri kurgu isteğine yazıldı ve {template} şablonu uygulandı.': 'The idea “{idea}” was written into the edit request and the {template} template was applied.',
+    '“{idea}” fikri kurgu isteğine yazıldı ve {layout} şablonu uygulandı.': 'The idea “{idea}” was written into the edit request and the {layout} template was applied.',
     '“{idea}” fikri kurgu isteğine yazıldı; AI sekmesinden uygulayabilirsiniz.': 'The idea “{idea}” was written into the edit request; apply it from the AI tab.',
     'Önce seslendirme metni girin.': 'Enter the voiceover text first.',
     'Dışa aktarma başlatılamadı.': 'The export could not be started.',
