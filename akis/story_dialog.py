@@ -7,18 +7,24 @@ Self-contained (no import of main.py). The host passes:
                  may return False to report that the file was not added
     default_aspect  e.g. '16:9' or the editor's '9:16 · Reels / Shorts' (only the ratio part is used)
 """
+import json
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QGuiApplication, QPixmap
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QFileDialog, QFormLayout, QGridLayout, QGroupBox,
-                               QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QPlainTextEdit,
-                               QProgressBar, QPushButton, QSpinBox, QSplitter, QTabWidget, QVBoxLayout, QWidget)
+                               QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox,
+                               QPlainTextEdit, QProgressBar, QPushButton, QSpinBox, QSplitter, QTabWidget,
+                               QVBoxLayout, QWidget)
 
 from akis import gemini_api, story_service as ss
 from akis.story_workers import CallWorker, ImageWorker, TextWorker, VideoWorker
 
 TITLE = 'Hikâye Stüdyosu'
+UNSAVED_QUESTION = 'Hikâyede kaydedilmemiş değişiklikler var (üretilen sahneler dahil). Kaydedilsin mi?'
+DELETE_SCENE_QUESTION = '"{title}" sahnesi silinsin mi? Bu işlem geri alınamaz.'
+REPLACE_BIBLE_QUESTION = ('Rehberdeki karakterler ve olay örgüsü yeni üretilen rehberle değiştirilecek; elle yaptığınız '
+                          'düzenlemeler kaybolur. Devam edilsin mi?')
 
 
 def _combo(items, editable=False, data=None):
@@ -49,6 +55,8 @@ class StoryDialog(QDialog):
         self.worker = None
         self._loading = False
         self._closing = False
+        self._close_approved = False   # confirm_close() already answered for the close in progress
+        self._saved_snapshot = None
         self.style_reference = ''
         self.character_references = []
         self.last_usage = ''
@@ -69,6 +77,67 @@ class StoryDialog(QDialog):
         self.refresh_scene_list()
         self.update_cost_line()
         self.set_busy(False)
+        self.mark_clean()
+
+    # ------------------------------------------------------------ unsaved changes
+
+    def _snapshot(self):
+        """The story as it would be saved, plus the guide editor's text (edits not yet applied count too)."""
+        self.store_scene()
+        self.read_idea_fields()
+        return json.dumps([self.state.to_dict(), self.bible_editor.toPlainText()], ensure_ascii=False,
+                          sort_keys=True, default=str)
+
+    def mark_clean(self):
+        self._saved_snapshot = self._snapshot()
+
+    def is_dirty(self):
+        return self._snapshot() != self._saved_snapshot
+
+    def can_ask(self):
+        """Questions need someone to answer them: never on the offscreen platform (tests, scripted runs) or
+        while neither this dialog nor its parent window is on screen."""
+        if QGuiApplication.platformName() == 'offscreen':
+            return False
+        parent = self.parentWidget()
+        return self.isVisible() or (parent is not None and parent.isVisible())
+
+    def ask(self, text, buttons, default):
+        """One modal question; returns the StandardButton chosen. Tests replace this."""
+        return QMessageBox.question(self, TITLE, text, buttons, default)
+
+    def confirm(self, text):
+        """Yes/No question; True without asking when nobody can answer (see can_ask)."""
+        if not self.can_ask():
+            return True
+        yes, no = QMessageBox.StandardButton.Yes, QMessageBox.StandardButton.No
+        return self.ask(text, yes | no, no) == yes
+
+    def maybe_save(self):
+        """Before the story is replaced or closed: offer to save unsaved changes.
+
+        Returns True when it is fine to go on (nothing unsaved, saved, deliberately discarded, or nobody can
+        be asked), False when the user cancelled or saving failed.
+        """
+        if not self.is_dirty() or not self.can_ask():
+            return True
+        buttons = QMessageBox.StandardButton
+        answer = self.ask(UNSAVED_QUESTION, buttons.Save | buttons.Discard | buttons.Cancel, buttons.Save)
+        if answer == buttons.Save:
+            return self.save_story()
+        if answer == buttons.Discard:
+            self.mark_clean()  # the user chose to drop them: do not ask again for the same changes
+            return True
+        return False
+
+    def confirm_close(self):
+        """For the host before it closes (e.g. at application exit): False means stay open.
+
+        The answer covers the next closeEvent/reject, so the question is not asked twice."""
+        if self._close_approved:
+            return True
+        self._close_approved = self.maybe_save()
+        return self._close_approved
 
     # ------------------------------------------------------------ layout
 
@@ -316,7 +385,7 @@ class StoryDialog(QDialog):
     def action_buttons(self):
         return (self.bible_button, self.outline_button, self.write_button, self.continue_button, self.rewrite_button,
                 self.split_button, self.visual_button, self.image_button, self.video_from_image_button,
-                self.video_from_text_button, self.check_models_button, self.open_button)
+                self.video_from_text_button, self.check_models_button, self.open_button, self.delete_scene_button)
 
     def set_busy(self, busy):
         for button in self.action_buttons():
@@ -435,11 +504,20 @@ class StoryDialog(QDialog):
         self.refresh_scene_list(scene.id)
 
     def delete_scene(self):
+        if self.worker is not None:  # a running job may still write into this scene
+            self.set_status('Önce süren işlemin bitmesini bekleyin.')
+            return False
         index = self.state.index_of(self.current_id)
+        if index < 0:
+            return False
+        title = self.state.scenes[index].title or 'Adsız'
+        if not self.confirm(DELETE_SCENE_QUESTION.format(title=title)):
+            return False
         if index >= 0:
             del self.state.scenes[index]
             self.current_id = ''
             self.refresh_scene_list()
+        return True
 
     # ------------------------------------------------------------ worker plumbing
 
@@ -511,7 +589,16 @@ class StoryDialog(QDialog):
 
     # ------------------------------------------------------------ text actions
 
+    def has_bible_work(self):
+        """True when the guide already holds characters or an outline (in the story or in the editor)."""
+        if self.state.bible.characters or self.state.bible.outline:
+            return True
+        data = ss.extract_json(self.bible_editor.toPlainText())
+        return isinstance(data, dict) and bool(data.get('characters') or data.get('outline'))
+
     def generate_bible(self):
+        if self.has_bible_work() and not self.confirm(REPLACE_BIBLE_QUESTION):
+            return
         self.read_idea_fields()
         bible = self.state.bible
         try:
@@ -556,7 +643,8 @@ class StoryDialog(QDialog):
         return done
 
     def write_scene(self):
-        self.apply_bible_editor()
+        if not self.apply_bible_editor():  # keep the JSON error on screen; never write with the old guide
+            return False
         job = ss.next_scene_job(self.state, instruction=self.instruction.text(), words=self.words.value(),
                                 model=self.text_model_choice(), quality=self.quality.currentData())
         self.run_text(job, self._scene_done(job))
@@ -639,11 +727,13 @@ class StoryDialog(QDialog):
             available = set(models)
             for combo, known in ((self.text_model, gemini_api.TEXT_MODELS), (self.image_model, gemini_api.IMAGE_MODELS),
                                  (self.video_model, gemini_api.VIDEO_MODELS)):
-                current = combo.currentText()
+                current = combo.currentText().strip()
                 usable = [m for m in known if m in available] or list(known)
+                if current and current not in usable:  # a model id typed by hand is the user's choice: keep it
+                    usable.append(current)
                 combo.clear()
                 combo.addItems(usable)
-                combo.setCurrentText(current if current in usable else usable[0])
+                combo.setCurrentText(current or usable[0])
             missing = [m for m in gemini_api.TEXT_MODELS + gemini_api.IMAGE_MODELS + gemini_api.VIDEO_MODELS
                        if m not in available]
             self.set_status('Model listesi güncellendi.' + (f' Bu anahtarla görünmeyen: {", ".join(missing)}' if missing else ''))
@@ -792,12 +882,15 @@ class StoryDialog(QDialog):
             self.set_status(f'Kaydedilemedi: {exc}')
             return False
         self.story_path = str(path)
+        self.mark_clean()
         self.set_status(f'Hikâye kaydedildi: {path}')
         return True
 
     def open_story(self, path=None):
         if self.worker is not None:
             self.set_status('Önce süren işlemin bitmesini bekleyin.')
+            return False
+        if not self.maybe_save():
             return False
         if not path:
             path, _ = QFileDialog.getOpenFileName(self, 'Hikâye aç', self.story_path, 'Hikâye (*.hikaye.json *.json)')
@@ -812,6 +905,7 @@ class StoryDialog(QDialog):
         self.current_id = ''
         self.refresh_bible_editor()
         self.refresh_scene_list()
+        self.mark_clean()
         self.set_status(f'Hikâye açıldı: {Path(path).name}')
         return True
 
@@ -830,13 +924,20 @@ class StoryDialog(QDialog):
                     pass
 
     def closeEvent(self, event):
+        # QDialog.closeEvent calls reject(); confirm_close remembers the answer so it is asked once.
+        if not self.confirm_close():
+            event.ignore()
+            return
         self.shutdown()
         super().closeEvent(event)
 
     def reject(self):
+        if not self.confirm_close():
+            return
         self.shutdown()
         super().reject()
 
     def showEvent(self, event):
         self._closing = False
+        self._close_approved = False
         super().showEvent(event)

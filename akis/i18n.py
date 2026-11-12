@@ -117,6 +117,154 @@ EN_UI = {
     "Fikri yaz ve şablonunu uygula": "Write idea and apply its template",
     "Önce “Öneri al” ile öneri isteyin.": "Ask for suggestions with “Get suggestions” first.",
     "Görsel klibe dönüştürülemedi.": "The image could not be turned into a clip.",
+    # Version tag and the update check it starts.
+    "Kurulu sürüm: {version}. Güncellemeleri denetlemek için tıklayın.":
+        "Installed version: {version}. Click to check for updates.",
+    "Sürüm {version} · kaynak koddan çalışıyor; güncelleme denetimi kurulu sürümde yapılır.":
+        "Version {version} · running from source; the update check works in the installed app.",
+    "Güncelleme denetimi veya indirmesi zaten sürüyor.": "An update check or download is already running.",
+    "Güncellemeler denetleniyor…": "Checking for updates…",
+    "Akış Kurgu AI güncel: {version} en son sürüm.": "Akış Kurgu AI is up to date: {version} is the latest version.",
+    "Güncellemeler denetlenemedi. İnternet bağlantınızı kontrol edip yeniden deneyin.":
+        "Could not check for updates. Check your internet connection and try again.",
+    # Şablonlar dialog.
+    "Bir şablonla başlayın": "Start from a template",
+    "Şablon; projenize hazır izler, tuval oranı, renk stili ve tempo ekler. Medyanızı izlere siz "
+    "yerleştirirsiniz; mevcut klipleriniz değişmez.":
+        "A template adds ready-made tracks, a canvas ratio, a colour style and a tempo to your project. You "
+        "place your media on the tracks; your existing clips are not changed.",
+    "Tümü": "All", "Dikey 9:16": "Vertical 9:16", "Yatay 16:9": "Horizontal 16:9", "Kare 1:1": "Square 1:1",
+    "Şablon listesi": "Template list", "PROJENİZE EKLENECEKLER": "ADDED TO YOUR PROJECT", "UYARLAYIN": "ADJUST",
+    "Renk stili": "Colour style", "Oynatma hızı": "Playback speed",
+    "Parlaklık, kontrast ve doygunluğu ayarlar; sonra Düzenle sekmesinden değiştirebilirsiniz.":
+        "Sets brightness, contrast and saturation; you can change them later in the Edit tab.",
+    "Tüm projenin oynatma hızıdır; 1.00× özgün hızdır.": "The playback speed of the whole project; 1.00× is the original speed.",
+    "Tek adımda uygulanır; beğenmezseniz Ctrl+Z ile geri alabilirsiniz.":
+        "Applied as one step; press Ctrl+Z to undo it.",
+    "Şablonu uygula": "Apply template", "~{n} sn": "~{n} s", "~{n} dk": "~{n} min",
+    "Uygun olduğu yerler: {places}": "Good for: {places}", "projede var": "already in project",
+    "Düzenlenebilir başlık: “{title}” ({n} sn)": "Editable title: “{title}” ({n} s)",
+    "Tuval oranı {old} yerine {new} olacak.": "The canvas ratio changes from {old} to {new}.",
+    "Video izi": "Video track", "Ses izi": "Audio track", "Metin izi": "Text track",
+    "Enerjik": "Energetic", "Sıcak": "Warm", "Siyah-Beyaz": "Black and white",
+    "Yavaş": "Slow", "Orta": "Medium", "Hızlı": "Fast", "Dinamik": "Dynamic",
+    "Reels / TikTok hızlı kesim": "Reels / TikTok fast cut", "Ürün tanıtım": "Product promo",
+    "Eğitim / anlatım": "Tutorial / explainer", "Müzik klibi": "Music video",
+    "Altyazılı konuşma": "Captioned talk", "Basit slideshow": "Simple slideshow",
+    "Ana video": "Main video", "Müzik": "Music", "Başlık / altyazı": "Title / captions",
+    "Detaylar": "Details", "Ürün": "Product", "Detay": "Detail", "Ürün adı": "Product name",
+    "Anlatım": "Narration video", "Gösterim": "Demonstration", "Seslendirme": "Voice-over",
+    "Konu başlıkları": "Topic headings", "Ana görüntü": "Main footage", "Bölüm başlıkları": "Chapter titles",
+    "Performans": "Performance", "Ek görüntü": "Extra footage", "Şarkı adı": "Song title",
+    "Konuşma": "Talking video", "Altyazılar": "Captions", "Görseller": "Images", "Başlıklar": "Titles",
+    "Dikkat çekici başlık": "Attention-grabbing title", "Kısa ve net başlık": "Short, clear title",
+    "Ders başlığı": "Lesson title", "Bugünün hikâyesi": "Today's story", "Konuşma başlığı": "Talk title",
+    "Hikâyeniz": "Your story",
+    "İlk saniyede dikkat çeken, hızlı kesimli kısa dikey video.":
+        "A short vertical video with fast cuts that grabs attention in the first second.",
+    "Tek bir fikri net anlatan, sade görünümlü dikey video.": "A clean vertical video that makes one point clearly.",
+    "Ürünü ve ayrıntılarını öne çıkaran kare tanıtım videosu.": "A square promo that shows off a product and its details.",
+    "Anlatım ile ekran gösterimini konu başlıklarıyla birleştiren ders videosu.":
+        "A lesson that combines narration and demonstration under topic headings.",
+    "Günlük anlatımı ara görüntüler ve bölüm başlıklarıyla toparlayan video.":
+        "A day-in-the-life video held together by B-roll and chapter titles.",
+    "Performans görüntüsünü müziğin ritmine göre kesmek için sinematik düzen.":
+        "A cinematic layout for cutting performance footage to the beat.",
+    "Kameraya konuşulan videolar için altyazı odaklı sade düzen.": "A plain, caption-first layout for talking to camera.",
+    "Fotoğraf ve kısa klipleri müzik eşliğinde sakin bir tempoyla sıralar.":
+        "Lines up photos and short clips to music at a calm pace.",
+    "Instagram gönderisi · Reklam": "Instagram post · Ads", "YouTube · Kurs": "YouTube · Courses",
+    "YouTube · Sunum": "YouTube · Presentations",
+    # Sidebar navigation: the whole label, icon included, is the key.
+    "▦   Projeler": "▦   Projects", "✦   İlham": "✦   Inspiration", "◈   Şablonlar": "◈   Templates",
+    "✎   Hikâye Stüdyosu": "✎   Story Studio", "⇧   Dışa aktarımlar": "⇧   Exports",
+    # Timeline toolbar and editor labels.
+    "＋ İz": "＋ Track", "− İz": "− Track", "＋ Medya": "＋ Media", "Böl": "Split", "Ripple sil": "Ripple delete",
+    "Klip sesi": "Clip volume", "Metni düzenle": "Edit text", "Yakınlık": "Zoom",
+    "API transkripsiyon modeli": "API transcription model",
+    "Çevrimdışı Windows sistem sesi kullanılır; dil ve ses işletim sisteminde yüklü seslere bağlıdır.":
+        "Uses the offline Windows system voice; the language and voice depend on the voices installed in Windows.",
+    "Temel gürültü azaltma (henüz yok)": "Basic noise reduction (not available yet)",
+    "Videoda görünecek kısa başlık (henüz yok)": "Short title shown on video (not available yet)",
+    "Başlık katmanı henüz yok. Videoya yazıyı AI kurgusu, şablonlar veya altyazılar ekler.":
+        "The title layer is not available yet. Text is added to the video by AI edits, templates or captions.",
+    # Tooltips (apply_language translates them too).
+    "Devam eden işlemi durdurur.": "Stops the running task.",
+    "Ctrl + tekerlek: yakınlaştır · sürükle: kaydır · orta tuş: sıfırla · çift tık: yazı/işaret düzenle":
+        "Ctrl + wheel: zoom · drag: pan · middle button: reset · double-click: edit text/mark",
+    "Son adımı geri al (Ctrl+Z)": "Undo the last step (Ctrl+Z)",
+    "Geri alınan adımı yinele (Ctrl+Y)": "Redo the undone step (Ctrl+Y)",
+    "Yazdığınız isteğe göre videoyu gerçekten keser, dizer ve ayarlar.":
+        "Really cuts, reorders and adjusts the video according to your request.",
+    "AI kurgusu dahil son düzenlemeyi geri alır (Ctrl+Z).": "Undoes the last edit, AI edits included (Ctrl+Z).",
+    "Model önbellekte yoksa bu adım atlanır; kurgu kare, sessizlik ve sahne bilgisiyle yapılır.":
+        "If the model is not cached this step is skipped; the edit then uses frames, silences and scenes.",
+    "Ortak timeline render yolunda henüz desteklenmiyor.": "Not supported by the shared timeline renderer yet.",
+    "Bu kontrol ortak timeline render yolunda henüz desteklenmiyor.":
+        "This control is not supported by the shared timeline renderer yet.",
+    "Kayıtlı bir projeyi açar (Ctrl+O)": "Opens a saved project (Ctrl+O)",
+    "Projeyi kaydeder (Ctrl+S)": "Saves the project (Ctrl+S)",
+    "Videoyu MP4 olarak dışa aktarır (Ctrl+E)": "Exports the video as MP4 (Ctrl+E)",
+    "Oynat / duraklat (Boşluk)": "Play / pause (Space)",
+    "Seçili klibi siler ve boşluğu kapatır. Delete tuşu klibi boşluk bırakarak siler.":
+        "Deletes the selected clip and closes the gap. The Delete key deletes it and leaves the gap.",
+    # Status bar and messages on common paths.
+    "Bir video sürükleyin veya “Video ekle” düğmesini kullanın.": "Drag in a video or use “Add video”.",
+    "Proje düzenleyicisi açık.": "The project editor is open.",
+    "Dışa aktarmak için üstteki düğmeyi kullanın.": "Use the button at the top to export.",
+    "Video hazır. Sağdaki kutuya isteğinizi yazıp kurgulatabilirsiniz.":
+        "Video ready. Type your request in the box on the right to have it edited.",
+    "Akıcı önizleme hazırlanıyor…": "Preparing smooth preview…", "Oynatılıyor.": "Playing.",
+    "Duraklatıldı.": "Paused.", "API anahtarı ve model belirtin.": "Enter an API key and a model.",
+    "API anahtarı sistem kasasına kaydedildi.": "API key saved to the system vault.",
+    "Anahtar artık kaydedilmeyecek; kayıtlı anahtar bu sürümde silinemiyor.":
+        "The key will no longer be saved; this version cannot delete a stored key.",
+    "Kayıtlı anahtar silinemedi: {error}": "The stored key could not be deleted: {error}",
+    "{provider} anahtarı sistem kasasından silindi.": "{provider} key removed from the system vault.",
+    "Kurgu isteği kutusunda yazdığınız bir metin var. Fikirle değiştirilsin mi?":
+        "The edit request box already holds your text. Replace it with the idea?",
+    "Kurgu isteğiniz korundu; fikir uygulanmadı.": "Your edit request was kept; the idea was not applied.",
+    "Son adım geri alındı.": "Last step undone.", "Adım yinelendi.": "Step redone.",
+    "Video zaman çizelgesine eklendi.": "Video added to the timeline.",
+    "Medya zaman çizelgesine eklendi.": "Media added to the timeline.",
+    "Medya eklenemedi: {error}": "The media could not be added: {error}",
+    "Dışa aktarma hazırlanıyor…": "Preparing export…", "Dışa aktarma tamamlandı.": "Export finished.",
+    "Video başarıyla oluşturuldu:\n{path}": "The video was created:\n{path}",
+    "Renk görünümü güncellendi; dışa aktarmada uygulanacak.": "Colour look updated; it is applied on export.",
+    "Yayın metni panoya kopyalandı.": "Publish text copied to the clipboard.",
+    "Önce bir video ekleyin ve yüklenmesini bekleyin.": "Add a video first and wait for it to load.",
+    "Bir işlem devam ediyor; lütfen bitmesini bekleyin.": "A task is running; please wait for it to finish.",
+    "İptal ediliyor…": "Cancelling…", "İşlem tamamlanamadı.": "The task could not be completed.",
+    "İşlem iptal edildi.": "Task cancelled.", "Dışa aktarma iptal edildi.": "Export cancelled.",
+    "Önce hedef izi seçin.": "Select the target track first.",
+    "Önce silinecek klibi seçin.": "Select the clip to delete first.",
+    "Silinecek izi seçin.": "Select the track to remove.", "Önce bir metin klibi seçin.": "Select a text clip first.",
+    "Bir ses veya video klibi seçin.": "Select an audio or video clip.",
+    "Önce bölünecek klibi seçin.": "Select the clip to split first.",
+    "Klip bölünemedi: oynatma imlecini seçili klibin içine getirin.":
+        "The clip could not be split: move the playhead inside the selected clip.",
+    "Klip bölünemedi: {error}": "The clip could not be split: {error}", "Klip bölündü.": "Clip split.",
+    "Klip silindi. Ctrl+Z ile geri alabilirsiniz.": "Clip deleted. Press Ctrl+Z to undo.",
+    "Kaydetmek için önce bir video veya medya ekleyin.": "Add a video or media before saving.",
+    "Proje ve sürüm anlık görüntüsü kaydedildi.": "Project and version snapshot saved.",
+    "Proje açıldı ve son ayarlar geri yüklendi.": "Project opened and its settings restored.",
+    "Projede kaydedilmemiş değişiklikler var. Kaydedilsin mi?": "The project has unsaved changes. Save them?",
+    # Recovery prompt: three explicit choices.
+    "Kurtarılmış çalışma bulundu ({when}). Açılsın mı?": "Recovered work found ({when}). Open it?",
+    "“Sonra sor” şimdilik açmaz, dosyayı saklar ve daha sonra yeniden sorar. “Sil” kurtarma dosyasını kalıcı "
+    "olarak siler.":
+        "“Ask later” does not open it now, keeps the file and asks again later. “Delete” removes the recovery "
+        "file permanently.",
+    "Aç": "Open", "Sonra sor": "Ask later", "Sil": "Delete",
+    "Kurtarılan çalışma açıldı; kalıcı olması için projeyi kaydedin.":
+        "Recovered work opened; save the project to keep it.",
+    "Proje açılmadı; kurtarma dosyası saklandı ve bir dahaki açılışta yeniden sorulacak.":
+        "The project was not opened; the recovery file is kept and you will be asked again next time.",
+    # İlham dialog.
+    "Yaratıcı video fikirleri: bir fikir seçin, kurgu isteğine yazın ve isterseniz uygun şablonu da uygulayın.":
+        "Creative video ideas: pick one, write it into the edit request and, if you like, apply its template too.",
+    "Bu aramaya uygun fikir bulunamadı.": "No ideas match this search.", "Açılış:": "Opening:",
+    "Çekim listesi": "Shot list", "Önerilen kurgu isteği": "Suggested edit request", "Uygun şablon:": "Matching template:",
 }
 TR_UI = {english: turkish for turkish, english in EN_UI.items()}
 

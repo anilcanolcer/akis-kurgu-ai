@@ -217,7 +217,7 @@ class TimelineRenderer:
                     on, off = local_start - 0.5 / fps, end_at - 0.5 / fps
                     if track.kind in ('video', 'overlay'):
                         if not Path(clip.source).is_file():
-                            raise FileNotFoundError(clip.source)
+                            raise FileNotFoundError(f'Medya bulunamadı: {clip.source}')
                         layer += 1
                         hold = outgoing_hold(track, clip) / fps
                         # Each clip has its own input, seeked (not decoded from the source's start);
@@ -258,7 +258,7 @@ class TimelineRenderer:
                         if frame is not None:
                             continue
                         if not Path(clip.source).is_file():
-                            raise FileNotFoundError(clip.source)
+                            raise FileNotFoundError(f'Medya bulunamadı: {clip.source}')
                         lead = self._open_input(args, clip.source, source_in, True)
                         delay = round(start * 1000)
                         graph.append(f'[{index}:a]{self._trim("atrim", lead, length)},asetpts=PTS-STARTPTS,volume={clip.volume:.6f},adelay={delay}:all=1[a{index}]')
