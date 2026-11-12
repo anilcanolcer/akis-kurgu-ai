@@ -163,7 +163,7 @@ class RenderWorkerCancelTests(unittest.TestCase):
             def __init__(self, media, size, **adjustments):
                 self.media = media
 
-            def export(self, timeline, output):
+            def export(self, timeline, output, on_progress=None):
                 self.media.run(['-v', 'error', '-re', '-f', 'lavfi', '-i', 'testsrc2=size=160x90:rate=10:duration=30',
                                 '-f', 'null', '-'], text=True)
         with patch('akis.render_worker.TimelineRenderer', SlowRenderer):
