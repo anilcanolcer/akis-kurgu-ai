@@ -73,9 +73,13 @@ def thumbnail(template) -> QPixmap:
 class TemplateDialog(QDialog):
     """`selection()` -> (template, style key, tempo key) after exec().
 
+    exec() returns SAVED when the user asked for their own templates instead (akis.saved_templates_dialog).
+
     `language` is 'tr' or 'en'. `current_aspect` (a bare ratio such as '16:9') and `timeline` describe the
     open project, so the dialog can say what applying the template changes in it.
     """
+
+    SAVED = 2  # exec() result: open “Şablonlarım”
 
     def __init__(self, parent=None, language: str = 'tr', current_aspect: str = '', timeline=None):
         super().__init__(parent)
@@ -208,6 +212,12 @@ class TemplateDialog(QDialog):
         self.apply_button.setObjectName('tplApply')
         self.apply_button.setDefault(True)
         self.apply_button.clicked.connect(self.accept)
+        self.saved_button = QPushButton(self.tr_('Şablonlarım…'))
+        self.saved_button.setObjectName('tplCancel')
+        self.saved_button.setAutoDefault(False)
+        self.saved_button.setToolTip(self.tr_('Kendi projelerinizden kaydettiğiniz şablonlar.'))
+        self.saved_button.clicked.connect(lambda: self.done(self.SAVED))
+        footer.addWidget(self.saved_button)
         footer.addWidget(self.cancel_button)
         footer.addWidget(self.apply_button)
         layout.addLayout(footer)

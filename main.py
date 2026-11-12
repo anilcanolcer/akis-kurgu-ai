@@ -54,6 +54,8 @@ from akis import shortcuts
 from akis import speech_settings
 from akis import clip_fit
 from akis import preflight
+from akis import user_templates
+from akis.saved_templates_dialog import SavedTemplatesDialog
 from akis.inspiration_service import template_for
 from akis.story_dialog import StoryDialog
 from akis.temp_cleanup import cleanup_stale_temp_dirs
@@ -1365,8 +1367,44 @@ class MainWindow(QMainWindow):
         code = self.ui_language()
         aspect = i18n.translate(str(self.aspect.currentData() or ""), code).split(" · ")[0]
         dialog = TemplateDialog(self, language=code, current_aspect=aspect, timeline=self.multitrack)
-        if dialog.exec() and dialog.selection()[0] is not None:
+        result = dialog.exec()
+        if result == TemplateDialog.SAVED:
+            self.show_saved_templates()
+        elif result and dialog.selection()[0] is not None:
             self.apply_template_choice(*dialog.selection())
+
+    def show_saved_templates(self):
+        """Şablonlarım: templates the user saved from their own projects."""
+        folder = app_data_dir()
+        dialog = SavedTemplatesDialog(self, saved=user_templates.load(folder), language=self.ui_language(),
+                                      save=lambda name: user_templates.add(folder, self.capture_template(name)),
+                                      delete=lambda name: user_templates.remove(folder, name))
+        if dialog.exec() and dialog.selection() is not None:
+            self.apply_saved_template(dialog.selection())
+
+    def capture_template(self, name):
+        """The open project's structure and settings as a template of the user's own."""
+        return user_templates.capture(
+            name, self.multitrack, aspect=self.aspect.currentData(),
+            color=(self.brightness.value(), self.contrast.value(), self.saturation.value()),
+            speed=self.speed_value(), audio=self.render_adjustments().get('audio', ()))
+
+    def apply_saved_template(self, item):
+        with self.history_step():
+            user_templates.apply(self.multitrack, item)
+            self._template_before_video = not bool(self.state.source)
+            if item['aspect']:
+                self.select_aspect(item['aspect'])
+            self.apply_preset(*item['color'])
+            self.select_speed(item['speed'])
+        for box, name in self.audio_boxes():
+            box.setChecked(name[len('audio_'):] in item['audio'])
+        self.multitrack_view.set_model(self.multitrack)
+        self.refresh_timeline_view()
+        self.multitrack_view.update()
+        if duration_frames(self.multitrack):
+            self.seek_timeline(self.timeline_frame)
+        self.set_status(self.ui_text('{name} uygulandı; medyayı izlere ekleyin.', name=item['name']))
 
     def show_inspiration(self):
         """İlham: creative ideas. An idea becomes the edit request; its matching template is optional."""
