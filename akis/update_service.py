@@ -85,6 +85,9 @@ def find_update(data, current=VERSION):
 
 def check_update(current=VERSION, opener=None):
     """The newer release as a dict (version, url, sha256, size), or None when this version is current."""
+    if opener is None:  # a real check: the sidebar lists what leaves the computer
+        from akis import privacy_log
+        privacy_log.note('GitHub', 'update')
     opener = opener or urllib.request.urlopen
     request = urllib.request.Request(API, headers={'User-Agent': 'AkisKurguAI', 'Accept': 'application/vnd.github+json'})
     try:

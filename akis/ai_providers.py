@@ -447,6 +447,9 @@ def request_plan(provider, key, model, prompt, frames, transport=None, instructi
     ends = None if deadline is None else time.monotonic() + deadline
     if provider not in PROVIDERS or not key or not model:
         raise ValueError('Sağlayıcı, API anahtarı ve model gereklidir.')
+    if transport is None:  # a real request: the sidebar lists what leaves the computer
+        from akis import privacy_log
+        privacy_log.note(provider, 'frames' if frames else 'text')
     encoded = [(_label(at), base64.b64encode(data).decode('ascii')) for at, data in frames]
     instruction = instruction or 'Kısa video kurgusunda uzman, ölçülü ve pratik bir Türkçe kreatif direktörsün.'
     headers = {'Content-Type': 'application/json'}
@@ -528,6 +531,8 @@ def transcribe(provider, key, model, audio, *, language=None, vocabulary=None):
     """language / vocabulary default to the editor's speech settings (akis.speech_settings)."""
     from akis import speech_settings
     language, vocabulary = speech_settings.language(language), speech_settings.vocabulary(vocabulary)
+    from akis import privacy_log
+    privacy_log.note(provider, 'audio')
     if provider == 'OpenAI':
         return _openai_transcribe(key, model, audio, language=language, prompt=vocabulary)
     data = audio.read_bytes()

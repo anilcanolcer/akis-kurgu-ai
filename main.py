@@ -55,6 +55,7 @@ from akis import speech_settings
 from akis import clip_fit
 from akis import preflight
 from akis import user_templates
+from akis import privacy_log
 from akis.saved_templates_dialog import SavedTemplatesDialog
 from akis.inspiration_service import template_for
 from akis.story_dialog import StoryDialog
@@ -516,6 +517,17 @@ class MainWindow(QMainWindow):
         note.setWordWrap(True)
         note.setObjectName("mutedSmall")
         lv.addWidget(note)
+        # What actually left the computer since the app started (akis.privacy_log), kept current by a timer.
+        self.privacy_label = QLabel()
+        self.privacy_label.setWordWrap(True)
+        self.privacy_label.setObjectName("mutedSmall")
+        self.privacy_label.setProperty("i18n_skip", True)
+        lv.addWidget(self.privacy_label)
+        self.privacy_timer = QTimer(self)
+        self.privacy_timer.setInterval(2000)
+        self.privacy_timer.timeout.connect(self.refresh_privacy)
+        self.privacy_timer.start()
+        self.refresh_privacy()
         v.addWidget(local)
         # The running version, always in view; a click asks GitHub whether a newer one exists.
         self.version_button = QPushButton(f"v{update_service.VERSION}")
@@ -2019,6 +2031,11 @@ class MainWindow(QMainWindow):
     @staticmethod
     def install_folder() -> Path:
         return Path(sys.executable).resolve().parent
+
+    def refresh_privacy(self) -> None:
+        text = privacy_log.summary(self.ui_template)
+        if text != self.privacy_label.text():
+            self.privacy_label.setText(text)
 
     def ui_template(self, template: str) -> str:
         """`template` in the current UI language, placeholders left for the caller to fill."""

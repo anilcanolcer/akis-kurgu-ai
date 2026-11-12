@@ -252,6 +252,12 @@ EN_UI = {
     'Yanlış yazılan isimleri ve terimleri buraya ekleyin; tanıma bunları bekler.': 'Add names and terms that come out misspelled; recognition will expect them.',
     'Konuşma metne çevriliyor…': 'Transcribing the speech…',
     '{name} uygulandı; medyayı izlere ekleyin.': '{name} applied; add your media to the tracks.',
+    # What left the computer (akis.privacy_log).
+    'Bu oturumda bilgisayarınızdan hiçbir şey gönderilmedi.': 'Nothing has been sent from your computer in this session.',
+    'Bu oturumda gönderilenler:': 'Sent in this session:',
+    'video kareleri ve istek metni': 'video frames and the request text', 'istek metni': 'the request text',
+    'videonun sesi': "the video's sound", 'hikâye metni ve görselleri': 'story text and images',
+    'sürüm denetimi (video gönderilmez)': 'update check (no video is sent)',
     # Status messages that were still Turkish-only.
     'Dosya bulunamadı: {name}': 'File not found: {name}',
     'Bu dosya türü açılamıyor: {name}': 'This kind of file cannot be opened: {name}',

@@ -163,6 +163,9 @@ def _send(url, headers, body, key, *, transport, opener, timeout, backoff=None, 
         if transport is not None:
             result = transport(url, headers, body)
         else:
+            if opener is None:  # a real request: the sidebar lists what leaves the computer
+                from akis import privacy_log
+                privacy_log.note(PROVIDER, 'story')
             kwargs = {'opener': opener, 'retry_timeout': retry_timeout, 'sleep': sleep}
             if backoff is not None:
                 kwargs['backoff'] = backoff
