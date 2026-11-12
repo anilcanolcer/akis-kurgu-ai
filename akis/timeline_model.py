@@ -188,12 +188,17 @@ class Timeline:
                    tracks=tracks, markers=data.get('markers', []))
 
     @classmethod
-    def from_legacy(cls, state):
-        """Import version-1 editor selection without altering its source media."""
-        fps = 30
-        start = round(float(state.get('start', 0)) * fps)
-        end = round(float(state.get('end', 0)) * fps)
+    def from_legacy(cls, state, rate=(30, 1)):
+        """Import version-1 editor selection without altering its source media.
+
+        `rate` is the timeline frame rate as (numerator, denominator); a new project takes it from
+        its first video so 24/25/50/60 fps footage is not resampled to 30.
+        """
+        fps_num, fps_den = rate
+        start = round(float(state.get('start', 0)) * fps_num / fps_den)
+        end = round(float(state.get('end', 0)) * fps_num / fps_den)
         source = state.get('source', '')
         clips = [Clip(source=source, start=0, source_in=start, length=end-start)] if source and end > start else []
-        return cls(tracks=[Track('video', 'Video', clips), Track('audio', 'Audio'),
+        return cls(fps_num=fps_num, fps_den=fps_den,
+                   tracks=[Track('video', 'Video', clips), Track('audio', 'Audio'),
                            Track('text', 'Text'), Track('overlay', 'Overlay')])

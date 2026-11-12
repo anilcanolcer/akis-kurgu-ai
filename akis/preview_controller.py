@@ -16,6 +16,8 @@ def _remove(path):
 class PreviewController(QObject):
     frame_ready = Signal(str)
     failed = Signal(str)
+    DEFAULT_LIMIT = 480   # longest side of a still, in pixels, when nobody asks for more
+    MAX_LIMIT = 1920      # a still is never rendered larger than this, however far the view is zoomed
 
     def __init__(self, executable, parent=None, worker_factory=TimelineRenderWorker):
         super().__init__(parent)
@@ -27,17 +29,18 @@ class PreviewController(QObject):
         self.closing = False
         self.counter = 0
         self.shown = None  # last frame handed out; removed once a newer one replaces it
+        self.limit = self.DEFAULT_LIMIT  # set by the owner to what its view can actually show
 
     @staticmethod
-    def preview_size(size):
+    def preview_size(size, limit=DEFAULT_LIMIT):
         width, height = size
-        scale = min(1.0, 480 / max(width, height))
+        scale = min(1.0, limit / max(width, height))
         return max(2, int(width * scale) // 2 * 2), max(2, int(height * scale) // 2 * 2)
 
     def request(self, timeline, frame, size, adjustments):
         if self.closing:
             return
-        request = (timeline, frame, size, dict(adjustments))
+        request = (timeline, frame, self.preview_size(size, self.limit), dict(adjustments))
         if self.worker is not None:
             self.pending = request
             return
@@ -52,7 +55,7 @@ class PreviewController(QObject):
         # reusing one name could show an older frame rendered within the same second.
         self.counter += 1
         output = str(Path(self.directory.name) / f'frame_{self.counter}.png')
-        self.worker = self.worker_factory(timeline, output, self.preview_size(size),
+        self.worker = self.worker_factory(timeline, output, size,
                                           self.executable() if callable(self.executable) else self.executable, frame, adjustments)
         self.worker.completed.connect(self._completed)
         self.worker.failed.connect(self.failed.emit)
