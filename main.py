@@ -1427,8 +1427,8 @@ class MainWindow(QMainWindow):
         template = template_for(idea) if action == 'prompt+template' else None
         if template is not None:
             self.apply_template_choice(template, template.style, template.tempo)
-            self.set_status(self.ui_text('“{idea}” fikri kurgu isteğine yazıldı ve {template} şablonu uygulandı.',
-                                         idea=idea.title, template=template.name))
+            self.set_status(self.ui_text('“{idea}” fikri kurgu isteğine yazıldı ve {layout} şablonu uygulandı.',
+                                         idea=idea.title, layout=template.name))
         else:
             self.set_status(self.ui_text('“{idea}” fikri kurgu isteğine yazıldı; AI sekmesinden uygulayabilirsiniz.',
                                          idea=idea.title))
