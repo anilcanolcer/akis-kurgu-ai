@@ -52,6 +52,13 @@ EN_UI = {
     "YAYIN PAKETİ": "PUBLISH PACKAGE", "Dışa aktarma profili": "Export profile",
     "Temel gürültü azaltma": "Basic noise reduction",
     "Ses yüksekliğini -14 LUFS'a normalleştir": "Normalize loudness to -14 LUFS",
+    "SES İYİLEŞTİRME": "SOUND CLEAN-UP", "Konuşurken müziği kıs": "Lower the music while someone speaks",
+    "Kısık çekilmiş videoyu yayın düzeyine çıkarır; önizlemede ve dışa aktarmada uygulanır.":
+        "Brings quiet footage up to streaming loudness; applied in the preview and the export.",
+    "Videonun kendi sesindeki uğultu ve hışırtıyı hafifletir; müziğe dokunmaz. Sonucu dinleyerek karar verin.":
+        "Reduces hum and hiss in the video's own sound; music is left alone. Listen before you decide.",
+    "Videoda biri konuşurken ses izlerindeki müzik alçalır, susunca geri yükselir.":
+        "Music on the audio tracks dips while someone speaks in the video and comes back afterwards.",
     "Ses yüksekliğini -14 LUFS'a normalleştir (henüz yok)": "Normalize loudness to -14 LUFS (not available yet)",
     "AI Başlık": "AI Title", "Başlık önerisi": "Title suggestion", "Açıklama": "Caption",
     "Video açıklaması": "Video caption", "Etiketler": "Hashtags",
