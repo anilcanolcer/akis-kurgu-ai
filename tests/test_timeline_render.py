@@ -335,7 +335,13 @@ class RenderFixTests(unittest.TestCase):
         lines = styled.split('\n')
         self.assertEqual(lines[:2], ['Başlık', ''])  # own break and empty line survive
         self.assertGreater(len(lines), 3)  # the long paragraph is still wrapped
-        self.assertTrue(all(len(line) <= 22 for line in lines))
+        # Wrapped by measured pixel width now (fits the canvas), not a fixed character count.
+        from PIL import ImageFont
+        from akis.timeline_render import _font_px
+        renderer = TimelineRenderer(media, (160, 90))
+        bold = Path(renderer.font).with_name('arialbd.ttf')
+        font = ImageFont.truetype(str(bold if bold.is_file() else renderer.font), _font_px(160, 90))
+        self.assertTrue(all(font.getlength(line) <= 160 * 0.9 for line in lines))
         self.assertEqual(' '.join(lines[2:]), long)
 
     def test_filter_paths_escape_apostrophes_for_both_parsers(self):
