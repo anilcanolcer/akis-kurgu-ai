@@ -1289,7 +1289,7 @@ class MainWindow(QMainWindow):
         self._proxy_failed_signature = failed
         log.warning("Akıcı önizleme başarısız (%s): %s", failed, message)
         self.stop_proxy_playback(refresh=False)
-        self.set_status(f'Akıcı önizleme kullanılamadı, kare kare önizlemeye geçildi: {message[:120]}')
+        self.set_status(self.ui_text('Akıcı önizleme kullanılamadı, kare kare önizlemeye geçildi: {error}', error=message[:120]))
 
     def update_range_label(self) -> None:
         selected = max(0, self.state.end - self.state.start)
@@ -1315,7 +1315,7 @@ class MainWindow(QMainWindow):
 
     def save_key(self, key: str) -> None:
         if not key:
-            self.set_status('Kaydedilecek API anahtarını girin.')
+            self.set_status(self.ui_text('Kaydedilecek API anahtarını girin.'))
             return
         try:
             ai_providers.save_key(APP_NAME, self.provider.currentText(), key)
@@ -1324,7 +1324,7 @@ class MainWindow(QMainWindow):
             self.remember_key.setChecked(True)
             self.set_status(self.ui_text('API anahtarı sistem kasasına kaydedildi.'))
         except Exception as exc:
-            self.set_status(f'Anahtar güvenli kasaya kaydedilemedi: {exc}')
+            self.set_status(self.ui_text('Anahtar güvenli kasaya kaydedilemedi: {error}', error=exc))
 
     def on_remember_key_clicked(self, checked: bool) -> None:
         """Unticking "Windows'ta güvenli sakla" removes the stored key of this provider from the vault."""
@@ -1427,9 +1427,11 @@ class MainWindow(QMainWindow):
         template = template_for(idea) if action == 'prompt+template' else None
         if template is not None:
             self.apply_template_choice(template, template.style, template.tempo)
-            self.set_status(f'“{idea.title}” fikri kurgu isteğine yazıldı ve {template.name} şablonu uygulandı.')
+            self.set_status(self.ui_text('“{idea}” fikri kurgu isteğine yazıldı ve {template} şablonu uygulandı.',
+                                         idea=idea.title, template=template.name))
         else:
-            self.set_status(f'“{idea.title}” fikri kurgu isteğine yazıldı; AI sekmesinden uygulayabilirsiniz.')
+            self.set_status(self.ui_text('“{idea}” fikri kurgu isteğine yazıldı; AI sekmesinden uygulayabilirsiniz.',
+                                         idea=idea.title))
 
     # Hikâye Stüdyosu: Gemini text → image → video; results are added to the project as media.
     def gemini_key(self) -> str:
@@ -1492,7 +1494,7 @@ class MainWindow(QMainWindow):
         self.multitrack_view.update()
         if duration_frames(self.multitrack):
             self.seek_timeline(self.timeline_frame)
-        self.set_status(f'{template.name} uygulandı; medyayı izlere ekleyin.')
+        self.set_status(self.ui_text('{name} uygulandı; medyayı izlere ekleyin.', name=template.name))
 
     def toggle_key(self) -> None:
         mode = self.api_key.echoMode()
@@ -1774,10 +1776,10 @@ class MainWindow(QMainWindow):
                 self.publish_caption.setPlainText(str(plan.get('caption', '')))
                 if plan.get('hashtags'):
                     self.publish_tags.setPlainText(' '.join('#' + str(tag).lstrip('#') for tag in plan['hashtags']))
-            self.set_status('Öneri işaretleri projeye eklendi. / Plan markers added.')
+            self.set_status(self.ui_text('Öneri işaretleri projeye eklendi.'))
             self.multitrack_view.update()
         else:
-            self.set_status('Önce “Öneri al” ile öneri isteyin.')
+            self.set_status(self.ui_text('Önce “Öneri al” ile öneri isteyin.'))
 
     def run_transcript(self) -> None:
         if not self.can_start_work():
@@ -1828,14 +1830,14 @@ class MainWindow(QMainWindow):
         self.refresh_timeline_view()
         self.multitrack_view.update()
         self.seek_timeline(self.timeline_frame)
-        self.set_status(f'{count} altyazı klibi eklendi. / Caption clips added.')
+        self.set_status(self.ui_text('{count} altyazı klibi eklendi.', count=count))
 
     def create_voiceover(self):
         if not self.can_start_work():
             return
         text = self.tts_input.toPlainText().strip()
         if not text:
-            self.set_status('Önce seslendirme metni girin.')
+            self.set_status(self.ui_text('Önce seslendirme metni girin.'))
             return
         chosen, _ = QFileDialog.getSaveFileName(self, 'Seslendirmeyi kaydet', '', 'WAV (*.wav)')
         if not chosen:
@@ -1870,13 +1872,13 @@ class MainWindow(QMainWindow):
             canvas = self.export_canvas_size()
         except (ValueError, RuntimeError, OSError) as exc:  # e.g. "Kaynak oranı" with no usable video clip
             QMessageBox.warning(self, APP_NAME, f'Dışa aktarma boyutu belirlenemedi: {exc}')
-            self.set_status('Dışa aktarma başlatılamadı.')
+            self.set_status(self.ui_text('Dışa aktarma başlatılamadı.'))
             return
         findings = preflight.check(self.multitrack, say=self.ui_template)
         if findings and QMessageBox.question(self, APP_NAME, preflight.question(findings, self.ui_template),
                                              QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                                              QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
-            self.set_status('Dışa aktarma başlatılmadı.')
+            self.set_status(self.ui_text('Dışa aktarma başlatılmadı.'))
             return
         default = safe_filename(self.project_title.text()) + "_akis.mp4"
         chosen, _ = QFileDialog.getSaveFileName(self, "Videoyu dışa aktar", str(Path.home() / "Videos" / default), "MP4 Video (*.mp4)")
@@ -1895,7 +1897,7 @@ class MainWindow(QMainWindow):
         if problem and QMessageBox.question(self, APP_NAME, problem + '\n\n' + self.ui_text('Yine de devam edilsin mi?'),
                                             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                                             QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
-            self.set_status('Dışa aktarma başlatılmadı.')
+            self.set_status(self.ui_text('Dışa aktarma başlatılmadı.'))
             return
         self.state.aspect = self.aspect.currentData()
         self.state.export_profile = self.export_profile.currentData()
@@ -2389,7 +2391,7 @@ class MainWindow(QMainWindow):
         try:
             width, height = self.canvas_size()
         except (ValueError, RuntimeError, OSError) as exc:  # no picture to hit-test against
-            self.set_status(f'Önizleme boyutu belirlenemedi: {exc}')
+            self.set_status(self.ui_text('Önizleme boyutu belirlenemedi: {error}', error=exc))
             return None
         best = None
         for index, track in enumerate(self.multitrack.tracks):
@@ -2425,7 +2427,7 @@ class MainWindow(QMainWindow):
         if found:
             self.edit_clip(found[0], found[1].id)
         else:
-            self.set_status('Burada düzenlenecek bir yazı veya işaret yok. Çift tıklamayı bir yazının ya da işaretin üstünde deneyin.')
+            self.set_status(self.ui_text('Burada düzenlenecek bir yazı veya işaret yok. Çift tıklamayı bir yazının ya da işaretin üstünde deneyin.'))
 
     def add_timeline_media(self):
         index = self.multitrack_view.selected_track
@@ -2434,7 +2436,7 @@ class MainWindow(QMainWindow):
             self.set_status(self.ui_text('Önce hedef izi seçin.'))
             return
         if track.kind not in ('video', 'audio', 'overlay'):
-            self.set_status('Bu sürümde medya yalnızca video/ses izine eklenir.')
+            self.set_status(self.ui_text('Bu sürümde medya yalnızca video/ses izine eklenir.'))
             return
         path, _ = QFileDialog.getOpenFileName(self, 'Medya seç', '', 'Media (*.mp4 *.mov *.mkv *.webm *.avi *.m4v *.mp3 *.wav *.m4a)')
         if not path:
@@ -2497,7 +2499,7 @@ class MainWindow(QMainWindow):
             with self.history_step():
                 self.multitrack.ripple_delete(track_index, clip.id)
         except ValueError as exc:  # the timeline rolled itself back
-            self.set_status(f'Klip silinemedi: {exc}')
+            self.set_status(self.ui_text('Klip silinemedi: {error}', error=exc))
             self.multitrack_view.update()
             return
         self.multitrack_view.selected = None
@@ -2535,7 +2537,7 @@ class MainWindow(QMainWindow):
         try:
             canvas = self.canvas_size()
         except (ValueError, RuntimeError, OSError) as exc:  # e.g. "Kaynak oranı" with the first clip missing
-            self.set_status(f'Önizleme oluşturulamadı: {exc}')
+            self.set_status(self.ui_text('Önizleme oluşturulamadı: {error}', error=exc))
             return
         self.preview.limit = self.preview_limit()
         self.preview.request(self.multitrack, self.timeline_frame, canvas, self.render_adjustments())
@@ -2609,7 +2611,7 @@ class MainWindow(QMainWindow):
             with self.history_step():
                 timeline_service.set_clip_volume(self.multitrack, self.multitrack_view.selected, value / 100)
             self.sync_timeline_audio(force=True)
-            self.set_status(f'Klip sesi: %{value}')
+            self.set_status(self.ui_text('Klip sesi: %{value}', value=value))
 
     def set_clip_fit(self):
         """Fit the selected video clip inside the canvas or let it fill the canvas (cropped), one undo step."""
@@ -2779,7 +2781,7 @@ class MainWindow(QMainWindow):
             log.exception("Proje açılamadı: %s", load_from)
             self.restore_open_snapshot(snapshot)
             QMessageBox.critical(self, APP_NAME, f'Proje açılamadı: {exc}')
-            self.set_status('Proje açılamadı; önceki çalışma olduğu gibi korundu.')
+            self.set_status(self.ui_text('Proje açılamadı; önceki çalışma olduğu gibi korundu.'))
             return False
         if not loaded:  # load_video refused the source and already told the user why
             self.restore_open_snapshot(snapshot)
@@ -2983,7 +2985,7 @@ class MainWindow(QMainWindow):
             self.write_project(path, snapshot=False)
         except Exception as exc:
             log.exception("Otomatik kayıt başarısız")
-            self.set_status(f'Otomatik kayıt yapılamadı: {exc}')
+            self.set_status(self.ui_text('Otomatik kayıt yapılamadı: {error}', error=exc))
             return False
         self._autosave_file = path
         return True
@@ -3128,7 +3130,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         if self._workers:
             if not self.isVisible():  # a hidden window (tests, scripted runs) has nobody to ask
-                self.set_status('İşlem devam ediyor; kapatmadan önce bitmesini bekleyin.')
+                self.set_status(self.ui_text('İşlem devam ediyor; kapatmadan önce bitmesini bekleyin.'))
                 event.ignore()
                 return
             answer = QMessageBox.question(self, APP_NAME, CANCEL_ON_CLOSE_QUESTION,
