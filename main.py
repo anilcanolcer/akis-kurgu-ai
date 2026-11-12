@@ -57,6 +57,7 @@ from akis import preflight
 from akis import user_templates
 from akis import privacy_log
 from akis import fast_export
+from akis.start_panel import StartPanel
 from akis.saved_templates_dialog import SavedTemplatesDialog
 from akis.inspiration_service import template_for
 from akis.story_dialog import StoryDialog
@@ -620,6 +621,10 @@ class MainWindow(QMainWindow):
         self.video.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
         self.video.setToolTip('Ctrl + tekerlek: yakınlaştır · sürükle: kaydır · orta tuş: sıfırla · çift tık: yazı/işaret düzenle')
         self.video.double_clicked.connect(self.edit_at)
+        # An empty project shows what to do first, over the empty preview (akis.start_panel).
+        self.start_panel = StartPanel(add_video=self.choose_video, show_templates=self.show_templates)
+        start_layout = QVBoxLayout(self.video)
+        start_layout.addWidget(self.start_panel, 0, Qt.AlignmentFlag.AlignCenter)
         # Zooming in (or a larger window) needs a sharper still; wait until the gesture has settled.
         self.still_timer = QTimer(self)
         self.still_timer.setSingleShot(True)
@@ -2540,6 +2545,7 @@ class MainWindow(QMainWindow):
 
     def seek_timeline(self, frame, *, from_clock=False):
         total = duration_frames(self.multitrack)
+        self.start_panel.setVisible(not total and not self.state.source)  # gone once there is something to edit
         self.update_timeline_scroll()
         if not total:
             self.timeline_frame = 0
