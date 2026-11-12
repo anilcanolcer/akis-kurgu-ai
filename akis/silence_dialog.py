@@ -9,7 +9,7 @@ from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QFormLayout, QLabel, QProgressBar, QSlider,
                                QVBoxLayout, QWidget)
 
-from akis import silence_cut
+from akis import i18n, silence_cut
 
 TITLE = 'Sessizlikleri çıkar'
 KEPT = QColor('#2f9e6e')
@@ -35,11 +35,11 @@ class MeasureWorker(QThread):
 class CutStrip(QWidget):
     """The main cut drawn left to right: green stays, red goes."""
 
-    def __init__(self):
+    def __init__(self, tip='Yeşil kalır, kırmızı kesilir.'):
         super().__init__()
         self.setMinimumHeight(34)
         self.segments, self.cuts = [], []
-        self.setToolTip('Yeşil kalır, kırmızı kesilir.')
+        self.setToolTip(tip)
 
     def show_cut(self, segments, cuts):
         self.segments, self.cuts = list(segments), list(cuts)
@@ -71,10 +71,11 @@ class CutStrip(QWidget):
 
 
 class SilenceDialog(QDialog):
-    def __init__(self, parent=None, *, executable, sources, segments, measure=silence_cut.measure):
+    def __init__(self, parent=None, *, executable, sources, segments, measure=silence_cut.measure, language='tr'):
         """sources: [{'path', 'duration'}] in the index order `segments` refers to (edit_plan.current_segments)."""
         super().__init__(parent)
-        self.setWindowTitle(TITLE)
+        self.language = language
+        self.setWindowTitle(self.tr_(TITLE))
         self.resize(560, 320)
         self.before = [dict(segment) for segment in segments]
         self.segments, self.cuts = list(self.before), []
@@ -82,8 +83,8 @@ class SilenceDialog(QDialog):
         self._pending = len(sources)
 
         root = QVBoxLayout(self)
-        intro = QLabel('Konuşma olmayan yerler kesilir. Yapay zekâ ve internet kullanılmaz; '
-                       'beğenmezseniz tek adımda geri alabilirsiniz.')
+        intro = QLabel(self.tr_('Konuşma olmayan yerler kesilir. Yapay zekâ ve internet kullanılmaz; '
+                                'beğenmezseniz tek adımda geri alabilirsiniz.'))
         intro.setWordWrap(True)
         root.addWidget(intro)
 
@@ -96,22 +97,22 @@ class SilenceDialog(QDialog):
         form.addRow(self.min_label, self.min_silence)
         form.addRow(self.margin_label, self.margin)
         root.addLayout(form)
-        self.threshold.setToolTip('Bu düzeyin altındaki ses sessizlik sayılır. Sağa çektikçe daha çok yer kesilir.')
-        self.min_silence.setToolTip('Bundan kısa duraklamalara dokunulmaz.')
-        self.margin.setToolTip('Her kesimin iki yanında bırakılan süre; kelimelerin başı ve sonu yutulmasın diye.')
+        self.threshold.setToolTip(self.tr_('Bu düzeyin altındaki ses sessizlik sayılır. Sağa çektikçe daha çok yer kesilir.'))
+        self.min_silence.setToolTip(self.tr_('Bundan kısa duraklamalara dokunulmaz.'))
+        self.margin.setToolTip(self.tr_('Her kesimin iki yanında bırakılan süre; kelimelerin başı ve sonu yutulmasın diye.'))
 
-        self.strip = CutStrip()
+        self.strip = CutStrip(self.tr_('Yeşil kalır, kırmızı kesilir.'))
         root.addWidget(self.strip)
         self.progress = QProgressBar()
         self.progress.setRange(0, 0)
         root.addWidget(self.progress)
-        self.result = QLabel('Ses çözümleniyor…')
+        self.result = QLabel(self.tr_('Ses çözümleniyor…'))
         self.result.setWordWrap(True)
         root.addWidget(self.result)
 
         self.buttons = QDialogButtonBox()
-        self.apply_button = self.buttons.addButton('Sessizlikleri kes', QDialogButtonBox.ButtonRole.AcceptRole)
-        self.buttons.addButton('Vazgeç', QDialogButtonBox.ButtonRole.RejectRole)
+        self.apply_button = self.buttons.addButton(self.tr_('Sessizlikleri kes'), QDialogButtonBox.ButtonRole.AcceptRole)
+        self.buttons.addButton(self.tr_('İptal'), QDialogButtonBox.ButtonRole.RejectRole)
         self.buttons.accepted.connect(self.accept)
         self.buttons.rejected.connect(self.reject)
         self.apply_button.setEnabled(False)
@@ -123,6 +124,9 @@ class SilenceDialog(QDialog):
         self.worker.measured.connect(self._measured)
         self.worker.finished.connect(self._measuring_done)
         self.worker.start()
+
+    def tr_(self, text):
+        return i18n.translate(text, self.language)
 
     def _slider(self, low, high, value):
         slider = QSlider(Qt.Orientation.Horizontal)
@@ -137,9 +141,9 @@ class SilenceDialog(QDialog):
 
     def _labels(self):
         threshold, shortest, margin = self.settings()
-        self.threshold_label.setText(f'Sessizlik eşiği: {threshold} dB')
-        self.min_label.setText(f'En kısa sessizlik: {shortest:.1f} sn')
-        self.margin_label.setText(f'Kesim payı: {margin:.2f} sn')
+        self.threshold_label.setText(self.tr_('Sessizlik eşiği: {value} dB').format(value=threshold))
+        self.min_label.setText(self.tr_('En kısa sessizlik: {value} sn').format(value=f'{shortest:.1f}'))
+        self.margin_label.setText(self.tr_('Kesim payı: {value} sn').format(value=f'{margin:.2f}'))
 
     def _measured(self, index, levels):
         self.levels[index] = levels
@@ -154,7 +158,7 @@ class SilenceDialog(QDialog):
         if self._pending > 0:
             return
         if not any(self.levels.values()):
-            self.result.setText('Videoda çözümlenebilir ses bulunamadı.')
+            self.result.setText(self.tr_('Videoda çözümlenebilir ses bulunamadı.'))
             self.apply_button.setEnabled(False)
             return
         threshold, shortest, margin = self.settings()
@@ -162,7 +166,7 @@ class SilenceDialog(QDialog):
                     for index, levels in self.levels.items()}
         self.segments, self.cuts = silence_cut.keep_segments(self.before, silences, margin)
         self.strip.show_cut(self.before, self.cuts)
-        self.result.setText(silence_cut.summary(self.before, self.segments, self.cuts))
+        self.result.setText(silence_cut.summary(self.before, self.segments, self.cuts, self.tr_))
         self.apply_button.setEnabled(bool(self.cuts))
 
     def done(self, code):

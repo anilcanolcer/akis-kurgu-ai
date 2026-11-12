@@ -209,7 +209,7 @@ class WindowTests(unittest.TestCase):
 
     def answer(self, accepted, silences):
         """A stand-in dialog that reports the cut for the given silences without measuring anything."""
-        def make(parent=None, *, executable, sources, segments):
+        def make(parent=None, *, executable, sources, segments, language='tr'):
             new, cuts = keep_segments(segments, silences, margin=0)
             return type('Dialog', (), {'exec': lambda self: int(accepted), 'segments': new, 'cuts': cuts})()
         return self.patch('main.SilenceDialog', side_effect=make)

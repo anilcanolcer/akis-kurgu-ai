@@ -1,6 +1,7 @@
-"""Keyboard shortcuts: which key does what, when they stay out of the way, and the help list."""
+"""Timeline keys: which key does what, when they stay out of the way, and the help list."""
 import os
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+import gc
 import tempfile
 import unittest
 from pathlib import Path
@@ -17,8 +18,8 @@ app = QApplication.instance() or QApplication([])
 NONE, CTRL, SHIFT = shortcuts.NONE, shortcuts.CTRL, shortcuts.SHIFT
 
 
-def press(key, modifiers=NONE, repeat=False):
-    return QKeyEvent(QEvent.Type.KeyPress, key, modifiers, '', repeat)
+def press(key, modifiers=NONE):
+    return QKeyEvent(QEvent.Type.KeyPress, key, modifiers)
 
 
 class TableTests(unittest.TestCase):
@@ -27,17 +28,30 @@ class TableTests(unittest.TestCase):
         self.assertEqual(len(combos), len(set(combos)))
         self.assertTrue(all(keys and what for _, _, keys, what, _ in shortcuts.SHORTCUTS))
 
-    def test_help_lists_everything_including_undo(self):
+    def test_help_lists_these_keys_and_the_windows_own(self):
         text = shortcuts.help_text()
         for _, _, keys, what, _ in shortcuts.SHORTCUTS:
             self.assertIn(keys, text)
             self.assertIn(what, text)
-        self.assertIn('Ctrl + Z', text)
+        for keys, what in shortcuts.BUILT_IN:
+            self.assertIn(keys, text)
+            self.assertIn(what, text)
+
+    def test_help_is_translated(self):
+        text = shortcuts.help_text('en')
+        for part in ('Space', 'Play / pause', 'Split the selected clip at the playhead', 'One frame back',
+                     'Show this list of shortcuts', 'Ctrl + Z'):
+            self.assertIn(part, text)
+        self.assertNotIn('Boşluk', text)
+
+    def test_keys_the_window_handles_itself_are_not_handled_twice(self):
+        for key, modifiers in ((Qt.Key.Key_Space, NONE), (Qt.Key.Key_Delete, NONE), (Qt.Key.Key_S, CTRL),
+                               (Qt.Key.Key_O, CTRL), (Qt.Key.Key_E, CTRL), (Qt.Key.Key_Z, CTRL)):
+            self.assertIsNone(shortcuts.find(key, modifiers))
 
     def test_find_matches_key_and_modifiers_exactly(self):
         self.assertIsNotNone(shortcuts.find(Qt.Key.Key_S, NONE))
-        self.assertIsNot(shortcuts.find(Qt.Key.Key_S, NONE), shortcuts.find(Qt.Key.Key_S, CTRL))
-        self.assertIsNone(shortcuts.find(Qt.Key.Key_S, CTRL | SHIFT))
+        self.assertIsNone(shortcuts.find(Qt.Key.Key_S, SHIFT))
         self.assertIsNone(shortcuts.find(Qt.Key.Key_Q, NONE))
         keypad = Qt.KeyboardModifier.KeypadModifier
         self.assertIs(shortcuts.find(Qt.Key.Key_Left, keypad), shortcuts.find(Qt.Key.Key_Left, NONE))
@@ -52,6 +66,7 @@ class WindowTests(unittest.TestCase):
         patch('main.MediaService.duration', return_value=4.0).start()
         self.addCleanup(patch.stopall)
         self.window = MainWindow()
+        self.window.apply_language('tr')
         patch.object(self.window.preview, 'request').start()
         self.addCleanup(self.close_window)
         video = self.root / 'a.mp4'
@@ -65,7 +80,8 @@ class WindowTests(unittest.TestCase):
         self.window.close()
 
     def send(self, key, modifiers=NONE, focus=None):
-        with patch('akis.shortcuts.QApplication.focusWidget', return_value=focus),              patch('akis.shortcuts.QApplication.activeWindow', return_value=self.active):
+        with patch('akis.shortcuts.QApplication.focusWidget', return_value=focus), \
+             patch('akis.shortcuts.QApplication.activeWindow', return_value=self.active):
             return self.filter.eventFilter(self.window, press(key, modifiers))
 
     def test_arrows_home_and_end_move_the_playhead(self):
@@ -85,7 +101,7 @@ class WindowTests(unittest.TestCase):
         self.send(Qt.Key.Key_Home)
         self.assertEqual(w.timeline_frame, 0)
 
-    def test_s_splits_and_delete_removes_in_undoable_steps(self):
+    def test_s_splits_in_an_undoable_step(self):
         w = self.window
         index = next(i for i, t in enumerate(w.multitrack.tracks) if t.kind == 'video')
         clip = w.multitrack.tracks[index].clips[0]
@@ -94,12 +110,8 @@ class WindowTests(unittest.TestCase):
         w.multitrack_view.playhead = 30
         self.assertTrue(self.send(Qt.Key.Key_S))
         self.assertEqual(len(w.multitrack.tracks[index].clips), 2)
-        self.assertTrue(self.send(Qt.Key.Key_Delete))
-        self.assertEqual(len(w.multitrack.tracks[index].clips), 1)
         self.assertTrue(w.undo())
-        self.assertTrue(w.undo())
-        self.assertEqual(len(w.multitrack.tracks[index].clips), 1)
-        self.assertEqual(w.multitrack.tracks[index].clips[0].length, whole)
+        self.assertEqual([c.length for c in w.multitrack.tracks[index].clips], [whole])
 
     def test_plain_keys_are_left_to_input_widgets_but_ctrl_keys_are_not(self):
         w = self.window
@@ -108,28 +120,21 @@ class WindowTests(unittest.TestCase):
             self.assertFalse(self.send(Qt.Key.Key_S, focus=widget), widget)
         self.assertEqual(w.timeline_frame, 0)
         self.assertTrue(self.send(Qt.Key.Key_Right, focus=QPushButton()))   # a button does not need the arrows
-        with patch.object(w, 'save_project') as save:
-            self.assertTrue(self.send(Qt.Key.Key_S, CTRL, focus=w.ai_prompt))
-        save.assert_called_once()
+        with patch.object(w, 'choose_video') as add:
+            self.assertTrue(self.send(Qt.Key.Key_I, CTRL, focus=w.ai_prompt))
+        add.assert_called_once()
 
-    def test_ctrl_keys_reach_their_commands(self):
+    def test_f1_shows_the_list_in_the_ui_language(self):
         w = self.window
-        for key, name in ((Qt.Key.Key_O, 'open_project'), (Qt.Key.Key_E, 'export_video'), (Qt.Key.Key_I, 'choose_video')):
-            with patch.object(w, name) as command:
-                self.assertTrue(self.send(key, CTRL))
-            command.assert_called_once()
         with patch('akis.shortcuts.show_help') as shown:
             self.send(Qt.Key.Key_F1)
         shown.assert_called_once_with(w)
-
-    def test_space_plays_only_when_there_is_a_video(self):
-        w = self.window
-        with patch.object(w, 'toggle_play') as play:
-            self.send(Qt.Key.Key_Space)
-            play.assert_called_once()
-            w.state.source = ''
-            self.send(Qt.Key.Key_Space)
-            play.assert_called_once()                  # no file dialog out of nowhere
+        w.apply_language('en')
+        with patch('akis.shortcuts.QMessageBox') as box:
+            shortcuts.show_help(w)
+        box.return_value.setWindowTitle.assert_called_once_with('Keyboard shortcuts')
+        self.assertIn('Play / pause', box.return_value.setInformativeText.call_args.args[0])
+        w.apply_language('tr')
 
     def test_nothing_fires_behind_a_dialog_or_in_another_window(self):
         w = self.window
@@ -140,7 +145,7 @@ class WindowTests(unittest.TestCase):
             self.assertFalse(self.send(Qt.Key.Key_Right))
         self.assertEqual(w.timeline_frame, 0)
 
-    def test_one_filter_serves_every_window_and_forgets_closed_ones(self):
+    def test_one_filter_serves_every_window(self):
         second = MainWindow()
         self.assertIs(second.shortcut_filter, self.filter)
         self.assertIn(second, self.filter.windows)
@@ -148,17 +153,12 @@ class WindowTests(unittest.TestCase):
         second.close()
         second.deleteLater()
         del second
-        import gc
         gc.collect()
         self.assertIn(self.window, self.filter.windows)
 
-    def test_held_space_does_not_toggle_again(self):
-        with patch.object(self.window, 'toggle_play') as play,              patch('akis.shortcuts.QApplication.focusWidget', return_value=None),              patch('akis.shortcuts.QApplication.activeWindow', return_value=self.window):
-            self.assertTrue(self.filter.eventFilter(self.window, press(Qt.Key.Key_Space, repeat=True)))
-        play.assert_not_called()
-
     def test_other_keys_and_releases_pass_through(self):
         self.assertFalse(self.send(Qt.Key.Key_Q))
+        self.assertFalse(self.send(Qt.Key.Key_Space))     # the window's own action plays; not this filter
         release = QKeyEvent(QEvent.Type.KeyRelease, Qt.Key.Key_Right, NONE)
         self.assertFalse(self.filter.eventFilter(self.window, release))
 
