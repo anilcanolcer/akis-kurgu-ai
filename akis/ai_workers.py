@@ -151,7 +151,7 @@ class TranscriptWorker(CancellableWorker):
                 self.check_cancelled()
                 if result.returncode != 0 or not audio.exists():
                     raise RuntimeError("Videodan ses parçası çıkarılamadı.")
-                self.status.emit("Türkçe konuşma metne çevriliyor…")
+                self.status.emit("Konuşma metne çevriliyor…")
                 text = self.call(transcribe, self.provider, self.api_key, self.model, audio)
             self.check_cancelled()
             self.completed.emit(text)

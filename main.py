@@ -51,6 +51,7 @@ from akis.inspiration_dialog import InspirationDialog
 from akis.silence_dialog import SilenceDialog
 from akis import export_progress
 from akis import shortcuts
+from akis import speech_settings
 from akis.inspiration_service import template_for
 from akis.story_dialog import StoryDialog
 from akis.temp_cleanup import cleanup_stale_temp_dirs
@@ -813,6 +814,20 @@ class MainWindow(QMainWindow):
         apply_plan.clicked.connect(self.apply_ai_suggestion)
         v.addWidget(apply_plan)
         v.addWidget(self.section("KONUŞMA METNİ VE SESLENDİRME"))
+        v.addWidget(QLabel('Konuşma dili'))
+        self.speech_language = QComboBox()
+        for code, name, _ in speech_settings.LANGUAGES:
+            self.speech_language.addItem(name, code)
+        self.speech_language.setProperty("i18n_skip", True)  # language names are shown in their own language
+        self.speech_language.setToolTip('Altyazı ve konuşma metni bu dilde çözümlenir.')
+        v.addWidget(self.speech_language)
+        self.speech_vocabulary = QLineEdit()
+        self.speech_vocabulary.setPlaceholderText('Özel adlar ve terimler, virgülle (örn. Anılcan, Akış Kurgu)')
+        self.speech_vocabulary.setToolTip('Yanlış yazılan isimleri ve terimleri buraya ekleyin; tanıma bunları bekler.')
+        v.addWidget(self.speech_vocabulary)
+        self.load_speech_settings()
+        self.speech_language.activated.connect(lambda _index: self.save_speech_settings())
+        self.speech_vocabulary.editingFinished.connect(self.save_speech_settings)
         self.caption_backend = QComboBox()
         self.caption_backend.addItems(['OpenAI', 'Yerel / Local Whisper', 'xAI', 'Gemini'])
         v.addWidget(self.caption_backend)
@@ -851,6 +866,20 @@ class MainWindow(QMainWindow):
 
         v.addStretch()
         return self.scroll_page(content)
+
+    def load_speech_settings(self) -> None:
+        speech_settings.set_current(str(self.settings.value("speech/language", speech_settings.DEFAULT_LANGUAGE)),
+                                    str(self.settings.value("speech/vocabulary", "") or ""))
+        chosen = speech_settings.language() or speech_settings.AUTO
+        self.speech_language.setCurrentIndex(max(0, self.speech_language.findData(chosen)))
+        self.speech_vocabulary.setText(speech_settings.vocabulary())
+
+    def save_speech_settings(self) -> None:
+        """The user changed the speech language or the term list: use it from now on and remember it."""
+        speech_settings.set_current(self.speech_language.currentData(), self.speech_vocabulary.text())
+        self.speech_vocabulary.setText(speech_settings.vocabulary())
+        self.settings.setValue("speech/language", speech_settings.language() or speech_settings.AUTO)
+        self.settings.setValue("speech/vocabulary", speech_settings.vocabulary())
 
     def section(self, text: str) -> QLabel:
         label = QLabel(text)

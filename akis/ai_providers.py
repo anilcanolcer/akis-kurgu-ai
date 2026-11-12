@@ -524,22 +524,26 @@ def request_plan(provider, key, model, prompt, frames, transport=None, instructi
     return _plan_text(_read_text(reader, provider, result), model, model)
 
 
-def transcribe(provider, key, model, audio):
+def transcribe(provider, key, model, audio, *, language=None, vocabulary=None):
+    """language / vocabulary default to the editor's speech settings (akis.speech_settings)."""
+    from akis import speech_settings
+    language, vocabulary = speech_settings.language(language), speech_settings.vocabulary(vocabulary)
     if provider == 'OpenAI':
-        return _openai_transcribe(key, model, audio)
+        return _openai_transcribe(key, model, audio, language=language, prompt=vocabulary)
     data = audio.read_bytes()
     if provider == 'Gemini':
         from urllib.parse import quote
         if len(data) > 14_000_000:
             raise ValueError('Gemini için ses dosyası çok büyük (en fazla 14 MB).')
         url = 'https://generativelanguage.googleapis.com/v1beta/models/' + quote(model, safe='') + ':generateContent'
-        body = json.dumps({'contents': [{'parts': [{'text': 'Türkçe konuşmayı aynen metne çevir; sadece metni döndür.'}, {'inline_data': {'mime_type': 'audio/mp3', 'data': base64.b64encode(data).decode('ascii')}}]}]}).encode()
+        body = json.dumps({'contents': [{'parts': [{'text': speech_settings.instruction(language, vocabulary)}, {'inline_data': {'mime_type': 'audio/mp3', 'data': base64.b64encode(data).decode('ascii')}}]}]}).encode()
         headers = {'Content-Type': 'application/json', 'x-goog-api-key': key}
     elif provider == 'xAI':
         import uuid
         boundary = 'akis' + uuid.uuid4().hex
+        spoken = f'--{boundary}\r\nContent-Disposition: form-data; name="language"\r\n\r\n{language}\r\n' if language else ''
         body = (f'--{boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\n{model}\r\n'
-                f'--{boundary}\r\nContent-Disposition: form-data; name="language"\r\n\r\ntr\r\n'
+                f'{spoken}'
                 f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="audio.mp3"\r\nContent-Type: audio/mpeg\r\n\r\n').encode() + data + f'\r\n--{boundary}--\r\n'.encode()
         headers = {'Content-Type': 'multipart/form-data; boundary=' + boundary, 'Authorization': 'Bearer ' + key}
         url = 'https://api.x.ai/v1/stt'
@@ -558,7 +562,7 @@ def _stt_text(provider, result):
     return text
 
 
-def _openai_transcribe(key, model, audio, client_factory=None):
+def _openai_transcribe(key, model, audio, client_factory=None, *, language='tr', prompt=''):
     """OpenAI speech-to-text through the SDK, with the same timeout, retry limit and error texts as the
     raw-HTTP paths (the SDK's own default is 600 s and 2 retries, and its messages may quote the request)."""
     provider = 'OpenAI'
@@ -568,7 +572,9 @@ def _openai_transcribe(key, model, audio, client_factory=None):
     try:
         client = factory(api_key=key, timeout=TRANSCRIBE_TIMEOUT, max_retries=1)
         with open(audio, 'rb') as handle:
-            result = client.audio.transcriptions.create(model=model, file=handle, language='tr')
+            # A language left out lets the model detect it; the prompt lists names and terms to expect.
+            options = {name: value for name, value in (('language', language), ('prompt', prompt)) if value}
+            result = client.audio.transcriptions.create(model=model, file=handle, **options)
     except openai.APITimeoutError as exc:
         raise RuntimeError(f'{provider} {TRANSCRIBE_TIMEOUT} saniyede yanıt vermedi. '
                            'Başka bir model deneyin veya tekrar deneyin.') from exc
