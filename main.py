@@ -56,6 +56,7 @@ from akis import clip_fit
 from akis import preflight
 from akis import user_templates
 from akis import privacy_log
+from akis import fast_export
 from akis.saved_templates_dialog import SavedTemplatesDialog
 from akis.inspiration_service import template_for
 from akis.story_dialog import StoryDialog
@@ -1913,13 +1914,27 @@ class MainWindow(QMainWindow):
             return
         self.state.aspect = self.aspect.currentData()
         self.state.export_profile = self.export_profile.currentData()
-        self.worker = TimelineRenderWorker(self.multitrack, path, canvas, ffmpeg_path(), adjustments=self.render_adjustments())
+        # Nothing but cuts of one video: offer to copy it instead of encoding it again (akis.fast_export).
+        pieces = fast_export.plan(self.multitrack, self.render_adjustments(), canvas, MediaService(ffmpeg_path()))
+        copying = bool(pieces) and QMessageBox.question(
+            self, APP_NAME, self.ui_text(fast_export.QUESTION),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes) == QMessageBox.StandardButton.Yes
+        if copying:
+            self.worker = fast_export.FastExportWorker(self.multitrack, pieces, path, ffmpeg_path())
+        else:
+            self.worker = TimelineRenderWorker(self.multitrack, path, canvas, ffmpeg_path(), adjustments=self.render_adjustments())
         self.begin_work(self.ui_text("Dışa aktarma hazırlanıyor…"))
         self._export_estimator = export_progress.Estimator()
         self.worker.progress.connect(self.on_export_progress)
         self.worker.finished.connect(lambda: self.progress.setRange(0, 0))  # back to the "busy" look
         self.worker.completed.connect(self.on_exported)
-        self.worker.failed.connect(self.on_worker_error)
+        if copying:  # a copy that fails says how to get the normal export instead
+            self.worker.failed.connect(lambda message: self.on_worker_error(
+                self.ui_text('Hızlı dışa aktarma yapılamadı: {error}\n\nYeniden dışa aktarıp soruya “Hayır” diyerek '
+                             'olağan dışa aktarmayı kullanın.', error=message)))
+        else:
+            self.worker.failed.connect(self.on_worker_error)
         self.worker.cancelled.connect(self.on_export_cancelled)
         self.start_worker()
 
