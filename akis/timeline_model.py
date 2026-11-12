@@ -110,6 +110,29 @@ class Track:
             if other.start >= end:
                 other.start -= length
 
+    def trim_start(self, clip_id: str, start: int):
+        """Move the clip's left edge to `start`, keeping its right edge and the picture under it in place.
+
+        Dragging right hides the beginning of the source; dragging left reveals material before the
+        current in-point, as far as the source has any. Keyframes stay on the frames they were set on.
+        """
+        clip = self.find(clip_id)
+        delta = start - clip.start
+        length = clip.length - delta
+        # A clip without media (text, shape) has no earlier material to run out of.
+        source_in = clip.source_in + delta if clip.source else 0
+        if start < 0 or length < 1 or source_in < 0:
+            raise ValueError("Invalid trim")
+        old = (clip.start, clip.length, clip.source_in, clip.keyframes)
+        clip.start, clip.length, clip.source_in = start, length, source_in
+        clip.keyframes = {name: [dict(p, frame=p['frame'] - delta) for p in points if p['frame'] - delta >= 0]
+                          for name, points in clip.keyframes.items()}
+        try:
+            self.validate()
+        except Exception:
+            clip.start, clip.length, clip.source_in, clip.keyframes = old
+            raise
+
     def trim_end(self, clip_id: str, end: int, ripple: bool = False):
         clip = self.find(clip_id)
         length = end - clip.start
