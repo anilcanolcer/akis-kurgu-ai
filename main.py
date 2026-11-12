@@ -53,6 +53,7 @@ from akis import export_progress
 from akis import shortcuts
 from akis import speech_settings
 from akis import clip_fit
+from akis import preflight
 from akis.inspiration_service import template_for
 from akis.story_dialog import StoryDialog
 from akis.temp_cleanup import cleanup_stale_temp_dirs
@@ -1830,6 +1831,12 @@ class MainWindow(QMainWindow):
         except (ValueError, RuntimeError, OSError) as exc:  # e.g. "Kaynak oranı" with no usable video clip
             QMessageBox.warning(self, APP_NAME, f'Dışa aktarma boyutu belirlenemedi: {exc}')
             self.set_status('Dışa aktarma başlatılamadı.')
+            return
+        findings = preflight.check(self.multitrack)
+        if findings and QMessageBox.question(self, APP_NAME, preflight.question(findings),
+                                             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                             QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
+            self.set_status('Dışa aktarma başlatılmadı.')
             return
         default = safe_filename(self.project_title.text()) + "_akis.mp4"
         chosen, _ = QFileDialog.getSaveFileName(self, "Videoyu dışa aktar", str(Path.home() / "Videos" / default), "MP4 Video (*.mp4)")
