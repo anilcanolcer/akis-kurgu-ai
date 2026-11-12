@@ -49,6 +49,7 @@ from akis import i18n
 from akis.template_dialog import TemplateDialog
 from akis.inspiration_dialog import InspirationDialog
 from akis.silence_dialog import SilenceDialog
+from akis import export_progress
 from akis.inspiration_service import template_for
 from akis.story_dialog import StoryDialog
 from akis.temp_cleanup import cleanup_stale_temp_dirs
@@ -1808,14 +1809,33 @@ class MainWindow(QMainWindow):
         if timeline_service.output_overwrites_source(self.multitrack, path, (self.state.source,)):
             QMessageBox.warning(self, APP_NAME, 'Çıktı yolu kaynak medya ile aynı olamaz; başka bir dosya adı seçin.')
             return
+        fps = self.multitrack.fps_num / self.multitrack.fps_den
+        seconds = duration_frames(self.multitrack) / fps / self.state.speed
+        problem = export_progress.space_problem(path, export_progress.estimated_bytes(canvas, fps, seconds))
+        if problem and QMessageBox.question(self, APP_NAME, problem + '\n\nYine de devam edilsin mi?',
+                                            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                            QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
+            self.set_status('Dışa aktarma başlatılmadı.')
+            return
         self.state.aspect = self.aspect.currentData()
         self.state.export_profile = self.export_profile.currentData()
         self.worker = TimelineRenderWorker(self.multitrack, path, canvas, ffmpeg_path(), adjustments=self.render_adjustments())
         self.begin_work(self.ui_text("Dışa aktarma hazırlanıyor…"))
+        self._export_estimator = export_progress.Estimator()
+        self.worker.progress.connect(self.on_export_progress)
+        self.worker.finished.connect(lambda: self.progress.setRange(0, 0))  # back to the "busy" look
         self.worker.completed.connect(self.on_exported)
         self.worker.failed.connect(self.on_worker_error)
         self.worker.cancelled.connect(self.on_export_cancelled)
         self.start_worker()
+
+    def on_export_progress(self, percent: int) -> None:
+        if self._shutting_down:
+            return
+        shown, remaining = self._export_estimator.update(percent / 100)
+        self.progress.setRange(0, 100)
+        self.progress.setValue(shown)
+        self.set_status(export_progress.text(shown, remaining))
 
     def confirm_overwrite(self, chosen: str, path: str) -> bool:
         """The file dialog only confirmed overwriting `chosen`; ask again when the final name differs and exists."""

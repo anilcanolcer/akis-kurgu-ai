@@ -7,6 +7,8 @@ import subprocess
 import threading
 from pathlib import Path
 
+from akis import export_progress
+
 
 _PROBES = {}  # (executable, path, size, mtime) -> ffmpeg's stream report; files are probed once
 PROBE_TIMEOUT = 30  # seconds; a stalled network share must not hang a probe forever
@@ -43,10 +45,13 @@ class MediaService:
             except OSError:  # already exited
                 pass
 
-    def run(self, arguments, *, text=False, timeout=None):
+    def run(self, arguments, *, text=False, timeout=None, on_progress=None):
+        """on_progress(seconds of output written) is called from a helper thread while ffmpeg runs."""
         # FFmpeg prints UTF-8; the locale codec (cp1254 on Turkish Windows) cannot decode every file name.
         decoding = {'text': True, 'encoding': 'utf-8', 'errors': 'replace'} if text else {}
         command = [self.executable, *map(str, arguments)]
+        if on_progress is not None and self.runner is subprocess.run:
+            command[1:1] = export_progress.PROGRESS_ARGS
         flags = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
         if self._cancelled:
             raise RenderCancelled('İşlem iptal edildi.')
@@ -62,7 +67,10 @@ class MediaService:
             self._process = process
         try:
             try:
-                stdout, stderr = process.communicate(timeout=timeout)
+                if on_progress is not None:
+                    stdout, stderr = self._communicate_with_progress(process, on_progress, text)
+                else:
+                    stdout, stderr = process.communicate(timeout=timeout)
             except subprocess.TimeoutExpired:
                 process.kill()
                 stdout, stderr = process.communicate()
@@ -77,6 +85,28 @@ class MediaService:
         if self._cancelled:
             raise RenderCancelled('İşlem iptal edildi.')
         return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+
+    @staticmethod
+    def _communicate_with_progress(process, on_progress, text):
+        """communicate() for a run started with -progress: stdout carries the progress lines, which are
+        read as they arrive; stderr is collected as usual. Both pipes are drained at once, so neither
+        can fill up and stall ffmpeg."""
+        def watch():
+            for line in process.stdout:
+                seconds = export_progress.parse(line)
+                if seconds is not None:
+                    try:
+                        on_progress(seconds)
+                    except Exception:  # a display problem must never break the render
+                        pass
+        watcher = threading.Thread(target=watch, daemon=True)
+        watcher.start()
+        stderr = process.stderr.read()
+        process.wait()
+        watcher.join()
+        process.stdout.close()
+        process.stderr.close()
+        return ('' if text else b''), stderr
 
     def probe(self, path):
         """FFmpeg's description of a file. Real files are cached by size and modification time,
