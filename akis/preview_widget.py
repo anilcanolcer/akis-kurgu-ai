@@ -19,6 +19,7 @@ class PreviewView(QWidget):
     """Shows the current frame. Ctrl+wheel zooms at the cursor, dragging pans, double-click edits."""
     double_clicked = Signal(float, float)  # position as fractions of the picture
     zoom_changed = Signal(float)
+    resized = Signal()
 
     def __init__(self, placeholder=''):
         super().__init__()
@@ -107,6 +108,7 @@ class PreviewView(QWidget):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._clamp_pan()
+        self.resized.emit()
 
     def paintEvent(self, event):
         painter = QPainter(self)

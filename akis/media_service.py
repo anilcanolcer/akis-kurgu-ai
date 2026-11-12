@@ -10,6 +10,9 @@ from pathlib import Path
 
 _PROBES = {}  # (executable, path, size, mtime) -> ffmpeg's stream report; files are probed once
 PROBE_TIMEOUT = 30  # seconds; a stalled network share must not hang a probe forever
+_FILTERS = {}  # executable -> names of the filters that build has
+# Timeline rates a source is snapped to; the NTSC ones are exact fractions.
+FRAME_RATES = ((24000, 1001), (24, 1), (25, 1), (30000, 1001), (30, 1), (50, 1), (60000, 1001), (60, 1))
 
 
 class RenderCancelled(RuntimeError):
@@ -102,6 +105,39 @@ class MediaService:
         if not match:
             raise ValueError('Medya süresi okunamadı.')
         return int(match.group(1))*3600 + int(match.group(2))*60 + float(match.group(3))
+
+    def frame_rate(self, path):
+        """(numerator, denominator) for a timeline showing this video at its own pace, or None if unknown.
+
+        Snapped to the nearest standard rate (phones record slightly uneven rates such as 29.83) and
+        kept between 10 and 60: slow-motion footage flagged 120/240 fps plays back at 60.
+        """
+        match = re.search(r'Stream #[^\n]*Video:[^\n]*?\b(\d+(?:\.\d+)?) (?:fps|tbr)\b', self.probe(path))
+        rate = float(match.group(1)) if match else 0.0
+        if rate <= 0:
+            return None
+        numerator, denominator = min(FRAME_RATES, key=lambda r: abs(rate - r[0] / r[1]))
+        if abs(rate - numerator / denominator) <= 0.012 * rate:
+            return numerator, denominator
+        return max(10, min(60, round(rate))), 1
+
+    def is_hdr(self, path):
+        """The picture uses an HDR transfer curve (PQ or HLG), which looks washed out unless tone-mapped."""
+        match = re.search(r'Stream #[^\n]*Video:[^\n]*', self.probe(path))
+        return bool(match and re.search(r'smpte2084|arib-std-b67', match.group(0)))
+
+    def has_filter(self, name):
+        """This FFmpeg build has the named filter (asked once per executable)."""
+        if self.executable in _FILTERS:
+            return name in _FILTERS[self.executable]
+        try:
+            listing = self.run(['-hide_banner', '-filters'], text=True, timeout=PROBE_TIMEOUT).stdout
+        except (subprocess.TimeoutExpired, OSError):
+            return False
+        names = set(re.findall(r'^ [A-Z.|]{2,3} (\w+)', listing or '', re.MULTILINE))
+        if self.runner is subprocess.run and names:  # an injected fake must not answer for the real program
+            _FILTERS[self.executable] = names
+        return name in names
 
     def has_audio(self, path):
         return bool(re.search(r'Stream #\S+.*Audio:', self.probe(path)))

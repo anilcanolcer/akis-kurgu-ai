@@ -55,6 +55,9 @@ def append_video(timeline, path, seconds, preferred_track=None):
     return append_media(timeline, index, path, seconds)
 
 
+UHD_LONG_SIDE = 3840
+
+
 def canvas_size(aspect, timeline, media):
     if aspect.startswith('16:9'):
         return 1920, 1080
@@ -73,8 +76,12 @@ def canvas_size(aspect, timeline, media):
 def output_canvas_size(aspect, timeline, media, profile):
     """Preserve the chosen aspect; 4K profiles double the standard canvas."""
     width, height = canvas_size(aspect, timeline, media)
-    scale = 2 if profile.startswith('4K') else 1
-    return width * scale, height * scale
+    if not profile.startswith('4K'):
+        return width, height
+    # Fixed canvases are 1080-based and double to 4K. A source-ratio canvas is whatever the video is:
+    # enlarge it up to 4K at most, so 4K footage stays 4K instead of becoming 8K.
+    scale = max(1.0, min(2.0, UHD_LONG_SIDE / max(width, height)))
+    return round(width * scale / 2) * 2, round(height * scale / 2) * 2
 
 
 def audio_target(timeline, frame, speed):

@@ -15,6 +15,11 @@ from akis.frame_plan import plan_frame, plan_segments
 
 TRANSITIONS = ('fade', 'flash', 'dip', 'slide_left', 'slide_right', 'slide_up', 'slide_down')
 AUDIO_PREROLL = 0.5  # seconds decoded before a cut so the audio decoder has settled at the cut
+# HDR (BT.2020 PQ/HLG) to SDR BT.709: linear light, tone curve, then back to an 8-bit video signal.
+# mobius keeps everything up to SDR white as it is and only rolls off the highlights (hable darkens the whole picture).
+TONE_MAP = ('zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=mobius:desat=0,'
+            'zscale=t=bt709:m=bt709:r=tv,format=yuv420p')
+LIMITER = 'alimiter=limit=0.89:level=0:latency=1'  # -1 dB ceiling; no automatic gain, no added delay
 TEXT_SCALE = {'small': 0.75, 'medium': 1.0, 'large': 1.5}
 TEXT_WRAP = {'small': 30, 'medium': 22, 'large': 15}
 TEXT_COLORS = {'white': 'white', 'yellow': '#FFDD00', 'red': '#FF2D2D', 'green': '#39FF5A',
@@ -105,6 +110,15 @@ class TimelineRenderer:
             raise ValueError('Color adjustment out of range')
         self.brightness, self.contrast, self.saturation, self.speed = brightness, contrast, saturation, speed
 
+    def _needs_tone_mapping(self, source):
+        """HDR footage (PQ/HLG, e.g. phone video) must be mapped to SDR or it comes out grey and flat.
+        Skipped when this FFmpeg build lacks zscale; the picture is then converted as before."""
+        try:
+            return (self.media.is_hdr(source) is True and self.media.has_filter('zscale') is True
+                    and self.media.has_filter('tonemap') is True)
+        except (AttributeError, TypeError):  # a stand-in media service without these probes
+            return False
+
     @staticmethod
     def _open_input(args, source, position, with_audio):
         """Adds a source input seeked to `position` seconds; returns how far before `position` the
@@ -179,8 +193,10 @@ class TimelineRenderer:
                         chain = f'[{index}:v]{self._trim("trim", lead, length - skip)},setpts=PTS-STARTPTS'
                         if hold:
                             chain += f',tpad=stop_mode=clone:stop_duration={hold:.9f}'
-                        chain += (f',scale={self.width}:{self.height}:force_original_aspect_ratio=decrease,'
-                                  f'pad={self.width}:{self.height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1')
+                        chain += f',scale={self.width}:{self.height}:force_original_aspect_ratio=decrease'
+                        if self._needs_tone_mapping(clip.source):  # after scaling: the float maths is costly
+                            chain += f',{TONE_MAP}'
+                        chain += (f',pad={self.width}:{self.height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1')
                         if skip:  # restore clip-local time so transitions see where they are
                             chain += f',setpts=PTS+{skip:.9f}/TB'
                         position = ''
@@ -260,7 +276,11 @@ class TimelineRenderer:
                 base = 'timed'
             if audio:
                 tempo = f',atempo={speed:.6f}' if speed != 1.0 else ''
-                graph.append(''.join(audio) + f'amix=inputs={len(audio)}:duration=longest:normalize=0{tempo}[aout]')
+                # Sources are summed at full level (normalize=0 keeps a lone voice as loud as it was), so
+                # music under speech can exceed full scale: a limiter catches those peaks instead of
+                # letting the encoder clip them. Quieter material passes through unchanged.
+                limiter = f',{LIMITER}' if len(audio) > 1 else ''
+                graph.append(''.join(audio) + f'amix=inputs={len(audio)}:duration=longest:normalize=0{limiter}{tempo}[aout]')
             # The graph grows with every clip; passed inline it overflows the Windows command line
             # (32,767 chars). ffmpeg >= 7 reads it from a file via -/filter_complex. The temp dir
             # outlives the ffmpeg call below.

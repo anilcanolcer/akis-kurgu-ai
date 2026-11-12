@@ -278,6 +278,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.state = EditState()
         self.media_bin = MediaBin()
+        self._source_rate = (30, 1)  # frame rate of the video loaded last; a new timeline adopts it
         self.multitrack = Timeline.from_legacy({})
         self.timeline_frame = 0
         self.playback_clock = timeline_service.PlaybackClock()
@@ -522,6 +523,13 @@ class MainWindow(QMainWindow):
         self.video.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
         self.video.setToolTip('Ctrl + tekerlek: yakınlaştır · sürükle: kaydır · orta tuş: sıfırla · çift tık: yazı/işaret düzenle')
         self.video.double_clicked.connect(self.edit_at)
+        # Zooming in (or a larger window) needs a sharper still; wait until the gesture has settled.
+        self.still_timer = QTimer(self)
+        self.still_timer.setSingleShot(True)
+        self.still_timer.setInterval(250)
+        self.still_timer.timeout.connect(self.refresh_still)
+        self.video.zoom_changed.connect(lambda _zoom: self.still_timer.start())
+        self.video.resized.connect(self.still_timer.start)
         v.addWidget(self.video, 1)
 
         controls = QHBoxLayout()
@@ -975,10 +983,15 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, APP_NAME, "Desteklenen bir video dosyası seçin.")
             return False
         try:
-            duration = MediaService(ffmpeg_path()).duration(str(file))
+            media = MediaService(ffmpeg_path())
+            duration = media.duration(str(file))
         except (ValueError, RuntimeError, OSError) as exc:
             QMessageBox.warning(self, APP_NAME, str(exc))
             return False
+        try:  # a new project runs at its first video's own frame rate
+            self._source_rate = media.frame_rate(str(file)) or (30, 1)
+        except (ValueError, RuntimeError, OSError):
+            self._source_rate = (30, 1)
         self.play_timer.stop()
         self.playback_clock.stop()
         self.timeline_audio.stop()
@@ -992,7 +1005,7 @@ class MainWindow(QMainWindow):
                                saturation=self.saturation.value(), speed=self.speed_value(),
                                export_profile=self.export_profile.currentData())
         if not self._pending_project and not getattr(self, "_template_before_video", False):
-            self.multitrack = Timeline.from_legacy({})
+            self.multitrack = Timeline.from_legacy({}, self._source_rate)
             self.multitrack_view.set_model(self.multitrack)
         self.project_title.setText(file.stem)
         self.project_subtitle.setText(f"{file.suffix.upper().lstrip('.')} · {file.stat().st_size / 1024 / 1024:.1f} MB")
@@ -1022,12 +1035,14 @@ class MainWindow(QMainWindow):
             self.apply_project_state(pending)
         elif getattr(self, '_template_before_video', False):
             self._template_before_video = False
+            if not any(t.clips for t in self.multitrack.tracks):  # nothing placed yet: frames can still change meaning
+                self.multitrack.fps_num, self.multitrack.fps_den = self._source_rate
             # The first video track, or a new one if the template's video tracks were removed meanwhile.
             timeline_service.append_video(self.multitrack, self.state.source, duration)
             self.multitrack_view.set_model(self.multitrack)
             self.seek_timeline(0)
         elif not any(t.clips for t in self.multitrack.tracks):
-            self.multitrack = Timeline.from_legacy(asdict(self.state))
+            self.multitrack = Timeline.from_legacy(asdict(self.state), self._source_rate)
             self.multitrack_view.set_model(self.multitrack)
             self.seek_timeline(0)
 
@@ -1574,6 +1589,10 @@ class MainWindow(QMainWindow):
 
     def apply_local_captions(self):
         with self.history_step():
+            # Applying again replaces the previous caption track instead of drawing the captions twice.
+            self.multitrack.tracks = [track for track in self.multitrack.tracks
+                                      if not (track.kind == 'text' and track.name == edit_plan.CAPTION_TRACK)]
+            self.multitrack_view.selected = self.multitrack_view.selected_track = None
             count = caption_track(self.multitrack, self.caption_source, self.caption_segments)
         self.refresh_timeline_view()
         self.multitrack_view.update()
@@ -2204,7 +2223,20 @@ class MainWindow(QMainWindow):
         except (ValueError, RuntimeError, OSError) as exc:  # e.g. "Kaynak oranı" with the first clip missing
             self.set_status(f'Önizleme oluşturulamadı: {exc}')
             return
+        self.preview.limit = self.preview_limit()
         self.preview.request(self.multitrack, self.timeline_frame, canvas, self.render_adjustments())
+
+    def preview_limit(self) -> int:
+        """Longest side of a still preview in pixels: what the view really shows (screen scaling and zoom
+        included), so a paused frame is sharp without rendering more than can be seen."""
+        shown = max(self.video.width(), self.video.height()) * self.video.devicePixelRatioF() * self.video.zoom
+        return int(max(PreviewController.DEFAULT_LIMIT, min(PreviewController.MAX_LIMIT, math.ceil(shown / 160) * 160)))
+
+    def refresh_still(self) -> None:
+        """Render the paused frame again when the view was zoomed or resized past its sharpness."""
+        if (duration_frames(self.multitrack) and not self.proxy.playing and not self.play_timer.isActive()
+                and self.preview_limit() > self.preview.limit):
+            self.seek_timeline(self.timeline_frame)
 
     def show_timeline_frame(self, path):
         if not self.proxy.playing:
@@ -2665,6 +2697,7 @@ class MainWindow(QMainWindow):
         self.stop_thread(self.update_download)
         self.stop_thread(self.update_check)
         self.proxy_timer.stop()
+        self.still_timer.stop()
         self.proxy.close()
         self.preview.close()
         self.multitrack_view.stop_waveforms()
