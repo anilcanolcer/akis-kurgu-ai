@@ -48,6 +48,7 @@ from akis import template_service
 from akis import i18n
 from akis.template_dialog import TemplateDialog
 from akis.inspiration_dialog import InspirationDialog
+from akis.silence_dialog import SilenceDialog
 from akis.inspiration_service import template_for
 from akis.story_dialog import StoryDialog
 from akis.temp_cleanup import cleanup_stale_temp_dirs
@@ -735,6 +736,11 @@ class MainWindow(QMainWindow):
         prompt_edit.setToolTip("Yazdığınız isteğe göre videoyu gerçekten keser, dizer ve ayarlar.")
         prompt_edit.clicked.connect(self.run_prompt_edit)
         v.addWidget(prompt_edit)
+        silence_button = QPushButton("Sessizlikleri çıkar")
+        silence_button.setObjectName("secondary")
+        silence_button.setToolTip("Konuşma olmayan yerleri keser. Yapay zekâ, anahtar ve internet gerekmez.")
+        silence_button.clicked.connect(self.remove_silences)
+        v.addWidget(silence_button)
         # Undoes the last step of the shared edit history; right after an AI edit that is the AI edit.
         self.undo_edit_button = QPushButton("↶  Son adımı geri al")
         self.undo_edit_button.setObjectName("secondary")
@@ -1444,6 +1450,31 @@ class MainWindow(QMainWindow):
             paths.append(self.state.source)
         media = MediaService(ffmpeg_path())
         return [(path, media.duration(path)) for path in paths if Path(path).is_file()]
+
+    def remove_silences(self) -> None:
+        """Cut the pauses out of the main cut: measured locally, previewed in a dialog, one undo step."""
+        if not self.can_start_work() or not self.ensure_video():
+            return
+        try:
+            sources = [{'path': path, 'duration': seconds} for path, seconds in self.edit_sources()]
+        except (ValueError, RuntimeError, OSError) as exc:
+            QMessageBox.warning(self, APP_NAME, f'Video okunamadı: {exc}')
+            return
+        segments = edit_plan.current_segments(self.multitrack, sources)
+        if not segments:
+            QMessageBox.information(self, APP_NAME, 'Zaman çizelgesinde kesilecek video yok.')
+            return
+        dialog = SilenceDialog(self, executable=ffmpeg_path(), sources=sources, segments=segments)
+        if not dialog.exec() or not dialog.cuts:  # exec() is 0 when the dialog is dismissed
+            return
+        try:
+            timeline = edit_plan.apply_plan(self.multitrack, sources, {'segments': dialog.segments})
+        except Exception as exc:
+            QMessageBox.warning(self, APP_NAME, f'Sessizlikler kesilemedi: {exc}')
+            return
+        with self.history_step():
+            self.show_timeline(timeline)
+        self.set_status(f'{len(dialog.cuts)} sessiz yer kesildi. Beğenmezseniz geri alabilirsiniz (Ctrl+Z).')
 
     def run_prompt_edit(self) -> None:
         if not self.can_start_work() or not self.ensure_video():
