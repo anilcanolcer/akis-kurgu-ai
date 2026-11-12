@@ -8,7 +8,7 @@ from akis.ai_service import parse_suggestions
 from akis.ai_providers import fallback_note, request_plan, transcribe
 from akis.ai_service import local_transcribe
 from akis.timeline_model import Timeline
-from akis import edit_plan
+from akis import analysis_cache, edit_plan, speech_settings
 
 POLL_SECONDS = 0.1
 
@@ -225,24 +225,36 @@ class PromptEditWorker(CancellableWorker):
             self.check_cancelled()
             path, duration = source['path'], source['duration']
             self.status.emit(f"Video çözümleniyor ({index + 1}/{len(self.sources)}): ses, sahne ve kareler…")
-            source['silences'] = media.silences(path) if media.has_audio(path) else []
-            source['scenes'] = media.scene_changes(path)
+            # Follow-up requests on the same file reuse what the first one worked out (akis.analysis_cache).
+            source['silences'] = analysis_cache.remember(
+                path, 'silences', lambda: media.silences(path) if media.has_audio(path) else [])
+            source['scenes'] = analysis_cache.remember(path, 'scenes', lambda: media.scene_changes(path))
             source['size'] = media.dimensions(path)
             transcript = self.transcripts.get(path)
             if transcript is None and self.whisper_model and media.has_audio(path):
-                try:
-                    self.status.emit('Konuşma yerel Whisper ile çözümleniyor…')
-                    transcript = local_transcribe(path, self.whisper_model, timed=True)
-                except Exception:
-                    transcript = None  # Editing still works from frames, silence and scenes.
+                def recognise():
+                    try:
+                        self.status.emit('Konuşma yerel Whisper ile çözümleniyor…')
+                        return local_transcribe(path, self.whisper_model, timed=True)
+                    except Exception:
+                        return None  # Editing still works from frames, silence and scenes.
+                # The words depend on the model and the speech settings, so those are part of the entry name.
+                name = ('transcript', self.whisper_model, speech_settings.language(), speech_settings.vocabulary())
+                transcript = analysis_cache.remember(path, name, recognise, keep=lambda value: value is not None)
             source['transcript'] = transcript or []
             count = counts[index]
             for step in range(count):
                 self.check_cancelled()
                 at = max(0.0, min(duration - 0.05, duration * (step + 0.5) / count))
                 target = Path(temp) / f"s{index}_f{step}.jpg"
-                if media.extract_frame(path, at, target).returncode == 0 and target.exists():
-                    frames.append((index, at, target.read_bytes()))
+
+                def grab(at=at, target=target):
+                    if media.extract_frame(path, at, target).returncode == 0 and target.exists():
+                        return target.read_bytes()
+                    return None
+                picture = analysis_cache.remember(path, ('frame', round(at, 3)), grab, keep=lambda value: value is not None)
+                if picture is not None:
+                    frames.append((index, at, picture))
         if not frames:
             raise RuntimeError("Videodan analiz karesi çıkarılamadı.")
         return frames
