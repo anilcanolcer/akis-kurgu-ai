@@ -50,6 +50,7 @@ from akis.template_dialog import TemplateDialog
 from akis.inspiration_dialog import InspirationDialog
 from akis.silence_dialog import SilenceDialog
 from akis import export_progress
+from akis import shortcuts
 from akis.inspiration_service import template_for
 from akis.story_dialog import StoryDialog
 from akis.temp_cleanup import cleanup_stale_temp_dirs
@@ -369,6 +370,7 @@ class MainWindow(QMainWindow):
             action.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
             self.addAction(action)
         self.update_history_controls()
+        self.shortcut_filter = shortcuts.install(self)  # Space, S, Delete, arrows, Ctrl+S/O/E/I, F1
 
         self._provider_keys = {}
         self.story_dialog = None
