@@ -58,6 +58,7 @@ from akis import user_templates
 from akis import privacy_log
 from akis import fast_export
 from akis import multi_export
+from akis import fcpxml_export
 from akis.start_panel import StartPanel
 from akis.saved_templates_dialog import SavedTemplatesDialog
 from akis.inspiration_service import template_for
@@ -1051,6 +1052,12 @@ class MainWindow(QMainWindow):
         three.setToolTip("Aynı kurguyu tek seferde dikey (9:16), kare (1:1) ve yatay (16:9) üç ayrı dosya olarak kaydeder.")
         three.clicked.connect(self.export_three_formats)
         v.addWidget(three)
+        handoff = QPushButton("Kurgu dosyası olarak aktar (DaVinci Resolve)")
+        handoff.setObjectName("secondary")
+        handoff.setToolTip("Kesimleri FCPXML dosyası olarak kaydeder; DaVinci Resolve ve Final Cut Pro aynı kurguyu "
+                           "özgün videolarla açar. Video oluşturulmaz.")
+        handoff.clicked.connect(self.export_fcpxml)
+        v.addWidget(handoff)
         v.addWidget(self.section("SES İYİLEŞTİRME"))
         self.loudness = QCheckBox("Ses yüksekliğini -14 LUFS'a normalleştir")
         self.loudness.setToolTip("Kısık çekilmiş videoyu yayın düzeyine çıkarır; önizlemede ve dışa aktarmada uygulanır.")
@@ -1965,6 +1972,33 @@ class MainWindow(QMainWindow):
                                       QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                                       QMessageBox.StandardButton.No)
         return answer == QMessageBox.StandardButton.Yes
+
+    def export_fcpxml(self) -> None:
+        """Write the cut as an FCPXML file for DaVinci Resolve / Final Cut Pro (akis.fcpxml_export)."""
+        if not self.ensure_video():
+            return
+        try:
+            canvas = self.export_canvas_size()
+        except (ValueError, RuntimeError, OSError) as exc:
+            QMessageBox.warning(self, APP_NAME, self.ui_text('Kurgu dosyası yazılamadı: {error}', error=exc))
+            return
+        default = safe_filename(self.project_title.text()) + ".fcpxml"
+        chosen, _ = QFileDialog.getSaveFileName(self, self.ui_text("Kurgu dosyası olarak aktar (DaVinci Resolve)"),
+                                                str(Path.home() / "Videos" / default), "FCPXML (*.fcpxml)")
+        if not chosen:
+            return
+        path = Path(chosen) if Path(chosen).suffix.lower() == '.fcpxml' else Path(chosen + '.fcpxml')
+        try:
+            text, report = fcpxml_export.build(self.multitrack, canvas, MediaService(ffmpeg_path()),
+                                               name=self.project_title.text() or APP_NAME)
+            path.write_text(text, encoding='utf-8')
+        except (OSError, ValueError, RuntimeError) as exc:
+            QMessageBox.warning(self, APP_NAME, self.ui_text('Kurgu dosyası yazılamadı: {error}', error=exc))
+            return
+        summary = fcpxml_export.describe(report, self.ui_template)
+        self.set_status(self.ui_text('Kurgu dosyası kaydedildi: {name}', name=path.name))
+        QMessageBox.information(self, APP_NAME, self.ui_text('Kurgu dosyası kaydedildi:\n{path}', path=str(path))
+                                + '\n\n' + summary)
 
     def export_three_formats(self) -> None:
         """The same edit as vertical, square and landscape files, one after the other (akis.multi_export)."""

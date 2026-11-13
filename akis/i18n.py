@@ -261,6 +261,16 @@ EN_UI = {
     'Hazır bir şablon uygulayın ya da AI sekmesine isteğinizi yazın.': 'Apply a ready-made template or write what you want in the AI tab.',
     'Dışa aktarın': 'Export it',
     'Beğendiğinizde sağ üstteki “Dışa aktar” düğmesiyle videonuzu kaydedin.': 'When you like it, save your video with the “Export” button at the top right.',
+    # Hand-off to DaVinci Resolve / Final Cut Pro (akis.fcpxml_export).
+    'Kurgu dosyası olarak aktar (DaVinci Resolve)': 'Export as an edit file (DaVinci Resolve)',
+    'Kesimleri FCPXML dosyası olarak kaydeder; DaVinci Resolve ve Final Cut Pro aynı kurguyu özgün videolarla açar. Video oluşturulmaz.':
+        'Saves the cuts as an FCPXML file; DaVinci Resolve and Final Cut Pro open the same edit with the original videos. No video is rendered.',
+    'Kurgu dosyası yazılamadı: {error}': 'The edit file could not be written: {error}',
+    'Kurgu dosyası kaydedildi: {name}': 'Edit file saved: {name}',
+    'Kurgu dosyası kaydedildi:\n{path}': 'Edit file saved:\n{path}',
+    '{count} klip yazıldı.': '{count} clips written.',
+    '{count} yazı ve altyazı klibi aktarılmadı.': '{count} text and caption clips were left out.',
+    '{count} geçiş aktarılmadı.': '{count} transitions were left out.',
     # Three formats at once (akis.multi_export).
     'Üç biçimde dışa aktar': 'Export in three formats',
     'Aynı kurguyu tek seferde dikey (9:16), kare (1:1) ve yatay (16:9) üç ayrı dosya olarak kaydeder.':
