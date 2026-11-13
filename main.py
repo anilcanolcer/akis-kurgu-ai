@@ -61,6 +61,8 @@ from akis import fast_export
 from akis import multi_export
 from akis import fcpxml_export
 from akis.batch_dialog import BatchDialog
+from akis import shorts_split
+from akis.shorts_dialog import ShortsDialog
 from akis.batch_export import BatchExportWorker, output_for
 from akis import beat_sync, emphasis, retakes, silence_cut
 from akis.plan_review import PlanReviewDialog
@@ -1090,6 +1092,11 @@ class MainWindow(QMainWindow):
         three.setToolTip("Aynı kurguyu tek seferde dikey (9:16), kare (1:1) ve yatay (16:9) üç ayrı dosya olarak kaydeder.")
         three.clicked.connect(self.export_three_formats)
         v.addWidget(three)
+        shorts = QPushButton("Shorts'a böl…")
+        shorts.setObjectName("secondary")
+        shorts.setToolTip("Videonun tamamını art arda dikey kısa videolara böler ve hepsini dışa aktarır.")
+        shorts.clicked.connect(self.export_shorts)
+        v.addWidget(shorts)
         handoff = QPushButton("Kurgu dosyası olarak aktar (DaVinci Resolve)")
         handoff.setObjectName("secondary")
         handoff.setToolTip("Kesimleri FCPXML dosyası olarak kaydeder; DaVinci Resolve ve Final Cut Pro aynı kurguyu "
@@ -2239,6 +2246,56 @@ class MainWindow(QMainWindow):
             return
         self.finish_work(self.ui_text("Dışa aktarma tamamlandı."))
         QMessageBox.information(self, APP_NAME, report)
+
+    def export_shorts(self) -> None:
+        """Divide the whole edit into consecutive vertical Shorts and export them all (akis.shorts_split)."""
+        if not self.can_start_work() or not self.ensure_video():
+            return
+        fps = self.multitrack.fps_num / self.multitrack.fps_den
+        total = duration_frames(self.multitrack) / fps
+        if total <= 0:
+            QMessageBox.information(self, APP_NAME, self.ui_text('Zaman çizelgesinde video yok.'))
+            return
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            pauses = shorts_split.timeline_pauses(self.multitrack, lambda source: silence_cut.measure(ffmpeg_path(), source))
+        finally:
+            QApplication.restoreOverrideCursor()
+        dialog = ShortsDialog(self, total=total, pauses=pauses, language=self.ui_language())
+        if not dialog.exec():
+            return
+        parts, fill, label = dialog.selection()
+        default = safe_filename(self.project_title.text()) + ".mp4"
+        chosen, _ = QFileDialog.getSaveFileName(self, self.ui_text("Shorts'a böl"), str(Path.home() / "Videos" / default),
+                                                "MP4 Video (*.mp4)")
+        if not chosen:
+            return
+        outputs = [shorts_split.output_for(chosen, n + 1, len(parts)) for n in range(len(parts))]
+        existing = [Path(path).name for path in outputs if Path(path).exists()]
+        if existing and QMessageBox.question(
+                self, APP_NAME, self.ui_text('Şu dosyalar zaten var ve üzerine yazılacak:\n{names}\n\nDevam edilsin mi?',
+                                             names='\n'.join(existing[:12]) + ('\n…' if len(existing) > 12 else '')),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
+            return
+        needed = export_progress.estimated_bytes(shorts_split.CANVAS, fps, total / self.state.speed)
+        problem = export_progress.space_problem(outputs[0], needed, say=self.ui_template)
+        if problem and QMessageBox.question(self, APP_NAME, problem + '\n\n' + self.ui_text('Yine de devam edilsin mi?'),
+                                            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                            QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
+            self.set_status(self.ui_text('Dışa aktarma başlatılmadı.'))
+            return
+        self.worker = shorts_split.ShortsExportWorker(self.multitrack, parts, chosen, ffmpeg_path(),
+                                                      adjustments=self.render_adjustments(), fill=fill, label=label,
+                                                      say=self.ui_template)
+        self.begin_work(self.ui_text("Dışa aktarma hazırlanıyor…"))
+        self._export_estimator = export_progress.Estimator()
+        self.worker.progress.connect(self.on_export_progress)
+        self.worker.finished.connect(lambda: self.progress.setRange(0, 0))
+        self.worker.completed.connect(self.on_exported)
+        self.worker.failed.connect(self.on_worker_error)
+        self.worker.cancelled.connect(self.on_export_cancelled)
+        self.start_worker()
 
     def export_three_formats(self) -> None:
         """The same edit as vertical, square and landscape files, one after the other (akis.multi_export)."""
