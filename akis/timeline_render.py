@@ -519,6 +519,55 @@ class TimelineRenderer:
     def preview(self, timeline, frame, output):
         return self._render(timeline, output, frame=frame)
 
+    def export_pieces(self, timeline, output, folder, on_progress=None):
+        """The playback copy from stored pieces (akis.chunk_preview): pieces whose content did not change
+        are reused, the others drawn and stored, the sound mixed in one pass, all joined without
+        re-encoding. Returns (output, pieces drawn, pieces reused)."""
+        from akis import chunk_preview
+        report = on_progress or (lambda fraction: None)
+        folder = Path(folder)
+        folder.mkdir(parents=True, exist_ok=True)
+        total = duration_frames(timeline)
+        if total <= 0:
+            raise ValueError('Timeline is empty')
+        look = {'brightness': self.brightness, 'contrast': self.contrast, 'saturation': self.saturation,
+                'fast': self.fast, 'font': str(self.font)}
+        bounds = chunk_preview.chunk_bounds(timeline, total, MAX_PICTURE_INPUTS)
+        parts, used, drawn, reused, done = [], set(), 0, 0, 0
+        picture_share = 0.9
+        for start, end in bounds:
+            part = slice_timeline(timeline, start, end)
+            key = chunk_preview.piece_key(part, (self.width, self.height), look)
+            stored = folder / f'{key}.mp4'
+            share = (end - start) / total * picture_share
+            if stored.is_file():
+                reused += 1
+                os.utime(stored)        # recently used: kept longest by tidy()
+            else:
+                drawing = folder / f'{key}.part.mp4'
+                self._render(part, drawing, streams='video',
+                             on_progress=lambda f, done=done, share=share: report(done + f * share))
+                chunk_preview.store(drawing, stored)
+                drawn += 1
+            parts.append(stored)
+            used.add(key)
+            done += share
+            report(done)
+        with tempfile.TemporaryDirectory(prefix='akis_pieces_') as tmp:
+            sound = Path(tmp) / 'sound.m4a'
+            made = self._render(timeline, sound, streams='audio', on_progress=lambda f: report(picture_share + f * 0.08))
+            listing = Path(tmp) / 'parts.txt'
+            listing.write_text(''.join(f"file '{p.as_posix()}'\n" for p in parts), encoding='utf-8')
+            args = ['-y', '-f', 'concat', '-safe', '0', '-i', str(listing)]
+            args += ['-i', str(sound), '-map', '0:v', '-map', '1:a'] if made else ['-map', '0:v']
+            args += ['-c', 'copy', str(output)]
+            result = self.media.run(args, text=True)
+            if result.returncode or not Path(output).is_file():
+                raise RuntimeError('\n'.join((result.stderr or '').splitlines()[-12:]) or 'FFmpeg did not create output')
+        chunk_preview.tidy(folder, used)
+        report(1.0)
+        return str(output), drawn, reused
+
     def export(self, timeline, output, on_progress=None):
         """Renders next to the target and moves it into place only when complete, so a failed or
         cancelled export (RenderCancelled from the media service) leaves an existing file intact.

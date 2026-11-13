@@ -224,8 +224,9 @@ class ProxyPlayback(QObject):
         executable = self.executable() if callable(self.executable) else self.executable
         self.fps = timeline.fps_num / timeline.fps_den
         self.rendering = signature
+        pieces = str(Path(self.directory.name) / 'pieces')   # kept between edits: unchanged pieces are reused
         self.worker = self.worker_factory(timeline, output, self.proxy_size(size), executable,
-                                          adjustments=dict(adjustments, speed=1.0, fast=True))
+                                          adjustments=dict(adjustments, speed=1.0, fast=True, pieces=pieces))
         self.worker.completed.connect(self._rendered)
         self.worker.failed.connect(self._render_failed)
         self.worker.finished.connect(self._worker_finished)
