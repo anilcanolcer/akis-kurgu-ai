@@ -4,10 +4,13 @@ from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (QButtonGroup, QComboBox, QDialog, QFormLayout, QFrame, QHBoxLayout, QLabel,
                                QListView, QListWidget, QListWidgetItem, QPushButton, QScrollArea, QVBoxLayout)
 
-from akis import i18n
+from akis import i18n, theme
 from akis.template_service import TEMPLATES, STYLES, TEMPOS, TITLE_SECONDS, missing_tracks
 
-KIND_COLORS = {'video': '#8f78ff', 'audio': '#4fc79a', 'text': '#f0b657'}
+def kind_color(kind):
+    return theme.hex_('kind_' + kind)
+
+
 KIND_LABELS = {'video': 'Video izi', 'audio': 'Ses izi', 'text': 'Metin izi'}
 FILTERS = (('Tümü', None), ('Dikey 9:16', '9:16'), ('Yatay 16:9', '16:9'), ('Kare 1:1', '1:1'))
 THUMB = QSize(132, 104)
@@ -15,27 +18,27 @@ THUMB = QSize(132, 104)
 DIALOG_STYLE = """
 QLabel#tplHeading { font-size: 20px; font-weight: 700; }
 QLabel#tplName { font-size: 17px; font-weight: 700; }
-QLabel#tplMuted { color: #9195a7; }
-QLabel#tplSection { color: #85899c; font-size: 10px; font-weight: 700; letter-spacing: 1px; margin-top: 6px; }
-QLabel#tplChip { background: #1d1f29; border: 1px solid #2c2f3c; border-radius: 10px; padding: 3px 9px; color: #c8cbd9; font-size: 12px; }
-QLabel#tplNotice { background: #1f1b12; border: 1px solid #4a3c1c; border-radius: 8px; padding: 8px 10px; color: #f0cf8e; }
-QFrame#tplDetail { background: #111218; border: 1px solid #252733; border-radius: 12px; }
+QLabel#tplMuted { color: $muted; }
+QLabel#tplSection { color: $muted; font-size: 10px; font-weight: 700; letter-spacing: 1px; margin-top: 6px; }
+QLabel#tplChip { background: $raised; border: 1px solid $border_strong; border-radius: 10px; padding: 3px 9px; color: $text_soft; font-size: 12px; }
+QLabel#tplNotice { background: $notice_bg; border: 1px solid $notice_border; border-radius: 8px; padding: 8px 10px; color: $notice_text; }
+QFrame#tplDetail { background: $surface; border: 1px solid $border; border-radius: 12px; }
 QFrame#tplDetail QLabel { background: transparent; }
-QFrame#tplDetail QLabel#tplChip { background: #1d1f29; }
-QFrame#tplDetail QLabel#tplNotice { background: #1f1b12; }
-QPushButton#tplFilter { background: #171920; border: 1px solid #2c2f3c; border-radius: 14px; padding: 6px 13px; color: #aeb1c0; text-align: center; }
-QPushButton#tplFilter:hover { background: #20222c; }
-QPushButton#tplFilter:checked { background: #2b2450; border: 1px solid #7357f5; color: white; }
-QPushButton#tplFilter:focus, QPushButton#tplCancel:focus { border: 1px solid #b4a6ff; }
-QPushButton#tplApply { background: #7357f5; color: white; font-weight: 700; text-align: center; padding: 10px 20px; border: 1px solid #7357f5; }
-QPushButton#tplApply:hover { background: #876eff; }
-QPushButton#tplApply:focus { border: 1px solid #d6ceff; }
-QPushButton#tplApply:disabled { background: #2a2c38; border: 1px solid #2a2c38; color: #777b8c; }
-QPushButton#tplCancel { background: #1a1c24; border: 1px solid #343747; text-align: center; padding: 10px 18px; }
+QFrame#tplDetail QLabel#tplChip { background: $raised; }
+QFrame#tplDetail QLabel#tplNotice { background: $notice_bg; }
+QPushButton#tplFilter { background: $field; border: 1px solid $border_strong; border-radius: 14px; padding: 6px 13px; color: $text_soft; text-align: center; }
+QPushButton#tplFilter:hover { background: $button; }
+QPushButton#tplFilter:checked { background: $accent_bg; border: 1px solid $accent; color: $text_strong; }
+QPushButton#tplFilter:focus, QPushButton#tplCancel:focus { border: 1px solid $accent_text; }
+QPushButton#tplApply { background: $accent; color: white; font-weight: 700; text-align: center; padding: 10px 20px; border: 1px solid $accent; }
+QPushButton#tplApply:hover { background: $accent_hover; }
+QPushButton#tplApply:focus { border: 1px solid $accent_text; }
+QPushButton#tplApply:disabled { background: $disabled; border: 1px solid $disabled; color: $disabled_text; }
+QPushButton#tplCancel { background: $raised; border: 1px solid $border_strong; text-align: center; padding: 10px 18px; }
 QListWidget#tplList { background: transparent; border: 0; outline: 0; }
-QListWidget#tplList::item { background: #15171e; border: 1px solid #252733; border-radius: 10px; padding: 8px 4px; margin: 4px; color: #d9dbe6; }
-QListWidget#tplList::item:hover { background: #1b1d27; border: 1px solid #3a3e4e; }
-QListWidget#tplList::item:selected { background: #211d38; border: 2px solid #8f78ff; color: white; }
+QListWidget#tplList::item { background: $panel; border: 1px solid $border; border-radius: 10px; padding: 8px 4px; margin: 4px; color: $text; }
+QListWidget#tplList::item:hover { background: $button_hover; border: 1px solid $border_hover; }
+QListWidget#tplList::item:selected { background: $accent_bg; border: 2px solid $accent_line; color: $text_strong; }
 """
 
 
@@ -54,8 +57,8 @@ def thumbnail(template) -> QPixmap:
     frame = QRectF((THUMB.width() - box_w) / 2, (THUMB.height() - box_h) / 2, box_w, box_h)
     path = QPainterPath()
     path.addRoundedRect(frame, 7, 7)
-    painter.fillPath(path, QColor('#0b0c10'))
-    painter.setPen(QPen(QColor('#3a3e4e'), 1.2))
+    painter.fillPath(path, theme.color('video_bg'))
+    painter.setPen(QPen(theme.color('border_hover'), 1.2))
     painter.drawPath(path)
     bars = len(template.tracks)
     bar_h = min(9.0, (box_h - 16) / (bars * 1.6))
@@ -63,7 +66,7 @@ def thumbnail(template) -> QPixmap:
     widths = (0.86, 0.6, 0.78, 0.46)
     painter.setPen(Qt.PenStyle.NoPen)
     for index, (kind, _name) in enumerate(template.tracks):
-        painter.setBrush(QColor(KIND_COLORS[kind]))
+        painter.setBrush(QColor(kind_color(kind)))
         painter.drawRoundedRect(QRectF(frame.left() + 7, y, (box_w - 14) * widths[index % len(widths)], bar_h), 3, 3)
         y += bar_h * 1.6
     painter.end()
@@ -89,7 +92,7 @@ class TemplateDialog(QDialog):
         self.setWindowTitle(self.tr_('Şablonlar'))
         self.resize(960, 700)
         self.setMinimumSize(760, 540)
-        self.setStyleSheet(DIALOG_STYLE)
+        self.setStyleSheet(theme.css(DIALOG_STYLE))
         layout = QVBoxLayout(self)
         layout.setContentsMargins(22, 20, 22, 18)
         layout.setSpacing(12)
@@ -284,13 +287,13 @@ class TemplateDialog(QDialog):
         existing = set() if self.timeline is None else set(t.tracks) - set(missing_tracks(self.timeline, t))
         rows = []
         for kind, name in t.tracks:
-            note = f" <span style='color:#7d8194'>· {self.tr_('projede var')}</span>" if (kind, name) in existing else ''
-            rows.append(f"<tr><td style='color:{KIND_COLORS[kind]}; padding-right:8px'>■</td>"
+            note = f" <span style='color:{theme.hex_("faint")}'>· {self.tr_('projede var')}</span>" if (kind, name) in existing else ''
+            rows.append(f"<tr><td style='color:{kind_color(kind)}; padding-right:8px'>■</td>"
                         f"<td style='padding-right:10px'>{self.tr_(name)}{note}</td>"
-                        f"<td style='color:#9195a7'>{self.tr_(KIND_LABELS[kind])}</td></tr>")
+                        f"<td style='color:{theme.hex_("muted")}'>{self.tr_(KIND_LABELS[kind])}</td></tr>")
         title = self.tr_('Düzenlenebilir başlık: “{title}” ({n} sn)').format(title=self.tr_(t.title), n=TITLE_SECONDS)
         self.contents.setText(f"<table cellspacing='0' cellpadding='2'>{''.join(rows)}</table>"
-                              f"<p style='margin-top:6px'><span style='color:{KIND_COLORS['text']}'>■</span>&nbsp; {title}</p>")
+                              f"<p style='margin-top:6px'><span style='color:{kind_color("text")}'>■</span>&nbsp; {title}</p>")
         self.style.setCurrentIndex(self.style.findData(t.style))
         self.tempo.setCurrentIndex(self.tempo.findData(t.tempo))
         if self.current_aspect and self.current_aspect != t.ratio:

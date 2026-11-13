@@ -7,15 +7,17 @@ translates them like every other label.
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QFrame, QGridLayout, QLabel, QPushButton, QVBoxLayout
 
+from akis import theme
+
 STYLE = """
-QFrame#startPanel { background: #14161d; border: 1px solid #2c2f3c; border-radius: 14px; }
+QFrame#startPanel { background: $panel; border: 1px solid $border_strong; border-radius: 14px; }
 QFrame#startPanel QLabel { background: transparent; }
 QLabel#startHeading { font-size: 19px; font-weight: 700; }
-QLabel#startNumber { color: #9b87ff; font-size: 22px; font-weight: 800; }
-QLabel#startHint { color: #9195a7; }
-QPushButton#startPrimary { background: #7357f5; border: 1px solid #7357f5; color: white; font-weight: 700; padding: 8px 16px; }
-QPushButton#startPrimary:hover { background: #876eff; }
-QPushButton#startSecondary { background: #1d1f29; border: 1px solid #343747; padding: 8px 16px; }
+QLabel#startNumber { color: $accent_text; font-size: 22px; font-weight: 800; }
+QLabel#startHint { color: $muted; }
+QPushButton#startPrimary { background: $accent; border: 1px solid $accent; color: white; font-weight: 700; padding: 8px 16px; }
+QPushButton#startPrimary:hover { background: $accent_hover; }
+QPushButton#startSecondary { background: $raised; border: 1px solid $border_strong; padding: 8px 16px; }
 """
 STEPS = (
     ('Video ekleyin', 'Bilgisayarınızdan bir video seçin ya da pencereye sürükleyin.', 'Video seç', 'add'),
@@ -25,10 +27,13 @@ STEPS = (
 
 
 class StartPanel(QFrame):
+    def restyle(self):
+        self.setStyleSheet(theme.css(STYLE))
+
     def __init__(self, parent=None, *, add_video, show_templates):
         super().__init__(parent)
         self.setObjectName('startPanel')
-        self.setStyleSheet(STYLE)
+        self.restyle()
         self.setMaximumWidth(560)
         actions = {'add': add_video, 'templates': show_templates}
         outer = QVBoxLayout(self)

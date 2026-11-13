@@ -70,6 +70,7 @@ from akis.batch_export import BatchExportWorker, output_for
 from akis import beat_sync, emphasis, retakes, silence_cut
 from akis.plan_review import PlanReviewDialog
 from akis.start_panel import StartPanel
+from akis import theme
 from akis.saved_templates_dialog import SavedTemplatesDialog
 from akis.inspiration_service import template_for
 from akis.story_dialog import StoryDialog
@@ -466,9 +467,11 @@ class MainWindow(QMainWindow):
         v = QVBoxLayout(side)
         v.setContentsMargins(18, 22, 18, 18)
         v.setSpacing(8)
-        brand = QLabel("AKIŞ  <span style='color:#9b87ff'>KURGU</span>")
+        self.brand = brand = QLabel()
         brand.setTextFormat(Qt.TextFormat.RichText)
         brand.setObjectName("brand")
+        brand.setProperty("i18n_skip", True)
+        self.paint_brand()
         v.addWidget(brand)
         subtitle = QLabel("AI Video Studio")
         subtitle.setObjectName("muted")
@@ -518,6 +521,14 @@ class MainWindow(QMainWindow):
         self.language.setCurrentIndex(0 if selected_language == "tr" else 1)
         self.language.currentIndexChanged.connect(self.change_language)
         v.addWidget(self.language)
+        self.theme_box = QComboBox()
+        self.theme_box.setProperty("i18n_keyed", True)
+        for name, label in theme.LABELS.items():
+            self.theme_box.addItem(label, label)
+        self.theme_box.setCurrentIndex(list(theme.LABELS).index(theme.current()))
+        self.theme_box.setAccessibleName("Tema")
+        self.theme_box.currentIndexChanged.connect(self.change_theme)
+        v.addWidget(self.theme_box)
         v.addSpacing(12)
 
         local = QFrame()
@@ -3634,6 +3645,26 @@ class MainWindow(QMainWindow):
         self.apply_language(code)
         self.set_status("Language changed to English." if code == "en" else "Dil Türkçe olarak değiştirildi.")
 
+    def paint_brand(self) -> None:
+        self.brand.setText(f"AKIŞ  <span style='color:{theme.hex_('accent_text')}'>KURGU</span>")
+
+    def apply_theme(self, name) -> None:
+        """Dark or light: the stylesheets are set again from akis.theme and the painted widgets repaint."""
+        name = theme.set_current(name)
+        app = QApplication.instance()
+        if app is not None:
+            app.setStyleSheet(theme.css(STYLE))
+        self.start_panel.restyle()
+        self.paint_brand()
+        for widget in self.findChildren(QWidget):
+            QWidget.update(widget)  # some subclasses (QListWidget) overload update()
+
+    def change_theme(self) -> None:
+        name = list(theme.LABELS)[max(0, self.theme_box.currentIndex())]
+        self.settings.setValue("theme", name)
+        self.apply_theme(name)
+        self.set_status(self.ui_text("Görünüm değiştirildi."))
+
     @staticmethod
     def stop_story_workers() -> None:
         """Story Studio generation threads outlive a closed dialog; stop them when the module offers it."""
@@ -3727,52 +3758,53 @@ class MainWindow(QMainWindow):
 
 
 STYLE = r"""
-* { font-family: 'Segoe UI'; font-size: 13px; color: #f3f4f8; }
-QMainWindow, QWidget { background: #0d0e12; }
-QFrame#sidebar { background: #111218; border-right: 1px solid #252733; }
+* { font-family: 'Segoe UI'; font-size: 13px; color: $text; }
+QMainWindow, QWidget { background: $bg; }
+QLabel, QCheckBox, QRadioButton { background: transparent; }
+QFrame#sidebar { background: $surface; border-right: 1px solid $border; }
 QLabel#brand { font-size: 18px; font-weight: 800; letter-spacing: 1px; }
 QLabel#projectTitle { font-size: 22px; font-weight: 700; }
 QLabel#aiHero { font-size: 23px; font-weight: 760; line-height: 1.25; }
-QLabel#muted, QLabel#mutedSmall { color: #9195a7; }
+QLabel#muted, QLabel#mutedSmall { color: $muted; }
 QLabel#mutedSmall { font-size: 11px; }
-QLabel#sectionLabel { color: #85899c; font-size: 10px; font-weight: 700; letter-spacing: 1px; margin-top: 7px; }
-QLabel#mono { font-family: 'Cascadia Mono'; color: #b8bbca; }
-QLabel#statusPill { background: #181a22; color: #aeb2c3; border: 1px solid #282b38; border-radius: 14px; padding: 6px 11px; max-width: 360px; }
-QPushButton { border: 0; border-radius: 9px; padding: 9px 12px; background: #20222c; text-align: left; }
-QPushButton:hover { background: #292c38; }
-QPushButton[nav='true'] { background: transparent; color: #aeb1c0; padding: 10px 12px; }
-QPushButton[nav='true']:hover, QPushButton[active='true'] { background: #22202f; color: white; }
-QPushButton#primary, QPushButton#primaryLarge { background: #7357f5; color: white; font-weight: 700; text-align: center; }
-QPushButton#primary:hover, QPushButton#primaryLarge:hover { background: #876eff; }
+QLabel#sectionLabel { color: $muted; font-size: 10px; font-weight: 700; letter-spacing: 1px; margin-top: 7px; }
+QLabel#mono { font-family: 'Cascadia Mono'; color: $text_soft; }
+QLabel#statusPill { background: $panel; color: $text_soft; border: 1px solid $border; border-radius: 14px; padding: 6px 11px; max-width: 360px; }
+QPushButton { border: 0; border-radius: 9px; padding: 9px 12px; background: $button; text-align: left; }
+QPushButton:hover { background: $button_hover; }
+QPushButton[nav='true'] { background: transparent; color: $text_soft; padding: 10px 12px; }
+QPushButton[nav='true']:hover, QPushButton[active='true'] { background: $accent_bg; color: $text_strong; }
+QPushButton#primary, QPushButton#primaryLarge { background: $accent; color: white; font-weight: 700; text-align: center; }
+QPushButton#primary:hover, QPushButton#primaryLarge:hover { background: $accent_hover; }
 QPushButton#primaryLarge { padding: 13px; }
-QPushButton#secondary { border: 1px solid #343747; background: #1a1c24; text-align: center; }
-QPushButton#ghost { background: transparent; color: #a7aabd; text-align: center; }
-QPushButton#roundButton { border-radius: 20px; background: #7357f5; text-align: center; padding: 0; }
-QFrame#editor { background: #111218; border: 1px solid #252733; border-radius: 14px; }
-QFrame#privacyCard { background: #171921; border: 1px solid #282b37; border-radius: 10px; }
-QLabel#localTitle { color: #74d9ac; font-weight: 600; }
-QPushButton#versionTag { background: transparent; color: #7d8194; font-size: 11px; padding: 4px 2px; text-align: left; }
-QPushButton#versionTag:hover { color: #c9c2ff; text-decoration: underline; }
-QVideoWidget#video { background: #08090c; border-radius: 10px; }
-QLineEdit, QPlainTextEdit, QComboBox, QDoubleSpinBox { background: #171920; border: 1px solid #303340; border-radius: 8px; padding: 8px; selection-background-color: #7357f5; }
-QLineEdit:focus, QPlainTextEdit:focus, QComboBox:focus, QDoubleSpinBox:focus { border: 1px solid #7c5cff; }
+QPushButton#secondary { border: 1px solid $border_strong; background: $raised; text-align: center; }
+QPushButton#ghost { background: transparent; color: $text_soft; text-align: center; }
+QPushButton#roundButton { border-radius: 20px; background: $accent; text-align: center; padding: 0; }
+QFrame#editor { background: $surface; border: 1px solid $border; border-radius: 14px; }
+QFrame#privacyCard { background: $panel; border: 1px solid $border; border-radius: 10px; }
+QLabel#localTitle { color: $success; font-weight: 600; }
+QPushButton#versionTag { background: transparent; color: $faint; font-size: 11px; padding: 4px 2px; text-align: left; }
+QPushButton#versionTag:hover { color: $accent_text; text-decoration: underline; }
+QVideoWidget#video { background: $video_bg; border-radius: 10px; }
+QLineEdit, QPlainTextEdit, QComboBox, QDoubleSpinBox { background: $field; border: 1px solid $border_strong; border-radius: 8px; padding: 8px; selection-background-color: $accent; }
+QLineEdit:focus, QPlainTextEdit:focus, QComboBox:focus, QDoubleSpinBox:focus { border: 1px solid $accent_line; }
 QPlainTextEdit { line-height: 1.35; }
 QListWidget#mediaList { background: transparent; border: 0; outline: 0; }
-QListWidget#mediaList::item { background: #191b23; border-radius: 8px; padding: 9px; margin-bottom: 5px; }
-QTabWidget::pane { background: #111218; border: 1px solid #252733; border-radius: 12px; top: -1px; }
-QTabBar::tab { background: transparent; color: #888c9e; padding: 10px 12px; }
-QTabBar::tab:selected { color: white; border-bottom: 2px solid #8f78ff; }
+QListWidget#mediaList::item { background: $panel; border-radius: 8px; padding: 9px; margin-bottom: 5px; }
+QTabWidget::pane { background: $surface; border: 1px solid $border; border-radius: 12px; top: -1px; }
+QTabBar::tab { background: transparent; color: $muted; padding: 10px 12px; }
+QTabBar::tab:selected { color: $text_strong; border-bottom: 2px solid $accent_line; }
 QScrollArea { background: transparent; border: 0; }
 QScrollBar:vertical { background: transparent; width: 8px; }
-QScrollBar::handle:vertical { background: #303340; border-radius: 4px; min-height: 28px; }
+QScrollBar::handle:vertical { background: $border_strong; border-radius: 4px; min-height: 28px; }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
-QSlider::groove:horizontal { height: 4px; background: #2a2d38; border-radius: 2px; }
-QSlider::sub-page:horizontal { background: #7c5cff; border-radius: 2px; }
-QSlider::handle:horizontal { width: 14px; margin: -5px 0; border-radius: 7px; background: #b4a6ff; }
+QSlider::groove:horizontal { height: 4px; background: $border_strong; border-radius: 2px; }
+QSlider::sub-page:horizontal { background: $accent_line; border-radius: 2px; }
+QSlider::handle:horizontal { width: 14px; margin: -5px 0; border-radius: 7px; background: $accent_text; }
 QProgressBar { background: transparent; border: 0; }
-QProgressBar::chunk { background: #7c5cff; border-radius: 2px; }
+QProgressBar::chunk { background: $accent_line; border-radius: 2px; }
 QSplitter::handle { width: 10px; background: transparent; }
-QToolTip { background: #232631; color: white; border: 1px solid #3a3e4e; padding: 5px; }
+QToolTip { background: $tooltip; color: $text_strong; border: 1px solid $border_hover; padding: 5px; }
 """
 
 
@@ -3792,7 +3824,8 @@ def main() -> int:
     app.setApplicationName(APP_NAME)
     app.setOrganizationName(ORG_NAME)
     app.setStyle("Fusion")
-    app.setStyleSheet(STYLE)
+    theme.set_current(QSettings(ORG_NAME, APP_NAME).value("theme", theme.DEFAULT))
+    app.setStyleSheet(theme.css(STYLE))
     try:
         log_path = setup_logging(app_data_dir() / "logs")
     except OSError:

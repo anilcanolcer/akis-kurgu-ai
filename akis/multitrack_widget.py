@@ -3,8 +3,10 @@ from PySide6.QtCore import Qt, Signal
 from akis.caption_service import snap_frame
 from akis.waveform_service import WaveformWorker, SAMPLE_RATE, WINDOW
 from akis.thumbnail_service import ThumbnailWorker
-from PySide6.QtGui import QColor, QPainter, QPen
+from PySide6.QtGui import QPainter, QPen
 from PySide6.QtWidgets import QWidget
+
+from akis.theme import color
 
 
 class MultitrackWidget(QWidget):
@@ -134,8 +136,8 @@ class MultitrackWidget(QWidget):
 
     def paintEvent(self, event):
         p = QPainter(self)
-        p.fillRect(self.rect(), QColor('#111218'))
-        p.setPen(QColor('#9a9daf'))
+        p.fillRect(self.rect(), color('surface'))
+        p.setPen(color('muted'))
         p.drawText(8, 20, 'TRACK / İZ')
         fps = self.model.fps_num / self.model.fps_den
         step = max(1, round(fps * max(1, 80 / (fps * self.zoom))))
@@ -145,14 +147,13 @@ class MultitrackWidget(QWidget):
             if x < 100:
                 continue
             p.drawText(x + 2, 18, f'{frame / fps:.1f}s')
-            p.setPen(QColor('#292c37'))
+            p.setPen(color('border'))
             p.drawLine(x, 24, x, self.height())
-            p.setPen(QColor('#9a9daf'))
-        colors = {'video': '#5a49a8', 'audio': '#257e77', 'text': '#a55a83', 'overlay': '#9c703c'}
+            p.setPen(color('muted'))
         for ti, track in enumerate(self.model.tracks):
             y = 30 + ti * 43
-            p.fillRect(0, y, self.width(), 40, QColor('#1b1d25'))
-            p.setPen(QColor('#dddded'))
+            p.fillRect(0, y, self.width(), 40, color('raised'))
+            p.setPen(color('text'))
             p.drawText(6, y + 25, track.name[:14])
             for clip in track.clips:
                 x, w = int(self.x_for(clip.start)), max(2, int(clip.length * self.zoom))
@@ -160,31 +161,31 @@ class MultitrackWidget(QWidget):
                     continue
                 left = max(100, x)
                 right = min(self.width(), x + w)
-                p.setBrush(QColor(colors[track.kind]))
-                p.setPen(QPen(QColor('#ffffff' if self.selected == (ti, clip.id) else '#282a37'), 2))
+                p.setBrush(color('track_' + track.kind))
+                p.setPen(QPen(color('clip_selected' if self.selected == (ti, clip.id) else 'clip_edge'), 2))
                 p.drawRoundedRect(left, y + 3, max(2, right-left), 34, 5, 5)
                 strip = self.thumbnails.get(clip.source) if track.kind in ('video', 'overlay') else None
                 if strip is not None:
                     self._draw_strip(p, strip, clip, x, y, left, right, fps)
                 peaks = self.waveforms.get(clip.source)
                 if peaks and track.kind in ('audio', 'video'):
-                    p.setPen(QColor('#a4e3db'))
+                    p.setPen(color('waveform'))
                     for px in range(left, right, 2):
                         source_frame = clip.source_in + (px - x) / self.zoom
                         sample = int(source_frame / fps * SAMPLE_RATE / WINDOW)
                         if 0 <= sample < len(peaks):
                             height = int(peaks[sample] * 14)
                             p.drawLine(px, y + 21 - height, px, y + 21 + height)
-                p.setPen(QColor('white'))
+                p.setPen(color('clip_text'))
                 p.drawText(left + 5, y + 25, (clip.text or {'circle': '◯ daire', 'arrow': '➜ ok'}.get(clip.style.get('shape')) or clip.source.replace('\\', '/').split('/')[-1])[:max(0, (right-left) // 7)])
-        p.setPen(QPen(QColor('#ffcd5a'), 2))
+        p.setPen(QPen(color('marker'), 2))
         for marker in self.model.markers:
             x = int(self.x_for(marker.get('frame', 0)))
             if x < 100 or x > self.width():
                 continue
             p.drawLine(x, 20, x, self.height())
             p.drawText(x + 3, 28, str(marker.get('label', ''))[:24])
-        p.setPen(QPen(QColor('#ff4fa3'), 2))
+        p.setPen(QPen(color('playhead'), 2))
         x = int(self.x_for(self.playhead))
         if 100 <= x <= self.width():
             p.drawLine(x, 20, x, self.height())
