@@ -169,7 +169,7 @@ class WindowTests(unittest.TestCase):
         from main import MainWindow
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        patch('main.recovery_dir', return_value=Path(self.tmp.name) / 'recovery').start()
+        patch('akis.app_support.recovery_dir', return_value=Path(self.tmp.name) / 'recovery').start()
         self.addCleanup(patch.stopall)
         self.window = MainWindow()
         self.window.apply_language('tr')
@@ -185,7 +185,7 @@ class WindowTests(unittest.TestCase):
         clips = [Clip('a.mp4', 0, 30), Clip('a.mp4', 30, 30, source_in=30)]
         w.show_timeline(Timeline(fps_num=30, tracks=[Track('video', 'V', clips)]))
         w.multitrack_view.selected = (0, w.multitrack.tracks[0].clips[0].id)
-        with patch('main.QInputDialog.getItem', return_value=('2×', True)):
+        with patch('PySide6.QtWidgets.QInputDialog.getItem', return_value=('2×', True)):
             w.set_clip_speed()
         first, second = w.multitrack.tracks[0].clips
         self.assertEqual((first.length, first.speed, second.start), (15, 2.0, 15))
@@ -198,7 +198,7 @@ class WindowTests(unittest.TestCase):
         w = self.window
         w.show_timeline(Timeline(fps_num=30, tracks=[Track('text', 'T', [Clip('', 0, 30, text='a')])]))
         w.multitrack_view.selected = (0, w.multitrack.tracks[0].clips[0].id)
-        with patch('main.QInputDialog.getItem') as asked:
+        with patch('PySide6.QtWidgets.QInputDialog.getItem') as asked:
             w.set_clip_speed()
         asked.assert_not_called()
 

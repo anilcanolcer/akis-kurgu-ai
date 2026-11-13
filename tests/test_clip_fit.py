@@ -99,8 +99,8 @@ class WindowTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
-        patch('main.recovery_dir', return_value=self.root / 'recovery').start()
-        patch('main.MediaService.duration', return_value=2.0).start()
+        patch('akis.app_support.recovery_dir', return_value=self.root / 'recovery').start()
+        patch('akis.media_service.MediaService.duration', return_value=2.0).start()
         self.addCleanup(patch.stopall)
         self.window = MainWindow()
         patch.object(self.window.preview, 'request').start()
@@ -117,7 +117,7 @@ class WindowTests(unittest.TestCase):
         self.window.close()
 
     def choose(self, label, ok=True):
-        with patch('main.QInputDialog.getItem', return_value=(label, ok)) as dialog:
+        with patch('PySide6.QtWidgets.QInputDialog.getItem', return_value=(label, ok)) as dialog:
             self.window.set_clip_fit()
         return dialog
 

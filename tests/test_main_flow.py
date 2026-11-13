@@ -18,7 +18,7 @@ class MainWindowFlowTests(unittest.TestCase):
             video = Path(tmp) / 'demo.mp4'
             video.touch()
             window = MainWindow()
-            with patch('main.MediaService.duration', return_value=2.0), patch.object(window, 'seek_timeline'):
+            with patch('akis.media_service.MediaService.duration', return_value=2.0), patch.object(window, 'seek_timeline'):
                 window.load_video(str(video))
             self.assertEqual(window.multitrack.tracks[0].clips[0].length, 60)
             window.preview_audio_output.setVolume(.3)
@@ -30,7 +30,7 @@ class MainWindowFlowTests(unittest.TestCase):
             first = Path(tmp) / 'first.mp4'; first.touch()
             second = Path(tmp) / 'second.mp4'; second.touch()
             window = MainWindow()
-            with patch('main.MediaService.duration', return_value=2.0), patch.object(window, 'seek_timeline'):
+            with patch('akis.media_service.MediaService.duration', return_value=2.0), patch.object(window, 'seek_timeline'):
                 window.load_video(str(first))
                 window.project_path = str(Path(tmp) / 'original.akis.json')
                 original = window.multitrack.tracks[0].clips[0]
@@ -44,8 +44,8 @@ class MainWindowFlowTests(unittest.TestCase):
     def test_failed_project_open_does_not_change_target(self):
         window = MainWindow()
         window.project_path = 'existing.akis.json'
-        with patch('main.QFileDialog.getOpenFileName', return_value=('broken.akis.json', '')), \
-             patch('main.project_service.load_project', return_value=({'state': {}}, 'bad.mp4', [])), \
+        with patch('PySide6.QtWidgets.QFileDialog.getOpenFileName', return_value=('broken.akis.json', '')), \
+             patch('akis.project_service.load_project', return_value=({'state': {}}, 'bad.mp4', [])), \
              patch.object(window, 'load_video', return_value=None):
             window.open_project()
             self.assertEqual(window.project_path, 'existing.akis.json')
@@ -58,11 +58,11 @@ class MainWindowFlowTests(unittest.TestCase):
             second = Path(tmp) / 'second.mp4'; second.touch()
             project = Path(tmp) / 'demo.akis.json'
             window = MainWindow()
-            with patch('main.MediaService.duration', return_value=2.0), patch.object(window, 'seek_timeline'):
+            with patch('akis.media_service.MediaService.duration', return_value=2.0), patch.object(window, 'seek_timeline'):
                 window.load_video(str(first))
                 window.add_video(str(second))
                 window.write_project(str(project))
-                with patch('main.QFileDialog.getOpenFileName', return_value=(str(project), '')):
+                with patch('PySide6.QtWidgets.QFileDialog.getOpenFileName', return_value=(str(project), '')):
                     window.open_project()
                 self.assertEqual(window.media_bin.paths, [str(first), str(second)])
             window.close()
@@ -104,9 +104,9 @@ class MainWindowFlowTests(unittest.TestCase):
             window = MainWindow()
             window.state.source = str(source); window.state.duration = 1
             window.multitrack = Timeline(tracks=[Track('video', 'Video', [Clip(str(source), 0, 30)])])
-            with patch('main.QFileDialog.getSaveFileName', return_value=(str(source), '')), \
+            with patch('PySide6.QtWidgets.QFileDialog.getSaveFileName', return_value=(str(source), '')), \
                  patch('main.QMessageBox.warning') as warning, \
-                 patch('main.TimelineRenderWorker') as worker:
+                 patch('akis.window.exporting.TimelineRenderWorker') as worker:
                 window.export_video()
                 warning.assert_called_once(); worker.assert_not_called()
                 self.assertEqual(source.read_bytes(), b'original')
@@ -115,7 +115,7 @@ class MainWindowFlowTests(unittest.TestCase):
     def test_save_failure_is_reported_without_setting_path(self):
         window = MainWindow()
         window.state.source = 'video.mp4'
-        with patch('main.QFileDialog.getSaveFileName', return_value=('target.akis.json', '')), \
+        with patch('PySide6.QtWidgets.QFileDialog.getSaveFileName', return_value=('target.akis.json', '')), \
              patch.object(window, 'write_project', side_effect=OSError('disk full')), \
              patch('main.QMessageBox.critical') as message:
             window.save_project()

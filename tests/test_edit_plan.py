@@ -520,13 +520,13 @@ class PreviewInteractionTests(unittest.TestCase):
             self.assertEqual(window.element_at(0.5, 0.21)[1].text, 'Başlık')
             self.assertEqual(window.element_at(0.62, 0.6)[1].style['shape'], 'circle')
             self.assertIsNone(window.element_at(0.05, 0.95))
-            with patch('main.QInputDialog.getMultiLineText', return_value=('Yeni', True)):
+            with patch('PySide6.QtWidgets.QInputDialog.getMultiLineText', return_value=('Yeni', True)):
                 window.edit_at(0.5, 0.2)
-            with patch('main.QInputDialog.getItem', return_value=('Sarı', True)):
+            with patch('PySide6.QtWidgets.QInputDialog.getItem', return_value=('Sarı', True)):
                 window.edit_at(0.5, 0.6)
             self.assertEqual(window.multitrack.tracks[1].clips[0].text, 'Yeni')
             self.assertEqual(window.multitrack.tracks[2].clips[0].style['color'], 'yellow')
-            with patch('main.QInputDialog.getItem', return_value=('Sil / Delete', True)):
+            with patch('PySide6.QtWidgets.QInputDialog.getItem', return_value=('Sil / Delete', True)):
                 window.edit_clip(2, window.multitrack.tracks[2].clips[0].id)
             self.assertEqual(window.multitrack.tracks[2].clips, [])
         window.close()

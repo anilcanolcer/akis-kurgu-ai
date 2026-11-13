@@ -189,8 +189,8 @@ class WindowTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         root = Path(self.tmp.name)
-        patch('main.recovery_dir', return_value=root / 'recovery').start()
-        patch('main.MediaService.duration', return_value=10.0).start()
+        patch('akis.app_support.recovery_dir', return_value=root / 'recovery').start()
+        patch('akis.media_service.MediaService.duration', return_value=10.0).start()
         self.addCleanup(patch.stopall)
         self.window = MainWindow()
         patch.object(self.window.preview, 'request').start()
@@ -212,7 +212,7 @@ class WindowTests(unittest.TestCase):
         def make(parent=None, *, executable, sources, segments, language='tr'):
             new, cuts = keep_segments(segments, silences, margin=0)
             return type('Dialog', (), {'exec': lambda self: int(accepted), 'segments': new, 'cuts': cuts})()
-        return self.patch('main.SilenceDialog', side_effect=make)
+        return self.patch('akis.window.timeline_edit.SilenceDialog', side_effect=make)
 
     def test_accepting_cuts_in_one_undo_step(self):
         before = self.lengths()

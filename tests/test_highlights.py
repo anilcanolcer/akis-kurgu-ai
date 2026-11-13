@@ -109,8 +109,8 @@ class WindowTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
-        patch('main.recovery_dir', return_value=self.root / 'recovery').start()
-        patch('main.MediaService.duration', return_value=180.0).start()
+        patch('akis.app_support.recovery_dir', return_value=self.root / 'recovery').start()
+        patch('akis.media_service.MediaService.duration', return_value=180.0).start()
         self.addCleanup(patch.stopall)
         self.window = MainWindow()
         self.window.apply_language('tr')
@@ -128,9 +128,9 @@ class WindowTests(unittest.TestCase):
         w = self.window
         started = []
         levels = curve(180, lively=[(60, 105)], base_speech=[(0, 180)])
-        with patch('main.silence_cut.measure', return_value=levels), \
-             patch('main.HighlightsDialog.exec', new=lambda dialog: 1), \
-             patch('main.QFileDialog.getExistingDirectory', return_value=str(self.root)), \
+        with patch('akis.silence_cut.measure', return_value=levels), \
+             patch('akis.highlights_dialog.HighlightsDialog.exec', new=lambda dialog: 1), \
+             patch('PySide6.QtWidgets.QFileDialog.getExistingDirectory', return_value=str(self.root)), \
              patch.object(w, 'start_worker', side_effect=lambda: started.append(w.worker)):
             w.find_highlights()
             analysis = started.pop(0)
@@ -143,7 +143,7 @@ class WindowTests(unittest.TestCase):
         self.assertTrue(any(abs(start - 60) <= 4 for start, end in worker.parts), worker.parts)
 
     def test_short_videos_are_not_searched(self):
-        from main import Clip as MainClip
+        from akis.timeline_model import Clip as MainClip
         w = self.window
         w.show_timeline(Timeline(fps_num=30, tracks=[Track('video', 'V', [MainClip('a.mp4', 0, 900)])]))
         with patch('main.QMessageBox.information') as told:

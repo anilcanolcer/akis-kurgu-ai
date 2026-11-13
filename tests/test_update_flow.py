@@ -29,8 +29,8 @@ class UpdateFlowTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
-        patch('main.recovery_dir', return_value=self.root / 'recovery').start()
-        patch('main.app_data_dir', return_value=self.root / 'appdata').start()
+        patch('akis.app_support.recovery_dir', return_value=self.root / 'recovery').start()
+        patch('akis.app_support.app_data_dir', return_value=self.root / 'appdata').start()
         self.addCleanup(patch.stopall)
         self.window = MainWindow()
         # A throwaway settings file: postponing must not write into this machine's real settings.
@@ -44,7 +44,7 @@ class UpdateFlowTests(unittest.TestCase):
 
     def offer(self, answer):
         with patch('main.QMessageBox.question', return_value=answer) as ask, \
-             patch('main.UpdateDownloadWorker') as worker:
+             patch('akis.window.updates.UpdateDownloadWorker') as worker:
             self.window.offer_update(dict(UPDATE))
         return ask, worker
 
@@ -73,13 +73,13 @@ class UpdateFlowTests(unittest.TestCase):
         self.assertTrue(self.window.update_postponed('v9.9.9'))
         self.assertFalse(self.window.update_postponed('v9.9.10'))
         # ...but does once it has passed.
-        with patch('main.time.time', return_value=time.time() + main.UPDATE_REMIND_AFTER + 1):
+        with patch('time.time', return_value=time.time() + main.UPDATE_REMIND_AFTER + 1):
             self.assertFalse(self.window.update_postponed('v9.9.9'))
 
     def test_up_to_date_check_removes_every_downloaded_installer(self):
         self.folder.mkdir(parents=True)
         (self.folder / 'AkisKurguAI-Setup-9.9.9.exe').write_bytes(b'x')
-        with patch('main.UpdateCheckWorker') as check, patch('main.update_service.cleanup_legacy_temp') as legacy:
+        with patch('akis.window.updates.UpdateCheckWorker') as check, patch('main.update_service.cleanup_legacy_temp') as legacy:
             self.window.check_for_updates()
         legacy.assert_called_once()
         check.return_value.start.assert_called_once()

@@ -72,8 +72,8 @@ class WindowTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
-        patch('main.recovery_dir', return_value=self.root / 'recovery').start()
-        patch('main.MediaService.duration', return_value=2.0).start()
+        patch('akis.app_support.recovery_dir', return_value=self.root / 'recovery').start()
+        patch('akis.media_service.MediaService.duration', return_value=2.0).start()
         self.addCleanup(patch.stopall)
         self.window = MainWindow()
         patch.object(self.window.preview, 'request').start()
@@ -105,7 +105,7 @@ class WindowTests(unittest.TestCase):
         index = next(i for i, t in enumerate(w.multitrack.tracks) if t.kind == 'video')
         clip = w.multitrack.tracks[index].clips[0]
         w.multitrack_view.selected, w.multitrack_view.selected_track = (index, clip.id), index
-        with patch('main.QInputDialog.getItem', return_value=('Fill · keep the middle', True)) as dialog:
+        with patch('PySide6.QtWidgets.QInputDialog.getItem', return_value=('Fill · keep the middle', True)) as dialog:
             w.set_clip_fit()
         self.assertEqual(dialog.call_args.args[1:4], ('Framing', 'How should the clip sit on the canvas?',
                                                       [EN(label) for label, _, _ in clip_fit.CHOICES]))

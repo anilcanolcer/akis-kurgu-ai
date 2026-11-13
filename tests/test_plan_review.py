@@ -93,8 +93,8 @@ class WindowTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
-        patch('main.recovery_dir', return_value=self.root / 'recovery').start()
-        patch('main.MediaService.duration', return_value=10.0).start()
+        patch('akis.app_support.recovery_dir', return_value=self.root / 'recovery').start()
+        patch('akis.media_service.MediaService.duration', return_value=10.0).start()
         self.addCleanup(patch.stopall)
         self.window = MainWindow()
         self.window.apply_language('tr')
@@ -116,7 +116,7 @@ class WindowTests(unittest.TestCase):
                 dialog.boxes[key].setChecked(False)
             return answer
         with patch.object(self.window, 'isVisible', return_value=True), \
-             patch('main.PlanReviewDialog.exec', new=exec_), \
+             patch('akis.plan_review.PlanReviewDialog.exec', new=exec_), \
              patch('main.timeline_service.canvas_size', return_value=(1080, 1920)):
             self.window.on_prompt_edit(dict(self.plan), self.sources)
 
@@ -138,7 +138,7 @@ class WindowTests(unittest.TestCase):
             w.review_plan.setChecked(False)
         self.assertEqual(stored, {'ai/review_plan': False})
         with patch.object(w, 'isVisible', return_value=True), \
-             patch('main.PlanReviewDialog.exec') as shown, \
+             patch('akis.plan_review.PlanReviewDialog.exec') as shown, \
              patch('main.timeline_service.canvas_size', return_value=(1080, 1920)):
             w.on_prompt_edit(dict(self.plan), self.sources)
         shown.assert_not_called()

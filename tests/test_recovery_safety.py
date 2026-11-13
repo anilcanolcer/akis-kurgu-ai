@@ -28,8 +28,8 @@ class WindowCase(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         self.recovery = self.root / 'recovery'
-        patch('main.recovery_dir', return_value=self.recovery).start()
-        patch('main.MediaService.duration', return_value=2.0).start()
+        patch('akis.app_support.recovery_dir', return_value=self.recovery).start()
+        patch('akis.media_service.MediaService.duration', return_value=2.0).start()
         self.addCleanup(patch.stopall)
         self.window = MainWindow()
         self.window.apply_language('tr')  # independent of the language saved on, or used by, this machine
@@ -46,7 +46,7 @@ class WindowCase(unittest.TestCase):
         self.window.load_video(str(self.video))
 
     def save_as(self, path):
-        with patch('main.QFileDialog.getSaveFileName', return_value=(str(path), '')):
+        with patch('PySide6.QtWidgets.QFileDialog.getSaveFileName', return_value=(str(path), '')):
             self.window.save_project()
 
 
@@ -134,7 +134,7 @@ class ProjectRecoveryTests(WindowCase):
         self.window.mark_saved()
 
     def reopen(self, answer):
-        with patch('main.QFileDialog.getOpenFileName', return_value=(str(self.project), '')), \
+        with patch('PySide6.QtWidgets.QFileDialog.getOpenFileName', return_value=(str(self.project), '')), \
              patch.object(self.window, 'ask_recovery', return_value=answer) as ask, \
              patch('main.QMessageBox.critical') as critical:
             self.window.open_project()
@@ -318,8 +318,8 @@ class CanvasErrorTests(WindowCase):
 
     def test_export_reports_instead_of_raising(self):
         self.source_ratio_without_video()
-        with patch('main.QMessageBox.warning') as warning, patch('main.TimelineRenderWorker') as worker, \
-             patch('main.QFileDialog.getSaveFileName') as dialog:
+        with patch('main.QMessageBox.warning') as warning, patch('akis.window.exporting.TimelineRenderWorker') as worker, \
+             patch('PySide6.QtWidgets.QFileDialog.getSaveFileName') as dialog:
             self.window.export_video()
         warning.assert_called_once()
         worker.assert_not_called()
@@ -363,8 +363,8 @@ class StalePlanTests(WindowCase):
             w.multitrack.tracks[2].add(Clip('', 0, 10, text='kullanıcı'))
         result = Timeline(tracks=[Track('video', 'Video', [Clip(str(self.video), 0, 15)])])
         with patch('main.QMessageBox.question', return_value=answer) as ask, \
-             patch('main.edit_plan.apply_plan', return_value=result) as apply, \
-             patch('main.edit_plan.describe', return_value='özet'):
+             patch('akis.edit_plan.apply_plan', return_value=result) as apply, \
+             patch('akis.edit_plan.describe', return_value='özet'):
             w.on_prompt_edit({}, [(str(self.video), 2.0)])
         return ask, apply, result
 
@@ -392,13 +392,13 @@ class OverwritePromptTests(WindowCase):
         self.load()
         existing = self.root / 'proje.akis.json'
         existing.write_text('eski', encoding='utf-8')
-        with patch('main.QFileDialog.getSaveFileName', return_value=(str(self.root / 'proje'), '')), \
+        with patch('PySide6.QtWidgets.QFileDialog.getSaveFileName', return_value=(str(self.root / 'proje'), '')), \
              patch('main.QMessageBox.question', return_value=NO) as ask:
             self.window.save_project()
         ask.assert_called_once()
         self.assertEqual(existing.read_text(encoding='utf-8'), 'eski')
         self.assertEqual(self.window.project_path, '')
-        with patch('main.QFileDialog.getSaveFileName', return_value=(str(self.root / 'proje'), '')), \
+        with patch('PySide6.QtWidgets.QFileDialog.getSaveFileName', return_value=(str(self.root / 'proje'), '')), \
              patch('main.QMessageBox.question', return_value=YES):
             self.window.save_project()
         self.assertEqual(self.window.project_path, str(existing))
@@ -406,7 +406,7 @@ class OverwritePromptTests(WindowCase):
 
     def test_json_name_becomes_akis_json_and_confirmed_name_is_not_asked_again(self):
         self.load()
-        with patch('main.QFileDialog.getSaveFileName', return_value=(str(self.root / 'x.json'), '')), \
+        with patch('PySide6.QtWidgets.QFileDialog.getSaveFileName', return_value=(str(self.root / 'x.json'), '')), \
              patch('main.QMessageBox.question') as ask:
             self.window.save_project()
         ask.assert_not_called()
@@ -416,9 +416,9 @@ class OverwritePromptTests(WindowCase):
     def test_export_name_without_extension_asks_before_overwriting(self):
         self.load()
         (self.root / 'klip.mp4').write_bytes(b'eski')
-        with patch('main.QFileDialog.getSaveFileName', return_value=(str(self.root / 'klip'), '')), \
+        with patch('PySide6.QtWidgets.QFileDialog.getSaveFileName', return_value=(str(self.root / 'klip'), '')), \
              patch('main.QMessageBox.question', return_value=NO) as ask, \
-             patch('main.TimelineRenderWorker') as worker:
+             patch('akis.window.exporting.TimelineRenderWorker') as worker:
             self.window.export_video()
         ask.assert_called_once()
         worker.assert_not_called()
@@ -438,7 +438,7 @@ class PortableOpenTests(WindowCase):
                                                  {'title': 'taşındı', 'caption': '', 'hashtags': ''}, '')
         project = self.root / 'p.akis.json'
         project_service.save(project, document)
-        with patch('main.QFileDialog.getOpenFileName', return_value=(str(project), '')), \
+        with patch('PySide6.QtWidgets.QFileDialog.getOpenFileName', return_value=(str(project), '')), \
              patch('main.QMessageBox.warning') as warning, patch('main.QMessageBox.critical') as critical:
             self.window.open_project()
         critical.assert_not_called()

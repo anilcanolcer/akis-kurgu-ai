@@ -38,8 +38,8 @@ class WindowCase(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
-        patch('main.recovery_dir', return_value=self.root / 'recovery').start()
-        patch('main.MediaService.duration', return_value=2.0).start()
+        patch('akis.app_support.recovery_dir', return_value=self.root / 'recovery').start()
+        patch('akis.media_service.MediaService.duration', return_value=2.0).start()
         self.addCleanup(patch.stopall)
         self.window = MainWindow()
         self.window.apply_language('tr')
@@ -105,7 +105,7 @@ class UndoRedoTests(WindowCase):
     def test_history_is_capped(self):
         self.load()
         w = self.window
-        with patch('main.QInputDialog.getItem', return_value=('text', True)):
+        with patch('PySide6.QtWidgets.QInputDialog.getItem', return_value=('text', True)):
             for _ in range(main.UNDO_LIMIT + 7):
                 w.add_track()
         self.assertEqual(len(w._undo_stack), main.UNDO_LIMIT)
@@ -128,11 +128,11 @@ class UndoRedoTests(WindowCase):
         w = self.window
         w.apply_preset(3, 4, 5)
         result = Timeline(tracks=[Track('video', 'Video', [Clip(w.state.source, 0, 30)]), Track('text', 'Text')])
-        with patch('main.edit_plan.apply_plan', return_value=result), patch('main.edit_plan.describe', return_value='özet'):
+        with patch('akis.edit_plan.apply_plan', return_value=result), patch('akis.edit_plan.describe', return_value='özet'):
             w.on_prompt_edit({'color': {'brightness': 12}, 'aspect': '16:9', 'speed': 1.25, 'title': 'AI başlık'},
                              [(w.state.source, 2.0)])
         self.assertEqual(len(w._undo_stack), 1)
-        with patch('main.QInputDialog.getItem', return_value=('audio', True)):
+        with patch('PySide6.QtWidgets.QInputDialog.getItem', return_value=('audio', True)):
             w.add_track()  # a manual edit after the AI edit
         self.assertEqual(len(w._undo_stack), 2)
         w.undo()  # only the manual edit
@@ -155,7 +155,7 @@ class UndoRedoTests(WindowCase):
     def test_unsaved_flag_follows_undo_and_redo(self):
         self.load()
         w = self.window
-        with patch('main.QFileDialog.getSaveFileName', return_value=(str(self.root / 'p.akis.json'), '')):
+        with patch('PySide6.QtWidgets.QFileDialog.getSaveFileName', return_value=(str(self.root / 'p.akis.json'), '')):
             w.save_project()
         self.assertFalse(w.has_unsaved_changes())
         self.split_at(20)
@@ -192,11 +192,11 @@ class UndoRedoTests(WindowCase):
         w = self.window
         w.multitrack.tracks[2].add(Clip('', 0, 10, text='merhaba'))
         text_clip = w.multitrack.tracks[2].clips[0]
-        with patch('main.QInputDialog.getMultiLineText', return_value=('güle güle', True)):
+        with patch('PySide6.QtWidgets.QInputDialog.getMultiLineText', return_value=('güle güle', True)):
             w.edit_clip(2, text_clip.id)
         self.assertEqual(w.multitrack.tracks[2].clips[0].text, 'güle güle')
         index, clip = self.select_first_video_clip()
-        with patch('main.QInputDialog.getInt', return_value=(40, True)):
+        with patch('PySide6.QtWidgets.QInputDialog.getInt', return_value=(40, True)):
             w.set_clip_volume()
         self.assertEqual(w.multitrack.tracks[index].clips[0].volume, 0.4)
         w.multitrack_view.selected_track = 0
@@ -304,9 +304,9 @@ class CancelTests(WindowCase):
         self.load()
         w = self.window
         self.assertTrue(w.cancel_button.isHidden())
-        with patch('main.TimelineRenderWorker', FakeRender), \
+        with patch('akis.window.exporting.TimelineRenderWorker', FakeRender), \
              patch.object(w, 'export_canvas_size', return_value=(1080, 1920)), \
-             patch('main.QFileDialog.getSaveFileName', return_value=(str(self.root / 'out.mp4'), '')):
+             patch('PySide6.QtWidgets.QFileDialog.getSaveFileName', return_value=(str(self.root / 'out.mp4'), '')):
             w.export_video()
         worker = w.worker
         self.assertIsInstance(worker, FakeRender)
@@ -429,9 +429,9 @@ class StartupTests(unittest.TestCase):
 
     def test_main_starts_cleanup_before_the_window(self):
         order = []
-        with patch('main.start_temp_cleanup', side_effect=lambda: order.append('cleanup')), \
+        with patch('akis.app_support.start_temp_cleanup', side_effect=lambda: order.append('cleanup')), \
              patch('main.QApplication') as application, patch('main.MainWindow', side_effect=lambda: order.append('window') or MagicMock()), \
-             patch('main.setup_logging', return_value=None), patch('main.wait_for_background_threads'):
+             patch('main.setup_logging', return_value=None), patch('akis.app_support.wait_for_background_threads'):
             application.return_value.platformName.return_value = 'offscreen'
             application.return_value.exec.return_value = 0
             with patch('sys.excepthook'):

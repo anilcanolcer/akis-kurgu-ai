@@ -28,8 +28,8 @@ class WindowCase(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         self.recovery = self.root / 'recovery'
-        patch('main.recovery_dir', return_value=self.recovery).start()
-        patch('main.MediaService.duration', return_value=2.0).start()
+        patch('akis.app_support.recovery_dir', return_value=self.recovery).start()
+        patch('akis.media_service.MediaService.duration', return_value=2.0).start()
         self.addCleanup(patch.stopall)
         self.window = self.new_window()
 
@@ -54,7 +54,7 @@ class WindowCase(unittest.TestCase):
 
     def add_media(self, window, path, track=1):
         window.multitrack_view.selected_track = track
-        with patch('main.QFileDialog.getOpenFileName', return_value=(str(path), '')), \
+        with patch('PySide6.QtWidgets.QFileDialog.getOpenFileName', return_value=(str(path), '')), \
              patch('main.timeline_service.validate_track_media'):
             window.add_timeline_media()
 
@@ -76,7 +76,7 @@ class WorkBeforeVideoTests(WindowCase):
         recovered = json.loads(Path(w._autosave_file).read_text(encoding='utf-8'))
         self.assertEqual(recovered['timeline']['tracks'][1]['clips'][0]['source'], str(music))
         project = self.root / 'sessiz.akis.json'
-        with patch('main.QFileDialog.getSaveFileName', return_value=(str(project), '')), \
+        with patch('PySide6.QtWidgets.QFileDialog.getSaveFileName', return_value=(str(project), '')), \
              patch('main.QMessageBox.information') as info:
             w.save_project()
         info.assert_not_called()
@@ -111,10 +111,10 @@ class WorkBeforeVideoTests(WindowCase):
         music = self.file('müzik.wav')
         self.add_media(w, music)
         project = self.root / 'sessiz.akis.json'
-        with patch('main.QFileDialog.getSaveFileName', return_value=(str(project), '')):
+        with patch('PySide6.QtWidgets.QFileDialog.getSaveFileName', return_value=(str(project), '')):
             w.save_project()
         other = self.new_window()
-        with patch('main.QFileDialog.getOpenFileName', return_value=(str(project), '')), \
+        with patch('PySide6.QtWidgets.QFileDialog.getOpenFileName', return_value=(str(project), '')), \
              patch('main.QMessageBox.critical') as critical, patch('main.QMessageBox.warning') as warning:
             other.open_project()
         critical.assert_not_called()
@@ -158,7 +158,7 @@ class SourceLengthTests(WindowCase):
         project = self.root / 'eski.akis.json'
         project_service.save(project, project_service.make_document({'source': str(video)}, timeline, {}, ''))
         w = self.window
-        with patch('main.QFileDialog.getOpenFileName', return_value=(str(project), '')), \
+        with patch('PySide6.QtWidgets.QFileDialog.getOpenFileName', return_value=(str(project), '')), \
              patch('main.QMessageBox.critical') as critical:
             w.open_project()
         critical.assert_not_called()
@@ -204,7 +204,7 @@ class EnglishUiTests(WindowCase):
         self.assertEqual(InspirationDialog().prompt_button.text(), 'Fikri kurgu isteğine yaz')
         seen = []
         fake = type('FakeDialog', (), {'__init__': lambda self, *a, **k: seen.append(k), 'exec': lambda self: 0})
-        with patch('main.InspirationDialog', fake):
+        with patch('akis.window.assistant.InspirationDialog', fake):
             self.window.show_inspiration()
         self.assertEqual(seen, [{'language': 'tr'}])
 
@@ -374,7 +374,7 @@ class InspirationPromptTests(WindowCase):
         # Python 3.14 in tests (the same access violation test_inspiration_flow hits on unmodified code).
         fake = type('FakeDialog', (), {'__init__': lambda self, *a, **k: None, 'exec': lambda self: 1,
                                        'selection': lambda self: (idea, 'prompt')})
-        with patch('main.InspirationDialog', fake), \
+        with patch('akis.window.assistant.InspirationDialog', fake), \
              patch('main.QMessageBox.question', return_value=answer) as ask:
             self.window.show_inspiration()
         return idea, ask

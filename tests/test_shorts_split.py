@@ -193,8 +193,8 @@ class WindowTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
-        patch('main.recovery_dir', return_value=self.root / 'recovery').start()
-        patch('main.MediaService.duration', return_value=130.0).start()
+        patch('akis.app_support.recovery_dir', return_value=self.root / 'recovery').start()
+        patch('akis.media_service.MediaService.duration', return_value=130.0).start()
         self.addCleanup(patch.stopall)
         self.window = MainWindow()
         self.window.apply_language('tr')
@@ -211,7 +211,7 @@ class WindowTests(unittest.TestCase):
     def test_button_starts_one_worker_for_all_parts(self):
         w = self.window
         started = []
-        with patch('main.silence_cut.measure', return_value=[]),              patch('main.ShortsDialog.exec', new=lambda dialog: 1),              patch('main.QFileDialog.getExistingDirectory', return_value=str(self.root)),              patch('akis.export_progress.space_problem', return_value=''),              patch.object(w, 'start_worker', side_effect=lambda: started.append(w.worker)):
+        with patch('akis.silence_cut.measure', return_value=[]),              patch('akis.shorts_dialog.ShortsDialog.exec', new=lambda dialog: 1),              patch('PySide6.QtWidgets.QFileDialog.getExistingDirectory', return_value=str(self.root)),              patch('akis.export_progress.space_problem', return_value=''),              patch.object(w, 'start_worker', side_effect=lambda: started.append(w.worker)):
             w.export_shorts()
             analysis = started.pop(0)                       # the pauses are found off the window's thread first
             self.assertIsInstance(analysis, CallWorker)

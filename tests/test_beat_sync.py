@@ -93,8 +93,8 @@ class WindowTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
-        patch('main.recovery_dir', return_value=self.root / 'recovery').start()
-        patch('main.MediaService.duration', return_value=10.0).start()
+        patch('akis.app_support.recovery_dir', return_value=self.root / 'recovery').start()
+        patch('akis.media_service.MediaService.duration', return_value=10.0).start()
         self.addCleanup(patch.stopall)
         self.window = MainWindow()
         self.window.apply_language('tr')
@@ -120,7 +120,7 @@ class WindowTests(unittest.TestCase):
         w.show_timeline(Timeline(fps_num=30, tracks=[
             Track('video', 'Video', [Clip(video, 0, 54, source_in=0), Clip(video, 54, 60, source_in=150)]),
             Track('audio', 'Müzik', [music]), Track('text', 'Yazı', [Clip('', 60, 30, text='Merhaba')])]))
-        with patch('main.beat_sync.read_onsets', return_value=pulses(0.5, 0.0, 10.0)):
+        with patch('akis.beat_sync.read_onsets', return_value=pulses(0.5, 0.0, 10.0)):
             w.snap_cuts_to_beat()
             self.assertTrue(w.worker.wait(10000))          # the beat is read off the window's thread
             app.processEvents()

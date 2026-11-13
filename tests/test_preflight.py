@@ -68,8 +68,8 @@ class WindowTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
-        patch('main.recovery_dir', return_value=self.root / 'recovery').start()
-        patch('main.MediaService.duration', return_value=2.0).start()
+        patch('akis.app_support.recovery_dir', return_value=self.root / 'recovery').start()
+        patch('akis.media_service.MediaService.duration', return_value=2.0).start()
         self.addCleanup(patch.stopall)
         self.window = MainWindow()
         patch.object(self.window.preview, 'request').start()
@@ -85,7 +85,7 @@ class WindowTests(unittest.TestCase):
     def export(self, answer=QMessageBox.StandardButton.No):
         w = self.window
         started = []
-        with patch('main.QFileDialog.getSaveFileName', return_value=(str(self.root / 'out.mp4'), '')) as chooser, \
+        with patch('PySide6.QtWidgets.QFileDialog.getSaveFileName', return_value=(str(self.root / 'out.mp4'), '')) as chooser, \
              patch.object(w, 'export_canvas_size', return_value=(1080, 1920)), \
              patch('akis.export_progress.space_problem', return_value=''), \
              patch('main.QMessageBox.question', return_value=answer) as question, \

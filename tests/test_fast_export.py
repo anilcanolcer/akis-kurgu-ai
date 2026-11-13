@@ -163,8 +163,8 @@ class WindowTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
-        patch('main.recovery_dir', return_value=self.root / 'recovery').start()
-        patch('main.MediaService.duration', return_value=2.0).start()
+        patch('akis.app_support.recovery_dir', return_value=self.root / 'recovery').start()
+        patch('akis.media_service.MediaService.duration', return_value=2.0).start()
         self.addCleanup(patch.stopall)
         self.window = MainWindow()
         self.window.apply_language('tr')
@@ -181,10 +181,10 @@ class WindowTests(unittest.TestCase):
     def export(self, pieces, answer=QMessageBox.StandardButton.Yes):
         w = self.window
         started = []
-        with patch('main.QFileDialog.getSaveFileName', return_value=(str(self.root / 'out.mp4'), '')), \
+        with patch('PySide6.QtWidgets.QFileDialog.getSaveFileName', return_value=(str(self.root / 'out.mp4'), '')), \
              patch.object(w, 'export_canvas_size', return_value=(1920, 1080)), \
              patch('akis.export_progress.space_problem', return_value=''), \
-             patch('main.fast_export.plan', return_value=pieces), \
+             patch('akis.fast_export.plan', return_value=pieces), \
              patch('main.QMessageBox.question', return_value=answer) as question, \
              patch.object(w, 'start_worker', side_effect=lambda: started.append(w.worker)):
             w.export_video()

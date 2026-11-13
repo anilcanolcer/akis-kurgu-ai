@@ -116,9 +116,9 @@ class WindowTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
-        patch('main.recovery_dir', return_value=self.root / 'recovery').start()
-        patch('main.MediaService.duration', return_value=2.0).start()
-        patch('main.MediaService.has_audio', return_value=True).start()
+        patch('akis.app_support.recovery_dir', return_value=self.root / 'recovery').start()
+        patch('akis.media_service.MediaService.duration', return_value=2.0).start()
+        patch('akis.media_service.MediaService.has_audio', return_value=True).start()
         self.addCleanup(patch.stopall)
         self.window = MainWindow()
         self.window.apply_language('tr')
@@ -135,7 +135,7 @@ class WindowTests(unittest.TestCase):
     def test_button_writes_the_file_and_reports_what_was_left_out(self):
         w = self.window
         target = self.root / 'kurgu'
-        with patch('main.QFileDialog.getSaveFileName', return_value=(str(target), '')), \
+        with patch('PySide6.QtWidgets.QFileDialog.getSaveFileName', return_value=(str(target), '')), \
              patch.object(w, 'export_canvas_size', return_value=(1080, 1920)), \
              patch('main.QMessageBox.information') as shown:
             w.export_fcpxml()
@@ -145,7 +145,7 @@ class WindowTests(unittest.TestCase):
         self.assertIn('1 klip yazıldı.', shown.call_args.args[2])
 
     def test_cancelled_dialog_writes_nothing(self):
-        with patch('main.QFileDialog.getSaveFileName', return_value=('', '')):
+        with patch('PySide6.QtWidgets.QFileDialog.getSaveFileName', return_value=('', '')):
             self.window.export_fcpxml()
         self.assertEqual(list(self.root.glob('*.fcpxml')), [])
 

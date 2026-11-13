@@ -42,8 +42,8 @@ class WindowCase(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
-        patch('main.recovery_dir', return_value=self.root / 'recovery').start()
-        patch('main.MediaService.duration', return_value=2.0).start()
+        patch('akis.app_support.recovery_dir', return_value=self.root / 'recovery').start()
+        patch('akis.media_service.MediaService.duration', return_value=2.0).start()
         self.addCleanup(patch.stopall)
         self.window = self.new_window()
 
@@ -65,11 +65,11 @@ class WindowCase(unittest.TestCase):
         return path
 
     def save_as(self, window, path):
-        with patch('main.QFileDialog.getSaveFileName', return_value=(str(path), '')):
+        with patch('PySide6.QtWidgets.QFileDialog.getSaveFileName', return_value=(str(path), '')):
             window.save_project()
 
     def open(self, window, path):
-        with patch('main.QFileDialog.getOpenFileName', return_value=(str(path), '')), \
+        with patch('PySide6.QtWidgets.QFileDialog.getOpenFileName', return_value=(str(path), '')), \
              patch('main.QMessageBox.critical') as critical, patch('main.QMessageBox.warning'):
             window.open_project()
         critical.assert_not_called()
@@ -177,7 +177,7 @@ class LanguageTests(WindowCase):
         w.aspect.setCurrentIndex(w.aspect.findData('Kaynak oranı'))
         self.assertEqual(w.aspect.currentText(), 'Source ratio')
         self.assertEqual(w.state.aspect, 'Kaynak oranı')
-        with patch('main.MediaService.dimensions', return_value=(640, 360)):
+        with patch('akis.media_service.MediaService.dimensions', return_value=(640, 360)):
             self.assertEqual(w.canvas_size(), (640, 360))
         snapshot = w.open_snapshot()
         w.aspect.setCurrentIndex(0)
@@ -190,7 +190,7 @@ class PromptEditTests(WindowCase):
     def apply(self, plan):
         w = self.window
         result = Timeline(tracks=[Track('video', 'Video', [Clip(w.state.source, 0, 30)])])
-        with patch('main.edit_plan.apply_plan', return_value=result), patch('main.edit_plan.describe', return_value='özet'), \
+        with patch('akis.edit_plan.apply_plan', return_value=result), patch('akis.edit_plan.describe', return_value='özet'), \
              patch('main.QMessageBox.critical') as critical:
             w.on_prompt_edit(plan, [(w.state.source, 2.0)])
         critical.assert_not_called()
@@ -219,7 +219,7 @@ class PromptEditTests(WindowCase):
         w.ai_prompt.setPlainText('sessizlikleri at')
         with patch.object(w, 'api_credentials', return_value=('k', 'm')), \
              patch.object(w, 'edit_sources', return_value=[(w.state.source, 2.0)]), \
-             patch.object(w, 'start_worker'), patch('main.PromptEditWorker') as worker:
+             patch.object(w, 'start_worker'), patch('akis.window.assistant.PromptEditWorker') as worker:
             w.run_prompt_edit()
         settings = worker.call_args.kwargs['settings']
         self.assertEqual(settings, {'color': (-2, 7, 9), 'speed': '0.75×', 'aspect': '1:1 · Kare'})

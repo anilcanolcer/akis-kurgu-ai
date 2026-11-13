@@ -172,9 +172,9 @@ class WindowTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
-        patch('main.recovery_dir', return_value=self.root / 'recovery').start()
-        patch('main.app_data_dir', return_value=self.root / 'data').start()
-        patch('main.MediaService.duration', return_value=2.0).start()
+        patch('akis.app_support.recovery_dir', return_value=self.root / 'recovery').start()
+        patch('akis.app_support.app_data_dir', return_value=self.root / 'data').start()
+        patch('akis.media_service.MediaService.duration', return_value=2.0).start()
         self.addCleanup(patch.stopall)
         self.window = MainWindow()
         self.window.apply_language('tr')
@@ -203,8 +203,8 @@ class WindowTests(unittest.TestCase):
         def choose(dialog):
             self.assertEqual([entry['name'] for entry in dialog.saved], ['Benim düzenim'])
             return 1
-        with patch('main.TemplateDialog.exec', new=lambda dialog: TemplateDialog.SAVED), \
-             patch('main.SavedTemplatesDialog.exec', new=choose):
+        with patch('akis.template_dialog.TemplateDialog.exec', new=lambda dialog: TemplateDialog.SAVED), \
+             patch('akis.saved_templates_dialog.SavedTemplatesDialog.exec', new=choose):
             w.show_templates()
         self.assertEqual((w.brightness.value(), w.contrast.value(), w.saturation.value()), (7, -3, 12))
         self.assertEqual(w.speed_value(), 1.5)
@@ -217,14 +217,14 @@ class WindowTests(unittest.TestCase):
 
     def test_dismissing_my_templates_changes_nothing(self):
         w = self.window
-        with patch('main.TemplateDialog.exec', new=lambda dialog: TemplateDialog.SAVED), \
-             patch('main.SavedTemplatesDialog.exec', new=lambda dialog: 0):
+        with patch('akis.template_dialog.TemplateDialog.exec', new=lambda dialog: TemplateDialog.SAVED), \
+             patch('akis.saved_templates_dialog.SavedTemplatesDialog.exec', new=lambda dialog: 0):
             w.show_templates()
         self.assertFalse(w.undo())
 
     def test_built_in_templates_still_apply(self):
         w = self.window
-        with patch('main.TemplateDialog.exec', new=lambda dialog: 1):
+        with patch('akis.template_dialog.TemplateDialog.exec', new=lambda dialog: 1):
             w.show_templates()
         self.assertIn(TEMPLATES[0].name, w.status_label.text())
 

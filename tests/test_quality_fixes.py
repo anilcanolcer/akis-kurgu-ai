@@ -58,8 +58,8 @@ class FrameRateTests(unittest.TestCase):
             video = Path(tmp) / 'demo.mp4'
             video.touch()
             window = MainWindow()
-            with patch('main.MediaService.duration', return_value=2.0), \
-                    patch('main.MediaService.frame_rate', return_value=(50, 1)), patch.object(window, 'seek_timeline'):
+            with patch('akis.media_service.MediaService.duration', return_value=2.0), \
+                    patch('akis.media_service.MediaService.frame_rate', return_value=(50, 1)), patch.object(window, 'seek_timeline'):
                 window.load_video(str(video))
             self.assertEqual((window.multitrack.fps_num, window.multitrack.fps_den), (50, 1))
             self.assertEqual(window.multitrack.tracks[0].clips[0].length, 100)
