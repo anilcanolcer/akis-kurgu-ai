@@ -388,6 +388,12 @@ class LayoutMixin:
                                  "Yerel konuşma tanımayla çalışır; internet gerekmez.")
         filler_button.clicked.connect(self.remove_fillers)
         v.addWidget(filler_button)
+        sample_button = QPushButton("Örnek videonun stilini al…")
+        sample_button.setObjectName("secondary")
+        sample_button.setToolTip("Beğendiğiniz bir videonun oranını, kadrajını, ses düzeyini ve rengini okur; "
+                                 "şablon olarak kaydedip bu projeye uygular. İnternet gerekmez.")
+        sample_button.clicked.connect(self.style_from_sample)
+        v.addWidget(sample_button)
         beat_button = QPushButton("Kesimleri müziğin ritmine oturt")
         beat_button.setObjectName("secondary")
         beat_button.setToolTip("Ses izindeki müziğin vuruşlarını bulur ve video kesimlerini en yakın vuruşa kaydırır. "

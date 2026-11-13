@@ -16,6 +16,7 @@ FILE_NAME = 'templates.json'
 MAX_NAME = 60
 MAX_TEMPLATES = 100
 KINDS = ('video', 'audio', 'text', 'overlay')
+FRAMINGS = ('fit', 'fill', 'blur')   # akis.clip_fit; optional
 
 
 def clean_name(name):
@@ -44,8 +45,11 @@ def _valid(item):
         audio = [option for option in item.get('audio', ()) if option in audio_polish.OPTIONS]
         if not name or len(color) != 3 or not 0.5 <= speed <= 2.0:
             return None
-        return {'name': name, 'aspect': str(item.get('aspect', '')), 'tracks': tracks,
-                'title': str(item.get('title', ''))[:200], 'color': color, 'speed': speed, 'audio': sorted(audio)}
+        found = {'name': name, 'aspect': str(item.get('aspect', '')), 'tracks': tracks,
+                 'title': str(item.get('title', ''))[:200], 'color': color, 'speed': speed, 'audio': sorted(audio)}
+        if item.get('framing') in FRAMINGS:      # taken from a sample video (akis.style_sample)
+            found['framing'] = item['framing']
+        return found
     except (KeyError, TypeError, ValueError):
         return None
 
@@ -111,6 +115,8 @@ def describe(item):
     b, c, s = item['color']
     sound = {'level': 'ses eşitleme', 'denoise': 'gürültü azaltma', 'duck': 'müzik kısma'}
     extras = ', '.join(sound[option] for option in item['audio']) or 'yok'
+    framing = {'fit': 'sığdır', 'fill': 'doldur', 'blur': 'bulanık arka plan'}.get(item.get('framing'))
     return ('İzler: ' + ' / '.join(name for _, name in item['tracks']) +
             f'\nOran: {item["aspect"] or "—"} · Hız: {item["speed"]:.2f}× · Renk: {b:+d} / {c:+d} / {s:+d} · Ses: {extras}'
+            + (f' · Kadraj: {framing}' if framing else '')
             + (f'\nBaşlık: {item["title"]}' if item['title'] else ''))
