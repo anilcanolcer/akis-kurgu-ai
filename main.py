@@ -59,6 +59,8 @@ from akis import privacy_log
 from akis import fast_export
 from akis import multi_export
 from akis import fcpxml_export
+from akis.batch_dialog import BatchDialog
+from akis.batch_export import BatchExportWorker, output_for
 from akis import beat_sync, emphasis, retakes, silence_cut
 from akis.plan_review import PlanReviewDialog
 from akis.start_panel import StartPanel
@@ -1083,6 +1085,11 @@ class MainWindow(QMainWindow):
                            "özgün videolarla açar. Video oluşturulmaz.")
         handoff.clicked.connect(self.export_fcpxml)
         v.addWidget(handoff)
+        batch = QPushButton("Toplu dışa aktar…")
+        batch.setObjectName("secondary")
+        batch.setToolTip("Birden çok videoyu aynı biçimde işleyip her birini ayrı dosya olarak kaydeder.")
+        batch.clicked.connect(self.export_batch)
+        v.addWidget(batch)
         v.addWidget(self.section("SES İYİLEŞTİRME"))
         self.loudness = QCheckBox("Ses yüksekliğini -14 LUFS'a normalleştir")
         self.loudness.setToolTip("Kısık çekilmiş videoyu yayın düzeyine çıkarır; önizlemede ve dışa aktarmada uygulanır.")
@@ -2150,6 +2157,41 @@ class MainWindow(QMainWindow):
         self.set_status(self.ui_text('Kurgu dosyası kaydedildi: {name}', name=path.name))
         QMessageBox.information(self, APP_NAME, self.ui_text('Kurgu dosyası kaydedildi:\n{path}', path=str(path))
                                 + '\n\n' + summary)
+
+    def export_batch(self) -> None:
+        """Process several videos the same way and export each (akis.batch_export)."""
+        if not self.can_start_work():
+            return
+        dialog = BatchDialog(self, templates=user_templates.load(app_data_dir()), language=self.ui_language(),
+                             folder=str(Path.home() / "Videos"))
+        if not dialog.exec():
+            return
+        videos, folder, cut_silences, template = dialog.selection()
+        existing = [Path(output_for(video, folder)).name for video in videos if Path(output_for(video, folder)).exists()]
+        if existing and QMessageBox.question(
+                self, APP_NAME, self.ui_text('Şu dosyalar zaten var ve üzerine yazılacak:\n{names}\n\nDevam edilsin mi?',
+                                             names='\n'.join(existing)),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
+            return
+        self.worker = BatchExportWorker(videos, folder, ffmpeg_path(), aspect=self.aspect.currentData(),
+                                        profile=self.export_profile.currentData(),
+                                        adjustments={k: v for k, v in self.render_adjustments().items()},
+                                        cut_silences=cut_silences, template=template, say=self.ui_template)
+        self.begin_work(self.ui_text("Dışa aktarma hazırlanıyor…"))
+        self._export_estimator = export_progress.Estimator()
+        self.worker.progress.connect(self.on_export_progress)
+        self.worker.finished.connect(lambda: self.progress.setRange(0, 0))
+        self.worker.completed.connect(self.on_batch_exported)
+        self.worker.failed.connect(self.on_worker_error)
+        self.worker.cancelled.connect(self.on_export_cancelled)
+        self.start_worker()
+
+    def on_batch_exported(self, report: str) -> None:
+        if self._shutting_down:
+            return
+        self.finish_work(self.ui_text("Dışa aktarma tamamlandı."))
+        QMessageBox.information(self, APP_NAME, report)
 
     def export_three_formats(self) -> None:
         """The same edit as vertical, square and landscape files, one after the other (akis.multi_export)."""
