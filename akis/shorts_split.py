@@ -9,7 +9,7 @@ itself, and a card at the top shows "4 / 7" and the part's title for the whole p
 """
 import math
 import re
-from copy import deepcopy
+
 from pathlib import Path
 
 from PySide6.QtCore import QThread, Signal
@@ -18,6 +18,7 @@ from akis import clip_fit, silence_cut
 from akis.media_service import MediaService, RenderCancelled
 from akis.timeline_model import Clip, Timeline, Track
 from akis.timeline_render import TimelineRenderer, duration_frames, output_overwrites_source
+from akis.timeline_slice import slice_timeline
 
 DEFAULT_LIMIT = 60
 MIN_LIMIT, MAX_LIMIT = 15, 180
@@ -71,31 +72,6 @@ def timeline_pauses(timeline, levels_for):
             if first <= middle < last:
                 found.append(clip.start / fps + middle - first)
     return sorted(found)
-
-
-def slice_timeline(timeline, start, end):
-    """A new timeline with what lies between frames `start` and `end`, moved to begin at 0."""
-    part = Timeline(fps_num=timeline.fps_num, fps_den=timeline.fps_den)
-    for track in timeline.tracks:
-        kept = Track(track.kind, track.name, muted=track.muted)
-        for clip in track.clips:
-            a, b = max(clip.start, start), min(clip.end, end)
-            if b <= a:
-                continue
-            piece = deepcopy(clip)
-            offset = a - clip.start
-            piece.start, piece.length = a - start, b - a
-            if piece.source:
-                piece.source_in = clip.source_in + offset
-            if offset and piece.keyframes:
-                piece.keyframes = {k: [dict(p, frame=p['frame'] - offset) for p in v if p['frame'] >= offset]
-                                   for k, v in piece.keyframes.items()}
-            if offset:  # the clip's own entrance belongs to its real start, not to this cut
-                piece.style = {k: v for k, v in piece.style.items() if not k.startswith('transition')}
-            kept.clips.append(piece)
-        part.tracks.append(kept)
-    part.markers = [dict(m, frame=m['frame'] - start) for m in timeline.markers if start <= m.get('frame', 0) < end]
-    return part
 
 
 def prepare(part, number, count, *, framing=clip_fit.BLUR, card=True, title=''):

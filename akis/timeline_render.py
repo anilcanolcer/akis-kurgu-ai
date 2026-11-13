@@ -13,8 +13,13 @@ import zlib
 from pathlib import Path
 from akis import audio_polish, caption_layout, clip_fit, emphasis
 from akis.frame_plan import plan_frame, plan_segments
+from akis.timeline_slice import picture_clips, plan_ranges, slice_timeline
 
 TRANSITIONS = ('fade', 'flash', 'dip', 'slide_left', 'slide_right', 'slide_up', 'slide_down')
+# Picture clips one ffmpeg run may open at once. Each keeps its own decoder and frame queue in memory
+# (about 60 MB at 720p, far more at 4K): 120 clips in one run took 7 GB. Longer edits are rendered in
+# ranges of this many and joined without re-encoding.
+MAX_PICTURE_INPUTS = 16
 AUDIO_PREROLL = 0.5  # seconds decoded before a cut so the audio decoder has settled at the cut
 # HDR (BT.2020 PQ/HLG) to SDR BT.709: linear light, tone curve, then back to an 8-bit video signal.
 # mobius keeps everything up to SDR white as it is and only rolls off the highlights (hable darkens the whole picture).
@@ -192,7 +197,9 @@ class TimelineRenderer:
     def _trim(name, lead, duration):
         return f'{name}=start={lead:.9f}:duration={duration:.9f}' if lead else f'{name}=duration={duration:.9f}'
 
-    def _render(self, timeline, output, *, frame=None, on_progress=None):
+    def _render(self, timeline, output, *, frame=None, on_progress=None, streams='both'):
+        """streams: 'both', 'video' (no sound) or 'audio' (the mix alone, no picture decoded)."""
+        want_video, want_audio = streams != 'audio', frame is None and streams != 'video'
         total = duration_frames(timeline)
         if total <= 0:
             raise ValueError('Timeline is empty')
@@ -237,7 +244,17 @@ class TimelineRenderer:
                     # Frame times are not exact in floating point; compare against half-frame edges so
                     # a layer appears on its first frame rather than one frame late.
                     on, off = local_start - 0.5 / fps, end_at - 0.5 / fps
-                    if track.kind in ('video', 'overlay'):
+                    if track.kind in ('video', 'overlay') and not want_video:
+                        # The mix alone: only the clip's sound is read; its picture is never decoded.
+                        if not Path(clip.source).is_file():
+                            raise FileNotFoundError(f'Medya bulunamadı: {clip.source}')
+                        if track.kind == 'video' and self.media.has_audio(clip.source):
+                            lead = self._open_input(args, clip.source, source_in, True)
+                            graph.append(f'[{index}:a]{self._trim("atrim", lead, length)},asetpts=PTS-STARTPTS,{voice_filter}volume={clip.volume:.6f},adelay={round(start * 1000)}:all=1[a{index}]')
+                            audio.append(f'[a{index}]')
+                            voices.append(f'[a{index}]')
+                            index += 1
+                    elif track.kind in ('video', 'overlay'):
                         if not Path(clip.source).is_file():
                             raise FileNotFoundError(f'Medya bulunamadı: {clip.source}')
                         layer += 1
@@ -276,14 +293,14 @@ class TimelineRenderer:
                         graph.append(f'{chain},setpts=PTS-{skip:.9f}/TB+{placed:.9f}/TB[v{layer}]')
                         graph.append(f'[{base}][v{layer}]overlay={position}eof_action=pass:enable=\'gte(t,{on:.9f})*lt(t,{(off + hold):.9f})\'[base{layer}]')
                         base = f'base{layer}'
-                        if track.kind == 'video' and frame is None and self.media.has_audio(clip.source):
+                        if track.kind == 'video' and want_audio and self.media.has_audio(clip.source):
                             delay = round(start * 1000)
                             graph.append(f'[{index}:a]{self._trim("atrim", lead, length)},asetpts=PTS-STARTPTS,{voice_filter}volume={clip.volume:.6f},adelay={delay}:all=1[a{index}]')
                             audio.append(f'[a{index}]')
                             voices.append(f'[a{index}]')
                         index += 1
                     elif track.kind == 'audio':
-                        if frame is not None:
+                        if not want_audio:
                             continue
                         if not Path(clip.source).is_file():
                             raise FileNotFoundError(f'Medya bulunamadı: {clip.source}')
@@ -293,6 +310,8 @@ class TimelineRenderer:
                         audio.append(f'[a{index}]')
                         music.append(f'[a{index}]')
                         index += 1
+                    elif not want_video:
+                        continue
                     elif track.kind == 'text' and clip.style.get('shape'):
                         from akis.shape_art import draw_shape
                         layer += 1
@@ -346,13 +365,15 @@ class TimelineRenderer:
                         base = f'base{layer}'
             graph.append(f'[{base}]eq=brightness={self.brightness/100:.3f}:contrast={1+self.contrast/100:.3f}:saturation={1+self.saturation/50:.3f}[graded]')
             base = 'graded'
+            if not want_video:
+                graph = graph[1:-1]           # neither the black base nor the colour grade is needed
             # Playback speed is part of the one export graph (one encode): retime the finished
             # picture, then the finished mix. atempo takes 0.5-2.0 per instance, the allowed range.
             speed = self.speed if frame is None else 1.0
-            if speed != 1.0:
+            if speed != 1.0 and want_video:
                 graph.append(f'[{base}]setpts=PTS/{speed:.6f}[timed]')
                 base = 'timed'
-            if audio:
+            if audio and want_audio:
                 tempo = f',atempo={speed:.6f}' if speed != 1.0 else ''
                 # Sources are summed at full level (normalize=0 keeps a lone voice as loud as it was), so
                 # music under speech can exceed full scale: a limiter catches those peaks instead of
@@ -363,12 +384,22 @@ class TimelineRenderer:
             # outlives the ffmpeg call below.
             script = Path(tmp) / 'graph.txt'
             script.write_text(';\n'.join(graph), encoding='utf-8', newline='\n')
-            args += ['-/filter_complex', str(script), '-map', f'[{base}]']
-            if frame is not None:
+            if not want_video:
+                if not audio:
+                    return None                # nothing to hear: no sound file is made
+                args += ['-/filter_complex', str(script), '-map', '[aout]', '-vn', '-c:a', 'aac', '-b:a', '192k',
+                         '-t', f'{total / fps / speed:.9f}', str(output)]
+            else:
+                args += ['-/filter_complex', str(script), '-map', f'[{base}]']
+            if not want_video:
+                pass
+            elif frame is not None:
                 args += ['-frames:v', '1', '-an', str(output)]
             else:
-                if audio:
+                if audio and want_audio:
                     args += ['-map', '[aout]', '-c:a', 'aac', '-b:a', '192k']
+                elif streams == 'video':
+                    args += ['-an']
                 quality = ['-preset', 'ultrafast', '-crf', '24', '-g', '15'] if self.fast else []
                 if speed != 1.0:  # retimed frames would otherwise round up to an extra frame or two
                     args += ['-t', f'{total / fps / speed:.9f}']
@@ -385,6 +416,36 @@ class TimelineRenderer:
                 raise RuntimeError('FFmpeg did not create output')
             return str(output)
 
+    def _export_in_ranges(self, timeline, output, on_progress=None):
+        """A long edit: the picture in ranges of at most MAX_PICTURE_INPUTS clips, the sound in one pass,
+        then joined without re-encoding. Same result as one pass, with memory that stays bounded."""
+        report = on_progress or (lambda fraction: None)
+        total = duration_frames(timeline)
+        ranges = plan_ranges(timeline, MAX_PICTURE_INPUTS, total)
+        picture_share = 0.88
+        with tempfile.TemporaryDirectory(prefix='akis_ranges_') as tmp:
+            parts, done = [], 0
+            for index, (start, end) in enumerate(ranges):
+                part = Path(tmp) / f'v{index:04d}.mp4'
+                share = (end - start) / total * picture_share
+                self._render(slice_timeline(timeline, start, end), part, streams='video',
+                             on_progress=lambda f, done=done, share=share: report(done + f * share))
+                parts.append(part)
+                done += share
+            sound = Path(tmp) / 'sound.m4a'
+            made = self._render(timeline, sound, streams='audio',
+                                on_progress=lambda f: report(picture_share + f * 0.1))
+            listing = Path(tmp) / 'parts.txt'
+            listing.write_text(''.join(f"file '{p.as_posix()}'\n" for p in parts), encoding='utf-8')
+            args = ['-y', '-f', 'concat', '-safe', '0', '-i', str(listing)]
+            args += ['-i', str(sound), '-map', '0:v', '-map', '1:a'] if made else ['-map', '0:v']
+            args += ['-c', 'copy', '-movflags', '+faststart', str(output)]
+            result = self.media.run(args, text=True)
+            if result.returncode or not Path(output).is_file():
+                raise RuntimeError('\n'.join((result.stderr or '').splitlines()[-12:]) or 'FFmpeg did not create output')
+        report(1.0)
+        return str(output)
+
     def preview(self, timeline, frame, output):
         return self._render(timeline, output, frame=frame)
 
@@ -396,7 +457,10 @@ class TimelineRenderer:
         if output_overwrites_source(timeline, output) or output_overwrites_source(timeline, partial):
             raise ValueError('Çıktı dosyası kaynak medyayla aynı olamaz.')
         try:
-            self._render(timeline, partial, on_progress=on_progress)
+            if len(picture_clips(timeline)) > MAX_PICTURE_INPUTS:
+                self._export_in_ranges(timeline, partial, on_progress)
+            else:
+                self._render(timeline, partial, on_progress=on_progress)
             os.replace(partial, output)
         except BaseException:
             try:
