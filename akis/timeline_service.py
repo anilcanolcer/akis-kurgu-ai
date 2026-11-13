@@ -1,7 +1,8 @@
 """Testable operations for the editor's frame-based timeline."""
 import time
+from typing import NamedTuple
 
-from akis.frame_plan import audio_at
+from akis.frame_plan import audio_at, plan_frame
 from akis.timeline_model import Clip, Track
 from akis.timeline_render import duration_frames, output_overwrites_source
 
@@ -93,6 +94,31 @@ def audio_target(timeline, frame, speed):
         return None
     milliseconds = round(layer.source_frame * 1000 * timeline.fps_den / timeline.fps_num)
     return layer.source, milliseconds, speed
+
+
+class AudioTarget(NamedTuple):
+    track_index: int
+    source: str
+    position: int       # milliseconds into the source
+    rate: float
+    volume: float       # the clip's own volume, 0..1
+
+
+def audio_targets(timeline, frame, speed):
+    """Every sound heard at `frame`: each audio-track clip and each video clip's own sound, in track order.
+    Clips at volume 0 are left out."""
+    if speed <= 0:
+        raise ValueError('Speed must be positive')
+    found = []
+    for layer in plan_frame(timeline, frame):
+        if layer.kind not in ('audio', 'video') or not layer.source:
+            continue
+        clip = timeline.tracks[layer.track_index].find(layer.clip_id)
+        if clip.volume <= 0:
+            continue
+        milliseconds = round(layer.source_frame * 1000 * timeline.fps_den / timeline.fps_num)
+        found.append(AudioTarget(layer.track_index, layer.source, milliseconds, speed, clip.volume))
+    return found
 
 
 class PlaybackClock:
