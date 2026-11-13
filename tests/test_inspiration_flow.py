@@ -9,6 +9,8 @@ from PySide6.QtWidgets import QApplication, QPushButton
 
 import main
 from akis import inspiration_service
+from akis.inspiration_dialog import InspirationDialog
+from akis.template_dialog import TemplateDialog
 
 
 class InspirationFlowTests(unittest.TestCase):
@@ -26,8 +28,8 @@ class InspirationFlowTests(unittest.TestCase):
         return next(b for b in self.window.findChildren(QPushButton) if b.property('nav') and word in b.text())
 
     def test_sidebar_entries_open_different_dialogs(self):
-        with patch.object(main.InspirationDialog, 'exec', return_value=0) as inspiration, \
-                patch.object(main.TemplateDialog, 'exec', return_value=0) as templates:
+        with patch.object(InspirationDialog, 'exec', return_value=0) as inspiration, \
+                patch.object(TemplateDialog, 'exec', return_value=0) as templates:
             self.nav_button('İlham').click()
             self.assertEqual((inspiration.call_count, templates.call_count), (1, 0))
             self.nav_button('Şablon').click()
@@ -36,8 +38,8 @@ class InspirationFlowTests(unittest.TestCase):
     def test_idea_fills_the_edit_request_without_touching_the_timeline(self):
         idea = inspiration_service.IDEAS[0]
         before = self.window.multitrack.to_dict()
-        with patch.object(main.InspirationDialog, 'exec', return_value=1), \
-                patch.object(main.InspirationDialog, 'selection', return_value=(idea, 'prompt')):
+        with patch.object(InspirationDialog, 'exec', return_value=1), \
+                patch.object(InspirationDialog, 'selection', return_value=(idea, 'prompt')):
             self.window.show_inspiration()
         self.assertEqual(self.window.ai_prompt.toPlainText(), idea.prompt)
         self.assertEqual(self.window.multitrack.to_dict(), before)
@@ -45,8 +47,8 @@ class InspirationFlowTests(unittest.TestCase):
     def test_idea_with_template_applies_it_as_one_undo_step(self):
         idea = next(i for i in inspiration_service.IDEAS if i.template)
         template = inspiration_service.template_for(idea)
-        with patch.object(main.InspirationDialog, 'exec', return_value=1), \
-                patch.object(main.InspirationDialog, 'selection', return_value=(idea, 'prompt+template')):
+        with patch.object(InspirationDialog, 'exec', return_value=1), \
+                patch.object(InspirationDialog, 'selection', return_value=(idea, 'prompt+template')):
             self.window.show_inspiration()
         names = {track.name for track in self.window.multitrack.tracks}
         self.assertTrue({name for _, name in template.tracks} <= names)

@@ -121,8 +121,8 @@ class WindowTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
-        patch('main.recovery_dir', return_value=self.root / 'recovery').start()
-        patch('main.app_data_dir', return_value=self.root / 'data').start()
+        patch('akis.app_support.recovery_dir', return_value=self.root / 'recovery').start()
+        patch('akis.app_support.app_data_dir', return_value=self.root / 'data').start()
         self.addCleanup(patch.stopall)
         self.window = MainWindow()
         self.window.apply_language('tr')
@@ -138,8 +138,8 @@ class WindowTests(unittest.TestCase):
             (self.root / name).write_bytes(b'old')
         started = []
         selection = (['C:/v/a.mp4', 'C:/v/b.mp4'], str(self.root), True, None)
-        with patch('main.BatchDialog.exec', new=lambda dialog: 1), \
-             patch('main.BatchDialog.selection', return_value=selection), \
+        with patch('akis.batch_dialog.BatchDialog.exec', new=lambda dialog: 1), \
+             patch('akis.batch_dialog.BatchDialog.selection', return_value=selection), \
              patch('main.QMessageBox.question', return_value=answer) as asked, \
              patch.object(w, 'start_worker', side_effect=lambda: started.append(w.worker)):
             w.export_batch()

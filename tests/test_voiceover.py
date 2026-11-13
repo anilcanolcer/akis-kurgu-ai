@@ -72,7 +72,7 @@ class TimelineTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
-        patch('main.recovery_dir', return_value=self.root / 'recovery').start()
+        patch('akis.app_support.recovery_dir', return_value=self.root / 'recovery').start()
         self.addCleanup(patch.stopall)
         self.window = MainWindow()
         self.window.apply_language('tr')
@@ -97,7 +97,7 @@ class TimelineTests(unittest.TestCase):
     def test_finished_voiceover_is_one_undo_step_and_joins_the_media_list(self):
         w = self.window
         w._voiceover_at = 15
-        with patch('main.MediaService.duration', return_value=1.5):
+        with patch('akis.media_service.MediaService.duration', return_value=1.5):
             w.on_voiceover(str(self.root / 'ses.wav'))
         self.assertEqual(self.voice_tracks(), [('Seslendirme', [(15, 45)])])
         self.assertIn('Seslendirme zaman çizelgesine eklendi: ses.wav', w.status_label.text())

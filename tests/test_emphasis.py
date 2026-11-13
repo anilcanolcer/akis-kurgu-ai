@@ -137,8 +137,8 @@ class WindowTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
-        patch('main.recovery_dir', return_value=self.root / 'recovery').start()
-        patch('main.MediaService.duration', return_value=60.0).start()
+        patch('akis.app_support.recovery_dir', return_value=self.root / 'recovery').start()
+        patch('akis.media_service.MediaService.duration', return_value=60.0).start()
         self.addCleanup(patch.stopall)
         self.window = MainWindow()
         self.window.apply_language('tr')
@@ -157,7 +157,7 @@ class WindowTests(unittest.TestCase):
 
     def test_add_then_remove_each_in_one_undo_step(self):
         w = self.window
-        with patch('main.silence_cut.measure', return_value=levels(60, (8, 21, 40))):
+        with patch('akis.silence_cut.measure', return_value=levels(60, (8, 21, 40))):
             w.punch_in_on_emphasis()
             self.assertTrue(w.worker.wait(10000))          # the sound is read off the window's thread
             app.processEvents()
@@ -172,7 +172,7 @@ class WindowTests(unittest.TestCase):
         self.assertEqual(self.punches(), 0)
 
     def test_nothing_loud_says_so(self):
-        with patch('main.silence_cut.measure', return_value=levels(60)), \
+        with patch('akis.silence_cut.measure', return_value=levels(60)), \
              patch('main.QMessageBox.information') as told:
             self.window.punch_in_on_emphasis()
             self.assertTrue(self.window.worker.wait(10000))

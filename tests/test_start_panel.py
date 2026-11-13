@@ -33,8 +33,8 @@ class WindowTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
-        patch('main.recovery_dir', return_value=self.root / 'recovery').start()
-        patch('main.MediaService.duration', return_value=2.0).start()
+        patch('akis.app_support.recovery_dir', return_value=self.root / 'recovery').start()
+        patch('akis.media_service.MediaService.duration', return_value=2.0).start()
         self.addCleanup(patch.stopall)
         self.window = MainWindow()
         self.window.apply_language('tr')
@@ -56,10 +56,10 @@ class WindowTests(unittest.TestCase):
 
     def test_buttons_reach_the_windows_commands(self):
         w = self.window
-        with patch('main.QFileDialog.getOpenFileName', return_value=('', '')) as chooser:
+        with patch('PySide6.QtWidgets.QFileDialog.getOpenFileName', return_value=('', '')) as chooser:
             w.start_panel.buttons['add'].click()
         chooser.assert_called_once()
-        with patch('main.TemplateDialog.exec', new=lambda dialog: 0):
+        with patch('akis.template_dialog.TemplateDialog.exec', new=lambda dialog: 0):
             w.start_panel.buttons['templates'].click()      # opens Templates; dismissed, nothing changes
         self.assertFalse(w.undo())
 
@@ -67,7 +67,7 @@ class WindowTests(unittest.TestCase):
         w = self.window
         w.seek_timeline(0)
         self.assertFalse(w.start_panel.isHidden())
-        with patch('main.TemplateDialog.exec', new=lambda dialog: 1):
+        with patch('akis.template_dialog.TemplateDialog.exec', new=lambda dialog: 1):
             w.show_templates()                               # adds tracks and a three-second title clip
         self.assertTrue(w.start_panel.isHidden())            # there is something on the timeline now
 

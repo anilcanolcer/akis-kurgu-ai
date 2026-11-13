@@ -21,7 +21,7 @@ class UnsavedChangesTests(unittest.TestCase):
             video = Path(tmp) / 'demo.mp4'
             video.touch()
             window = MainWindow()
-            with patch('main.MediaService.duration', return_value=2.0), patch.object(window, 'seek_timeline'):
+            with patch('akis.media_service.MediaService.duration', return_value=2.0), patch.object(window, 'seek_timeline'):
                 self.assertFalse(window.has_unsaved_changes())  # nothing loaded yet
                 window.load_video(str(video))
                 self.assertFalse(window.has_unsaved_changes())
@@ -40,7 +40,7 @@ class UnsavedChangesTests(unittest.TestCase):
             video = Path(tmp) / 'demo.mp4'
             video.touch()
             window = MainWindow()
-            with patch('main.MediaService.duration', return_value=2.0), patch.object(window, 'seek_timeline'):
+            with patch('akis.media_service.MediaService.duration', return_value=2.0), patch.object(window, 'seek_timeline'):
                 window.load_video(str(video))
             window.publish_title.setText('değişti')
             with patch.object(window, 'isVisible', return_value=True), \

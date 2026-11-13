@@ -140,7 +140,7 @@ class WindowTests(unittest.TestCase):
         from main import MainWindow
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        patch('main.recovery_dir', return_value=Path(self.tmp.name) / 'recovery').start()
+        patch('akis.app_support.recovery_dir', return_value=Path(self.tmp.name) / 'recovery').start()
         self.addCleanup(patch.stopall)
         self.window = MainWindow()
         self.window.apply_language('tr')

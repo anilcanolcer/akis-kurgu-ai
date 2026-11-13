@@ -30,7 +30,7 @@ class ProjectOpenTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        patcher = patch('main.MediaService.duration', return_value=2.0)
+        patcher = patch('akis.media_service.MediaService.duration', return_value=2.0)
         patcher.start()
         self.addCleanup(patcher.stop)
         self.window = MainWindow()
@@ -42,7 +42,7 @@ class ProjectOpenTests(unittest.TestCase):
         self.video_a.touch()
         self.project_a = Path(self.tmp.name) / 'a.akis.json'
         self.window.load_video(str(self.video_a))
-        with patch('main.QFileDialog.getSaveFileName', return_value=(str(self.project_a), '')):
+        with patch('PySide6.QtWidgets.QFileDialog.getSaveFileName', return_value=(str(self.project_a), '')):
             self.window.save_project()
         with self.window.history_step():  # one undo step (an empty track; no clips, nothing else changes)
             self.window.multitrack.tracks.append(Track('text', 'Notlar'))
@@ -63,7 +63,7 @@ class ProjectOpenTests(unittest.TestCase):
                 'media_list': w.media_list.count()}
 
     def open(self, project):
-        with patch('main.QFileDialog.getOpenFileName', return_value=(str(project), '')), \
+        with patch('PySide6.QtWidgets.QFileDialog.getOpenFileName', return_value=(str(project), '')), \
              patch('main.QMessageBox.critical') as critical, patch('main.QMessageBox.warning') as warning:
             self.window.open_project()
         return critical, warning
@@ -99,7 +99,7 @@ class ProjectOpenTests(unittest.TestCase):
 
     def test_source_ratio_with_missing_first_clip_opens_with_status(self):
         project_b, video_b = write_project_b(self.tmp.name, aspect='Kaynak oranı')
-        with patch('main.MediaService.dimensions', side_effect=ValueError('Video boyutları okunamadı.')), \
+        with patch('akis.media_service.MediaService.dimensions', side_effect=ValueError('Video boyutları okunamadı.')), \
              patch.object(self.window, 'set_status', wraps=self.window.set_status) as status:
             critical, _ = self.open(project_b)
         critical.assert_not_called()
