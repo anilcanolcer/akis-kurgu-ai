@@ -63,6 +63,7 @@ from akis import fcpxml_export
 from akis.batch_dialog import BatchDialog
 from akis import shorts_split
 from akis.shorts_dialog import ShortsDialog
+from akis.call_worker import CallWorker
 from akis.batch_export import BatchExportWorker, output_for
 from akis import beat_sync, emphasis, retakes, silence_cut
 from akis.plan_review import PlanReviewDialog
@@ -1697,12 +1698,15 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, APP_NAME, self.ui_text('Ritme oturtulacak kesim yok; önce videoyu bölün ya da birkaç klip ekleyin.'))
             return
         fps = self.multitrack.fps_num / self.multitrack.fps_den
-        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-        try:
-            onsets = beat_sync.read_onsets(ffmpeg_path(), music.source, music.source_in / fps, music.length / fps)
-        finally:
-            QApplication.restoreOverrideCursor()
-        found = [music.start / fps + beat for beat in beat_sync.beats(onsets)]
+        executable = ffmpeg_path()
+        self.run_analysis(self.ui_text('Müziğin ritmi çözümleniyor…'),
+                          lambda: beat_sync.beats(beat_sync.read_onsets(executable, music.source, music.source_in / fps,
+                                                                       music.length / fps)),
+                          lambda beats: self.finish_beat_snap(beats, music, sources, segments))
+
+    def finish_beat_snap(self, beats, music, sources, segments) -> None:
+        fps = self.multitrack.fps_num / self.multitrack.fps_den
+        found = [music.start / fps + beat for beat in beats]
         if not found:
             QMessageBox.information(self, APP_NAME, self.ui_text('Müzikte belirgin bir ritim bulunamadı.'))
             return
@@ -1743,11 +1747,12 @@ class MainWindow(QMainWindow):
         if not sources:
             QMessageBox.information(self, APP_NAME, self.ui_text('Zaman çizelgesinde video yok.'))
             return
-        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-        try:
-            moments = {source: emphasis.find_moments(silence_cut.measure(ffmpeg_path(), source)) for source in sources}
-        finally:
-            QApplication.restoreOverrideCursor()
+        executable = ffmpeg_path()
+        self.run_analysis(self.ui_text('Konuşmadaki vurgular aranıyor…'),
+                          lambda: {source: emphasis.find_moments(silence_cut.measure(executable, source)) for source in sources},
+                          self.finish_punch_in)
+
+    def finish_punch_in(self, moments) -> None:
         with self.history_step():
             placed = emphasis.apply(self.multitrack, moments)
         if not placed:
@@ -1756,6 +1761,22 @@ class MainWindow(QMainWindow):
         self.seek_timeline(self.timeline_frame)
         self.set_status(self.ui_text('{count} vurgu anında yakınlaştırma eklendi. Beğenmezseniz geri alabilirsiniz (Ctrl+Z).',
                                      count=placed))
+
+    def run_analysis(self, text, function, done) -> None:
+        """Run a slow, self-contained step off the window's thread; `done(result)` follows on this thread.
+
+        The window stays usable meanwhile; other work waits, as for any running task."""
+        self.worker = CallWorker(function)
+        self.begin_work(text)
+
+        def finished(result):
+            if self._shutting_down:
+                return
+            self.finish_work('')
+            done(result)
+        self.worker.completed.connect(finished)
+        self.worker.failed.connect(self.on_worker_error)
+        self.start_worker()
 
     def run_prompt_edit(self) -> None:
         if not self.can_start_work() or not self.ensure_video():
@@ -2256,11 +2277,14 @@ class MainWindow(QMainWindow):
         if total <= 0:
             QMessageBox.information(self, APP_NAME, self.ui_text('Zaman çizelgesinde video yok.'))
             return
-        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-        try:
-            pauses = shorts_split.timeline_pauses(self.multitrack, lambda source: silence_cut.measure(ffmpeg_path(), source))
-        finally:
-            QApplication.restoreOverrideCursor()
+        executable = ffmpeg_path()
+        timeline = copy.deepcopy(self.multitrack)
+        self.run_analysis(self.ui_text('Konuşmadaki duraklamalar aranıyor…'),
+                          lambda: shorts_split.timeline_pauses(timeline, lambda source: silence_cut.measure(executable, source)),
+                          lambda pauses: self.choose_shorts(pauses, total))
+
+    def choose_shorts(self, pauses, total) -> None:
+        fps = self.multitrack.fps_num / self.multitrack.fps_den
         said = shorts_split.spoken_on_timeline(self.multitrack, self.caption_source, self.caption_segments) \
             if self.caption_source and self.caption_segments else []
         dialog = ShortsDialog(self, total=total, pauses=pauses, said=said, language=self.ui_language())

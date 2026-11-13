@@ -13,6 +13,7 @@ from PySide6.QtWidgets import QApplication
 from akis import i18n, shorts_split
 from akis.media_service import MediaService
 from akis.shorts_dialog import ShortsDialog
+from akis.call_worker import CallWorker
 from akis.shorts_split import plan_parts, slice_timeline
 from akis.timeline_model import Clip, Timeline, Track
 
@@ -212,6 +213,11 @@ class WindowTests(unittest.TestCase):
         started = []
         with patch('main.silence_cut.measure', return_value=[]),              patch('main.ShortsDialog.exec', new=lambda dialog: 1),              patch('main.QFileDialog.getExistingDirectory', return_value=str(self.root)),              patch('akis.export_progress.space_problem', return_value=''),              patch.object(w, 'start_worker', side_effect=lambda: started.append(w.worker)):
             w.export_shorts()
+            analysis = started.pop(0)                       # the pauses are found off the window's thread first
+            self.assertIsInstance(analysis, CallWorker)
+            analysis.start()
+            self.assertTrue(analysis.wait(10000))
+            app.processEvents()
         worker = started[0]
         self.assertIsInstance(worker, shorts_split.ShortsExportWorker)
         self.assertEqual(len(worker.parts), 3)

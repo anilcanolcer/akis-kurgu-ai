@@ -159,6 +159,8 @@ class WindowTests(unittest.TestCase):
         w = self.window
         with patch('main.silence_cut.measure', return_value=levels(60, (8, 21, 40))):
             w.punch_in_on_emphasis()
+            self.assertTrue(w.worker.wait(10000))          # the sound is read off the window's thread
+            app.processEvents()
         self.assertEqual(self.punches(), 3)
         self.assertIn('3 vurgu anında yakınlaştırma eklendi', w.status_label.text())
         with patch('main.QMessageBox.question', return_value=QMessageBox.StandardButton.Yes):
@@ -173,6 +175,8 @@ class WindowTests(unittest.TestCase):
         with patch('main.silence_cut.measure', return_value=levels(60)), \
              patch('main.QMessageBox.information') as told:
             self.window.punch_in_on_emphasis()
+            self.assertTrue(self.window.worker.wait(10000))
+            app.processEvents()
         self.assertEqual(told.call_args.args[2], 'Belirgin bir vurgu anı bulunamadı.')
         self.assertFalse(self.window.undo())
 

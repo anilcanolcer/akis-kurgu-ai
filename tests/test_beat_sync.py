@@ -122,6 +122,8 @@ class WindowTests(unittest.TestCase):
             Track('audio', 'Müzik', [music]), Track('text', 'Yazı', [Clip('', 60, 30, text='Merhaba')])]))
         with patch('main.beat_sync.read_onsets', return_value=pulses(0.5, 0.0, 10.0)):
             w.snap_cuts_to_beat()
+            self.assertTrue(w.worker.wait(10000))          # the beat is read off the window's thread
+            app.processEvents()
         main, sound = w.multitrack.tracks[0].clips, w.multitrack.tracks[1].clips
         self.assertEqual(main[0].length, 60)            # the cut at 1.8 s moved to the beat at 2 s
         self.assertEqual(main[1].start, 60)

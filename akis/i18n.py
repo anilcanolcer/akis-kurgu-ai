@@ -294,6 +294,10 @@ EN_UI = {
     'Başlıklar kartta ve dosya adında kullanılır; çift tıklayıp değiştirebilirsiniz.': 'Titles are used on the card and in the file name; double-click to change them.',
     '{total} sürelik video {count} parçaya bölünecek.': 'The {total} video will be split into {count} parts.',
     'Bulanık arka plan (kırpmadan doldur)': 'Blurred background (fill without cropping)',
+    # Analyses run in the background.
+    'Müziğin ritmi çözümleniyor…': 'Analysing the beat of the music…',
+    'Konuşmadaki vurgular aranıyor…': 'Looking for emphasis in the speech…',
+    'Konuşmadaki duraklamalar aranıyor…': 'Looking for pauses in the speech…',
     # Voiceover (akis.tts_service).
     'Konuşma diline uygun ses': 'Voice matching the speech language',
     'Seslendirmeyi okuyacak Windows sesi. Yeni ses dili Windows Ayarları › Zaman ve dil › Konuşma bölümünden eklenir.': 'The Windows voice that reads the voiceover. More voices are added in Windows Settings › Time & language › Speech.',
