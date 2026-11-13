@@ -2032,6 +2032,8 @@ class MainWindow(QMainWindow):
                 QMessageBox.information(self, APP_NAME, f'{provider} için API anahtarı ve modeli girin.')
                 return
             self.worker = TranscriptWorker(key, self.state.source, ffmpeg_path(), self.transcript_model.currentText().strip(), provider)
+            source = self.state.source
+            self.worker.timed.connect(lambda segments: self.on_cloud_segments(segments, source))
         self.begin_work("Ses hazırlanıyor…")
         self.worker.status.connect(self.set_status)
         self.worker.completed.connect(self.on_local_transcript if self.caption_backend.currentIndex() == 1 else self.on_transcript)
@@ -2047,6 +2049,14 @@ class MainWindow(QMainWindow):
         self.caption_source = self.caption_request_source
         self.apply_captions_button.setEnabled(bool(segments))
         self.on_transcript(' '.join(segment['text'] for segment in segments))
+
+    def on_cloud_segments(self, segments, source):
+        """A cloud service gave timings: the transcript can make captions, as a local one does."""
+        if self._shutting_down or not segments:
+            return
+        self.caption_segments = segments
+        self.caption_source = source
+        self.apply_captions_button.setEnabled(True)
 
     def apply_local_captions(self):
         with self.history_step():

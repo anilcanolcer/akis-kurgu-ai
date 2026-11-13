@@ -107,11 +107,11 @@ class CloudTests(Reset):
         fake = types.SimpleNamespace(OpenAI=MagicMock(return_value=client))
         with patch.dict(sys.modules, {'openai': fake}):
             ai_providers.transcribe('OpenAI', 'key', 'whisper-1', self.audio)
-            self.assertEqual({k: v for k, v in create.call_args.kwargs.items() if k != 'file'},
+            self.assertEqual({k: v for k, v in create.call_args.kwargs.items() if k not in ('file', 'response_format', 'timestamp_granularities')},
                              {'model': 'whisper-1', 'language': 'tr'})
             speech_settings.set_current('auto', 'Anılcan')
             ai_providers.transcribe('OpenAI', 'key', 'whisper-1', self.audio)
-            self.assertEqual({k: v for k, v in create.call_args.kwargs.items() if k != 'file'},
+            self.assertEqual({k: v for k, v in create.call_args.kwargs.items() if k not in ('file', 'response_format', 'timestamp_granularities')},
                              {'model': 'whisper-1', 'prompt': 'Anılcan'})
 
 

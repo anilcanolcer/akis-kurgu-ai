@@ -560,11 +560,42 @@ def transcribe(provider, key, model, audio, *, language=None, vocabulary=None):
     return _read_text(_gemini_text, provider, result)
 
 
+class Transcript(str):
+    """The recognised text; `segments` holds [{'start', 'end', 'text'}] in seconds when the service gave
+    timings (None otherwise), so a cloud transcript can make captions like the local one."""
+
+    def __new__(cls, text, segments=None):
+        made = super().__new__(cls, text)
+        made.segments = segments or None
+        return made
+
+
+def group_words(words, gap=0.7, longest=6.0, most=14):
+    """Caption-sized segments from timed words: a new one after a sentence end, a pause, or when long."""
+    segments, current = [], []
+    for word in words or ():
+        try:
+            text, start = str(word['text']).strip(), float(word['start'])
+            end = float(word.get('end', start))
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not text:
+            continue
+        if current and (start - current[-1][2] > gap or current[-1][0][-1:] in '.?!…'
+                        or end - current[0][1] > longest or len(current) >= most):
+            segments.append({'start': current[0][1], 'end': current[-1][2], 'text': ' '.join(w[0] for w in current)})
+            current = []
+        current.append((text, start, max(end, start)))
+    if current:
+        segments.append({'start': current[0][1], 'end': current[-1][2], 'text': ' '.join(w[0] for w in current)})
+    return segments
+
+
 def _stt_text(provider, result):
     text = result.get('text')
     if not isinstance(text, str) or not text.strip():
         raise _empty(provider, 'konuşma metni yok')
-    return text
+    return Transcript(text, group_words(result.get('words')))
 
 
 def _openai_transcribe(key, model, audio, client_factory=None, *, language='tr', prompt=''):
@@ -579,6 +610,8 @@ def _openai_transcribe(key, model, audio, client_factory=None, *, language='tr',
         with open(audio, 'rb') as handle:
             # A language left out lets the model detect it; the prompt lists names and terms to expect.
             options = {name: value for name, value in (('language', language), ('prompt', prompt)) if value}
+            if model == 'whisper-1':  # the only OpenAI transcription model that gives timings
+                options.update(response_format='verbose_json', timestamp_granularities=['segment'])
             result = client.audio.transcriptions.create(model=model, file=handle, **options)
     except openai.APITimeoutError as exc:
         raise RuntimeError(f'{provider} {TRANSCRIBE_TIMEOUT} saniyede yanıt vermedi. '
@@ -599,4 +632,13 @@ def _openai_transcribe(key, model, audio, client_factory=None, *, language='tr',
     text = getattr(result, 'text', None)
     if not isinstance(text, str):
         raise ProviderResponseError(f'{provider} beklenmeyen bir yanıt döndürdü; daha sonra tekrar deneyin.')
-    return text
+    segments = []
+    for segment in getattr(result, 'segments', None) or ():
+        get = segment.get if isinstance(segment, dict) else (lambda name, s=segment: getattr(s, name, None))
+        try:
+            start, end, said = float(get('start')), float(get('end')), str(get('text') or '').strip()
+        except (TypeError, ValueError):
+            continue
+        if said and end > start:
+            segments.append({'start': start, 'end': end, 'text': said})
+    return Transcript(text, segments)
