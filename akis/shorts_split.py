@@ -3,9 +3,12 @@
 The edit is divided into parts of about equal length, each at most `limit` seconds. A part ends in a pause
 near its planned end where there is one, so sentences are not cut in the middle. Each part is the
 timeline's own content between two moments (every track: captions, music, texts follow), shifted to start
-at 0, on a vertical canvas, optionally with the picture filling the frame and a "Bölüm 1/7" label.
+at 0, on a vertical canvas. By default a landscape picture sits whole over a blurred, enlarged copy of
+itself, and a card at the top shows "4 / 7" and the part's title for the whole part; files are named
+"04-title-as-slug.mp4" in one folder.
 """
 import math
+import re
 from copy import deepcopy
 from pathlib import Path
 
@@ -20,8 +23,10 @@ DEFAULT_LIMIT = 60
 MIN_LIMIT, MAX_LIMIT = 15, 180
 CANVAS = (1080, 1920)
 SEARCH = 0.15          # look for a pause within this share of the planned length before the planned end
-LABEL_SECONDS = 3
 LABEL_TRACK = 'Shorts bölüm'
+TITLE_CHARS = 48
+SLUG_CHARS = 40
+FRAMINGS = (clip_fit.BLUR, clip_fit.FILL, clip_fit.FIT)
 
 
 def plan_parts(total, limit, pauses=()):
@@ -93,29 +98,75 @@ def slice_timeline(timeline, start, end):
     return part
 
 
-def prepare(part, number, count, *, fill=True, label=True, say=str):
-    """Make a sliced part ready for a vertical export: fill the frame, add the part label."""
-    if fill:
+def prepare(part, number, count, *, framing=clip_fit.BLUR, card=True, title=''):
+    """Make a sliced part ready for a vertical export: frame the picture, add the "4 / 7" + title card.
+
+    framing: clip_fit.BLUR, FILL or FIT; clips the user framed by hand keep their own framing."""
+    if framing in (clip_fit.BLUR, clip_fit.FILL):
         for track in part.tracks:
             if track.kind in ('video', 'overlay'):
                 for clip in track.clips:
-                    if not clip_fit.is_fill(clip.style):
-                        clip_fit.apply(clip, clip_fit.FILL, 0.5)
-    if label and count > 1:
-        fps = part.fps_num / part.fps_den
-        length = min(duration_frames(part), round(LABEL_SECONDS * fps))
+                    if 'fit' not in clip.style:
+                        clip_fit.apply(clip, framing, 0.5)
+    title = ' '.join(str(title or '').split())
+    if card and (count > 1 or title):
+        length = duration_frames(part)
         if length > 0:
-            text = say('Bölüm {number}/{count}').format(number=number, count=count)
-            part.tracks.append(Track('text', LABEL_TRACK, [Clip('', 0, length, text=text,
-                                                                style={'x': 0.5, 'y': 0.1, 'size': 'medium', 'color': 'yellow'})]))
+            counter = f'{number} / {count}' if count > 1 else ''
+            part.tracks.append(Track('text', LABEL_TRACK, [Clip('', 0, length, text=title or counter,
+                                                                style={'shape': 'card', 'counter': counter, 'title': title,
+                                                                       'y': 0.05})]))
     return part
 
 
-def output_for(chosen, number, count):
-    base = Path(chosen)
-    stem = base.stem if base.suffix.lower() == '.mp4' else base.name
-    width = max(2, len(str(count)))
-    return str(base.with_name(f'{stem}_short_{number:0{width}d}.mp4'))
+def slug(text):
+    """A file-name-safe, ASCII form of a title: "Dağ o ayetten beri ağlıyor" -> "dag-o-ayetten-beri-agliyor"."""
+    text = str(text).translate(str.maketrans('çğıöşüÇĞİÖŞÜâîûÂÎÛ', 'cgiosuCGIOSUaiuAIU')).lower()
+    text = re.sub(r'[^a-z0-9]+', '-', text).strip('-')
+    return text[:SLUG_CHARS].rstrip('-')
+
+
+def outputs_for(folder, titles, fallback):
+    """One path per part: "01-title.mp4" in `folder` (the fallback name where a part has no title)."""
+    width = max(2, len(str(len(titles))))
+    names, used = [], set()
+    for number, title in enumerate(titles, 1):
+        name = f'{number:0{width}d}-{slug(title) or slug(fallback) or "short"}.mp4'
+        while name.lower() in used:
+            name = name[:-4] + '-2.mp4'
+        used.add(name.lower())
+        names.append(str(Path(folder) / name))
+    return names
+
+
+def suggest_titles(parts, said):
+    """A starting title per part: the first sentence said in it, shortened; '' where nothing is said.
+
+    said: [(timeline second, text)] (see spoken_on_timeline)."""
+    titles = []
+    for start, end in parts:
+        first = next((text for second, text in said if start <= second < end and text.strip()), '')
+        first = ' '.join(first.split()).rstrip('.,;:')
+        if len(first) > TITLE_CHARS:
+            first = first[:TITLE_CHARS].rsplit(' ', 1)[0].rstrip('.,;:') + '…'
+        titles.append(first)
+    return titles
+
+
+def spoken_on_timeline(timeline, source, segments):
+    """[(timeline second, text)] for a transcript of `source` (seconds in the source) as the edit shows it."""
+    fps = timeline.fps_num / timeline.fps_den
+    main = next((track for track in timeline.tracks if track.kind == 'video'), None)
+    found = []
+    for clip in main.clips if main else ():
+        if clip.source != source:
+            continue
+        first, last = clip.source_in / fps, (clip.source_in + clip.length) / fps
+        for segment in segments:
+            start = float(segment.get('start', 0))
+            if first <= start < last:
+                found.append((clip.start / fps + start - first, str(segment.get('text', ''))))
+    return sorted(found)
 
 
 def clock(seconds):
@@ -129,14 +180,15 @@ class ShortsExportWorker(QThread):
     cancelled = Signal()
     progress = Signal(int)
 
-    def __init__(self, timeline, parts, chosen, executable, *, adjustments=None, fill=True, label=True, say=str,
-                 canvas=CANVAS):
+    def __init__(self, timeline, parts, outputs, executable, *, adjustments=None, framing=clip_fit.BLUR, card=True,
+                 titles=None, say=str, canvas=CANVAS):
         super().__init__()
         self.timeline = Timeline.from_dict(timeline.to_dict())
         self.parts = list(parts)
-        self.outputs = [output_for(chosen, n + 1, len(self.parts)) for n in range(len(self.parts))]
+        self.outputs = list(outputs)
+        self.titles = list(titles or [''] * len(self.parts))
         self.adjustments = dict(adjustments or {})
-        self.fill, self.label, self.say = fill, label, say
+        self.framing, self.card, self.say = framing, card, say
         self.canvas = canvas
         self.media = MediaService(executable)
         self._percent = None
@@ -155,7 +207,7 @@ class ShortsExportWorker(QThread):
             fps = self.timeline.fps_num / self.timeline.fps_den
             for index, ((start, end), output) in enumerate(zip(self.parts, self.outputs)):
                 part = slice_timeline(self.timeline, round(start * fps), round(end * fps))
-                prepare(part, index + 1, len(self.parts), fill=self.fill, label=self.label, say=self.say)
+                prepare(part, index + 1, len(self.parts), framing=self.framing, card=self.card, title=self.titles[index])
                 if output_overwrites_source(part, output):
                     raise ValueError(self.say('Çıktı dosyası kaynak medyayla aynı olamaz.'))
                 renderer = TimelineRenderer(self.media, self.canvas, **self.adjustments)

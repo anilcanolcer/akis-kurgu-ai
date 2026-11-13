@@ -2261,16 +2261,16 @@ class MainWindow(QMainWindow):
             pauses = shorts_split.timeline_pauses(self.multitrack, lambda source: silence_cut.measure(ffmpeg_path(), source))
         finally:
             QApplication.restoreOverrideCursor()
-        dialog = ShortsDialog(self, total=total, pauses=pauses, language=self.ui_language())
+        said = shorts_split.spoken_on_timeline(self.multitrack, self.caption_source, self.caption_segments) \
+            if self.caption_source and self.caption_segments else []
+        dialog = ShortsDialog(self, total=total, pauses=pauses, said=said, language=self.ui_language())
         if not dialog.exec():
             return
-        parts, fill, label = dialog.selection()
-        default = safe_filename(self.project_title.text()) + ".mp4"
-        chosen, _ = QFileDialog.getSaveFileName(self, self.ui_text("Shorts'a böl"), str(Path.home() / "Videos" / default),
-                                                "MP4 Video (*.mp4)")
-        if not chosen:
+        parts, framing, card, titles = dialog.selection()
+        folder = QFileDialog.getExistingDirectory(self, self.ui_text('Kaydedilecek klasör'), str(Path.home() / "Videos"))
+        if not folder:
             return
-        outputs = [shorts_split.output_for(chosen, n + 1, len(parts)) for n in range(len(parts))]
+        outputs = shorts_split.outputs_for(folder, titles, safe_filename(self.project_title.text()))
         existing = [Path(path).name for path in outputs if Path(path).exists()]
         if existing and QMessageBox.question(
                 self, APP_NAME, self.ui_text('Şu dosyalar zaten var ve üzerine yazılacak:\n{names}\n\nDevam edilsin mi?',
@@ -2285,9 +2285,9 @@ class MainWindow(QMainWindow):
                                             QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
             self.set_status(self.ui_text('Dışa aktarma başlatılmadı.'))
             return
-        self.worker = shorts_split.ShortsExportWorker(self.multitrack, parts, chosen, ffmpeg_path(),
-                                                      adjustments=self.render_adjustments(), fill=fill, label=label,
-                                                      say=self.ui_template)
+        self.worker = shorts_split.ShortsExportWorker(self.multitrack, parts, outputs, ffmpeg_path(),
+                                                      adjustments=self.render_adjustments(), framing=framing, card=card,
+                                                      titles=titles, say=self.ui_template)
         self.begin_work(self.ui_text("Dışa aktarma hazırlanıyor…"))
         self._export_estimator = export_progress.Estimator()
         self.worker.progress.connect(self.on_export_progress)
