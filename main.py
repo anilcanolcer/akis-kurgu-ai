@@ -23,7 +23,7 @@ from pathlib import Path
 if sys.platform == "win32":
     os.environ.setdefault("QT_MEDIA_BACKEND", "windows")
 
-from akis.timeline_model import Timeline, Track
+from akis.timeline_model import Clip, Timeline, Track
 from akis.multitrack_widget import MultitrackWidget
 from akis import project_service
 from akis.media_service import MediaService
@@ -39,6 +39,7 @@ from akis.update_dialog import UpdateProgressDialog
 from akis.ai_service import plan_prompt, add_plan_markers, format_suggestion
 from akis.caption_worker import LocalCaptionWorker
 from akis.tts_worker import TtsWorker
+from akis import tts_service
 from akis.ai_workers import AIWorker, PromptEditWorker, TranscriptWorker
 from akis import edit_plan
 from akis.media_bin import MediaBin
@@ -908,6 +909,16 @@ class MainWindow(QMainWindow):
         self.tts_input.setPlaceholderText('Seslendirme metni / Voiceover text')
         self.tts_input.setFixedHeight(75)
         v.addWidget(self.tts_input)
+        self.tts_voice = QComboBox()
+        self.tts_voice.setProperty("i18n_skip", True)  # voice names are the system's own
+        self.tts_voice.addItem(self.ui_text('Konuşma diline uygun ses'), None)
+        for voice_id, name, language in tts_service.voices():
+            self.tts_voice.addItem(f'{name} ({language})', voice_id)
+        self.tts_voice.setToolTip('Seslendirmeyi okuyacak Windows sesi. Yeni ses dili Windows Ayarları › Zaman ve dil › Konuşma bölümünden eklenir.')
+        v.addWidget(self.tts_voice)
+        self.tts_to_timeline = QCheckBox('Oynatma çizgisinden zaman çizelgesine ekle')
+        self.tts_to_timeline.setChecked(True)
+        v.addWidget(self.tts_to_timeline)
         tts_button = QPushButton('Windows sesiyle WAV oluştur / Create voiceover')
         tts_button.clicked.connect(self.create_voiceover)
         v.addWidget(tts_button)
@@ -2035,14 +2046,50 @@ class MainWindow(QMainWindow):
         if not self.confirm_overwrite(chosen, path):
             return
         self.begin_work('Windows sesi oluşturuluyor…')
-        self.worker = TtsWorker(text, path)
+        self._voiceover_at = self.timeline_frame if self.tts_to_timeline.isChecked() else None
+        self.worker = TtsWorker(text, path, voice_id=self.tts_voice.currentData(),
+                                language=speech_settings.language() or 'tr')
         self.worker.completed.connect(self.on_voiceover)
         self.worker.failed.connect(self.on_worker_error)
         self.start_worker()
 
     def on_voiceover(self, path: str) -> None:
-        if not self._shutting_down:
-            self.finish_work(f'Ses kaydedildi: {path}')
+        if self._shutting_down:
+            return
+        frame = getattr(self, '_voiceover_at', None)
+        if frame is None:
+            self.finish_work(self.ui_text('Ses kaydedildi: {path}', path=path))
+            return
+        try:
+            seconds = MediaService(ffmpeg_path()).duration(path)
+        except (ValueError, RuntimeError, OSError):
+            seconds = 0
+        if seconds <= 0:
+            self.finish_work(self.ui_text('Ses kaydedildi: {path}', path=path))
+            return
+        with self.history_step():
+            self.place_voiceover(path, frame, seconds)
+        self.refresh_timeline_view()
+        self.media_bin.add(path)
+        self.refresh_media_bin()
+        self.seek_timeline(self.timeline_frame)
+        self.finish_work(self.ui_text('Seslendirme zaman çizelgesine eklendi: {name}', name=Path(path).name))
+
+    def place_voiceover(self, path, frame, seconds):
+        """Put a voiceover on a “Seslendirme” track at `frame`, on a new one when the old one is busy there."""
+        fps = self.multitrack.fps_num / self.multitrack.fps_den
+        clip = Clip(path, frame, max(1, round(seconds * fps)), source_length=max(1, round(seconds * fps)))
+        for track in self.multitrack.tracks:
+            if track.kind == 'audio' and track.name.startswith('Seslendirme'):
+                try:
+                    track.add(clip)
+                    return clip
+                except ValueError:
+                    continue
+        names = {track.name for track in self.multitrack.tracks}
+        name = next(n for n in ('Seslendirme', *(f'Seslendirme {i}' for i in range(2, 100))) if n not in names)
+        self.multitrack.tracks.append(Track('audio', name, [clip]))
+        return clip
 
     def on_transcript(self, text: str) -> None:
         if self._shutting_down:
