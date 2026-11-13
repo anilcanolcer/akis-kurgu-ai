@@ -60,6 +60,7 @@ from akis import fast_export
 from akis import multi_export
 from akis import fcpxml_export
 from akis import beat_sync, emphasis, retakes, silence_cut
+from akis.plan_review import PlanReviewDialog
 from akis.start_panel import StartPanel
 from akis.saved_templates_dialog import SavedTemplatesDialog
 from akis.inspiration_service import template_for
@@ -807,6 +808,11 @@ class MainWindow(QMainWindow):
         self.use_speech = QCheckBox("Konuşmayı da çözümle (yerel Whisper, daha yavaş)")
         self.use_speech.setToolTip("Model önbellekte yoksa bu adım atlanır; kurgu kare, sessizlik ve sahne bilgisiyle yapılır.")
         v.addWidget(self.use_speech)
+        self.review_plan = QCheckBox("Uygulamadan önce AI planını göster")
+        self.review_plan.setToolTip("AI'ın önerdiği her değişiklik ayrı bir kutuda gösterilir; istemediklerinizin işaretini kaldırırsınız.")
+        self.review_plan.setChecked(self.settings.value("ai/review_plan", True) not in (False, 'false', '0', 0))
+        self.review_plan.toggled.connect(lambda on: self.settings.setValue("ai/review_plan", bool(on)))
+        v.addWidget(self.review_plan)
         v.addWidget(self.section("AI SAĞLAYICI / PROVIDER"))
         self.provider = QComboBox()
         self.provider.addItems(ai_providers.PROVIDERS)
@@ -1889,6 +1895,13 @@ class MainWindow(QMainWindow):
             if answer != QMessageBox.StandardButton.Yes:
                 self.finish_work('AI planı uygulanmadı; zaman çizelgesindeki değişiklikleriniz korundu.')
                 return
+        # A window nobody sees (tests, scripted runs) has nobody to ask: the plan is applied as it is.
+        if self.review_plan.isChecked() and self.isVisible():
+            review = PlanReviewDialog(plan, self, language=self.ui_language())
+            if not review.exec():
+                self.finish_work(self.ui_text('AI planı uygulanmadı.'))
+                return
+            plan = review.result_plan()
         try:
             aspect = self.aspect.currentData()
             if 'aspect' in plan:  # a bare ratio such as '16:9'
