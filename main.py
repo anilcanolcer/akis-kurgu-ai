@@ -59,6 +59,7 @@ from akis import privacy_log
 from akis import fast_export
 from akis import multi_export
 from akis import fcpxml_export
+from akis import retakes, silence_cut
 from akis.start_panel import StartPanel
 from akis.saved_templates_dialog import SavedTemplatesDialog
 from akis.inspiration_service import template_for
@@ -773,6 +774,12 @@ class MainWindow(QMainWindow):
         silence_button.setToolTip("Konuşma olmayan yerleri keser. Yapay zekâ, anahtar ve internet gerekmez.")
         silence_button.clicked.connect(self.remove_silences)
         v.addWidget(silence_button)
+        retake_button = QPushButton("Tekrar çekimleri temizle")
+        retake_button.setObjectName("secondary")
+        retake_button.setToolTip("Aynı cümle birkaç kez söylendiyse yalnızca son denemeyi bırakır. "
+                                 "Önce aşağıdan yerel konuşma metnini çıkarın; internet gerekmez.")
+        retake_button.clicked.connect(self.remove_retakes)
+        v.addWidget(retake_button)
         # Undoes the last step of the shared edit history; right after an AI edit that is the AI edit.
         self.undo_edit_button = QPushButton("↶  Son adımı geri al")
         self.undo_edit_button.setObjectName("secondary")
@@ -1587,6 +1594,47 @@ class MainWindow(QMainWindow):
             self.show_timeline(timeline)
         self.set_status(self.ui_text('{count} sessiz yer kesildi. Beğenmezseniz geri alabilirsiniz (Ctrl+Z).',
                                      count=len(dialog.cuts)))
+
+    def remove_retakes(self) -> None:
+        """Keep only the last try of sentences said again, using the local transcript (akis.retakes)."""
+        if not self.can_start_work() or not self.ensure_video():
+            return
+        if not self.caption_segments or not self.caption_source:
+            QMessageBox.information(self, APP_NAME, self.ui_text(
+                'Önce “Konuşma metni ve seslendirme” bölümünden yerel konuşma metnini çıkarın; '
+                'tekrarlar bu metinden bulunur.'))
+            return
+        cuts = retakes.find(self.caption_segments)
+        if not cuts:
+            QMessageBox.information(self, APP_NAME, self.ui_text('Tekrar çekim bulunamadı.'))
+            return
+        try:
+            sources = [{'path': path, 'duration': seconds} for path, seconds in self.edit_sources()]
+        except (ValueError, RuntimeError, OSError) as exc:
+            QMessageBox.warning(self, APP_NAME, f'Video okunamadı: {exc}')
+            return
+        index = next((i for i, source in enumerate(sources) if source['path'] == self.caption_source), None)
+        segments = edit_plan.current_segments(self.multitrack, sources)
+        if index is None or not any(segment['source'] == index for segment in segments):
+            QMessageBox.information(self, APP_NAME, self.ui_text('Konuşma metninin videosu zaman çizelgesinde yok.'))
+            return
+        new, removed = silence_cut.keep_segments(segments, {index: [(a, b) for a, b, _, _ in cuts]}, margin=0)
+        if not removed:
+            QMessageBox.information(self, APP_NAME, self.ui_text('Tekrarlar zaten kesilmiş.'))
+            return
+        if QMessageBox.question(self, APP_NAME, retakes.summary(cuts, self.ui_template),
+                                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                QMessageBox.StandardButton.Yes) != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            timeline = edit_plan.apply_plan(self.multitrack, sources, {'segments': new})
+        except Exception as exc:
+            QMessageBox.warning(self, APP_NAME, self.ui_text('Tekrarlar kesilemedi: {error}', error=exc))
+            return
+        with self.history_step():
+            self.show_timeline(timeline)
+        self.set_status(self.ui_text('{count} tekrar çekim kesildi. Beğenmezseniz geri alabilirsiniz (Ctrl+Z).',
+                                     count=len(cuts)))
 
     def run_prompt_edit(self) -> None:
         if not self.can_start_work() or not self.ensure_video():
