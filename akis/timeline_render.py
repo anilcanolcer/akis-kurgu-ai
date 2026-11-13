@@ -248,7 +248,7 @@ class TimelineRenderer:
                         chain = f'[{index}:v]{self._trim("trim", lead, length - skip)},setpts=PTS-STARTPTS'
                         if hold:
                             chain += f',tpad=stop_mode=clone:stop_duration={hold:.9f}'
-                        scale, place = clip_fit.filters(clip.style, self.width, self.height)  # fit inside, or fill and crop
+                        scale, place = clip_fit.filters(clip.style, self.width, self.height, f'k{layer}')  # fit, fill or blur
                         chain += f',{scale}'
                         if self._needs_tone_mapping(clip.source):  # after scaling: the float maths is costly
                             chain += f',{TONE_MAP}'

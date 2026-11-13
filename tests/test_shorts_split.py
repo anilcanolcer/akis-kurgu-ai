@@ -83,21 +83,45 @@ class SliceTests(unittest.TestCase):
         slice_timeline(timeline, 90, 150)
         self.assertEqual(timeline.tracks[0].clips[0].length, 100)
 
-    def test_prepare_fills_the_frame_and_adds_the_label(self):
+    def test_prepare_frames_the_picture_and_adds_the_card(self):
         part = slice_timeline(self.timeline(), 0, 100)
-        shorts_split.prepare(part, 2, 5)
-        self.assertEqual(part.tracks[0].clips[0].style, {'fit': 'fill', 'focus': 0.5})
-        label = part.tracks[-1]
-        self.assertEqual((label.name, label.clips[0].text, label.clips[0].length), (shorts_split.LABEL_TRACK, 'Bölüm 2/5', 30))
-        english = shorts_split.prepare(slice_timeline(self.timeline(), 0, 100), 1, 3, say=lambda t: i18n.translate(t, 'en'))
-        self.assertEqual(english.tracks[-1].clips[0].text, 'Part 1/3')
-        alone = shorts_split.prepare(slice_timeline(self.timeline(), 0, 100), 1, 1, fill=False)
-        self.assertEqual([t.name for t in alone.tracks], ['V', 'M', 'T'])        # one part needs no number
+        shorts_split.prepare(part, 2, 5, title='Deve neden kaçtı?')
+        self.assertEqual(part.tracks[0].clips[0].style, {'fit': 'blur'})
+        card = part.tracks[-1]
+        self.assertEqual(card.name, shorts_split.LABEL_TRACK)
+        self.assertEqual((card.clips[0].start, card.clips[0].length), (0, 100))          # the whole part
+        self.assertEqual(card.clips[0].style, {'shape': 'card', 'counter': '2 / 5', 'title': 'Deve neden kaçtı?', 'y': 0.05})
+        filled = shorts_split.prepare(slice_timeline(self.timeline(), 0, 100), 1, 3, framing='fill', card=False)
+        self.assertEqual(filled.tracks[0].clips[0].style, {'fit': 'fill', 'focus': 0.5})
+        self.assertEqual([t.name for t in filled.tracks], ['V', 'M', 'T'])
+        alone = shorts_split.prepare(slice_timeline(self.timeline(), 0, 100), 1, 1, framing='fit')
+        self.assertEqual([t.name for t in alone.tracks], ['V', 'M', 'T'])           # one part, no title: no card
         self.assertNotIn('fit', alone.tracks[0].clips[0].style)
 
-    def test_output_names_are_numbered_in_order(self):
-        self.assertEqual(Path(shorts_split.output_for('C:/v/vlog.mp4', 3, 7)).name, 'vlog_short_03.mp4')
-        self.assertEqual(Path(shorts_split.output_for('C:/v/vlog', 12, 120)).name, 'vlog_short_012.mp4')
+    def test_clips_framed_by_hand_keep_their_framing(self):
+        timeline = self.timeline()
+        timeline.tracks[0].clips[0].style = {'fit': 'fill', 'focus': 0.0}
+        part = shorts_split.prepare(slice_timeline(timeline, 0, 100), 1, 2)
+        self.assertEqual(part.tracks[0].clips[0].style, {'fit': 'fill', 'focus': 0.0})
+
+    def test_file_names_follow_the_titles(self):
+        names = [Path(p).name for p in shorts_split.outputs_for('C:/v', ['Dağ o ayetten beri ağlıyor', '', 'Dağ o ayetten beri ağlıyor'], 'Vlog 7')]
+        self.assertEqual(names, ['01-dag-o-ayetten-beri-agliyor.mp4', '02-vlog-7.mp4', '03-dag-o-ayetten-beri-agliyor.mp4'])
+        self.assertEqual(Path(shorts_split.outputs_for('C:/v', [''] * 120, '')[0]).name, '001-short.mp4')
+        self.assertEqual(shorts_split.slug('Söz verdi, USLANDI!'), 'soz-verdi-uslandi')
+
+    def test_titles_are_suggested_from_what_is_said(self):
+        said = [(1.0, 'Merhaba arkadaşlar.'), (65.0, 'Bugün size çölde bir deveyi ve onun neden kaçtığını anlatacağım, dinleyin.')]
+        titles = shorts_split.suggest_titles([(0, 60), (60, 120), (120, 180)], said)
+        self.assertEqual(titles[0], 'Merhaba arkadaşlar')
+        self.assertTrue(titles[1].endswith('…') and len(titles[1]) <= shorts_split.TITLE_CHARS + 1, titles[1])
+        self.assertEqual(titles[2], '')
+
+    def test_transcript_is_placed_on_the_timeline(self):
+        timeline = Timeline(fps_num=10, tracks=[Track('video', 'V', [Clip('a.mp4', 0, 100, source_in=50),
+                                                                     Clip('b.mp4', 100, 100)])])
+        segments = [{'start': 2, 'text': 'önce'}, {'start': 7, 'text': 'sonra'}, {'start': 20, 'text': 'kesildi'}]
+        self.assertEqual(shorts_split.spoken_on_timeline(timeline, 'a.mp4', segments), [(2.0, 'sonra')])
 
     def test_pauses_are_mapped_to_the_timeline(self):
         timeline = Timeline(fps_num=10, tracks=[Track('video', 'V', [Clip('a.mp4', 0, 100, source_in=50),
@@ -123,7 +147,8 @@ class RealRunTests(unittest.TestCase):
                             '-i', 'sine=frequency=300:duration=50', '-pix_fmt', 'yuv420p', '-shortest', str(source)], check=True)
             timeline = Timeline(fps_num=10, tracks=[Track('video', 'V', [Clip(str(source), 0, 500)])])
             parts = plan_parts(50, 20)
-            worker = shorts_split.ShortsExportWorker(timeline, parts, str(root / 'vlog_out.mp4'), FFMPEG, canvas=(90, 160))
+            outputs = shorts_split.outputs_for(root, ['Bir', 'İki', 'Üç'], 'vlog')
+            worker = shorts_split.ShortsExportWorker(timeline, parts, outputs, FFMPEG, canvas=(90, 160), titles=['Bir', 'İki', 'Üç'])
             done, failed = [], []
             worker.completed.connect(done.append)
             worker.failed.connect(failed.append)
@@ -132,7 +157,7 @@ class RealRunTests(unittest.TestCase):
             app.processEvents()
             self.assertEqual(failed, [])
             outputs = done[0].split('\n')
-            self.assertEqual([Path(p).name for p in outputs], ['vlog_out_short_01.mp4', 'vlog_out_short_02.mp4', 'vlog_out_short_03.mp4'])
+            self.assertEqual([Path(p).name for p in outputs], ['01-bir.mp4', '02-iki.mp4', '03-uc.mp4'])
             media = MediaService(FFMPEG)
             lengths = [media.duration(p) for p in outputs]
             self.assertAlmostEqual(sum(lengths), 50, delta=0.6)                     # nothing left out
@@ -142,18 +167,23 @@ class RealRunTests(unittest.TestCase):
 
 
 class DialogTests(unittest.TestCase):
-    def test_count_and_lengths_follow_the_limit(self):
-        dialog = ShortsDialog(total=420, pauses=[])
-        self.assertIn('7:00 sürelik video 7 parçaya bölünecek: 1:00, 1:00', dialog.summary.text())
+    def test_count_lengths_and_titles_follow_the_limit(self):
+        dialog = ShortsDialog(total=420, pauses=[], said=[(1.0, 'Merhaba'), (70.0, 'İkinci bölüm burada')])
+        self.assertIn('7:00 sürelik video 7 parçaya bölünecek', dialog.summary.text())
+        self.assertEqual(dialog.table.rowCount(), 7)
+        self.assertEqual((dialog.table.item(0, 1).text(), dialog.titles()[:2]), ('1:00', ['Merhaba', 'İkinci bölüm burada']))
+        dialog.table.item(2, 2).setText('Benim başlığım')
         dialog.limit.setValue(180)
-        self.assertIn('3 parçaya', dialog.summary.text())
-        parts, fill, label = dialog.selection()
-        self.assertEqual((len(parts), fill, label), (3, True, True))
+        self.assertEqual(dialog.table.rowCount(), 3)
+        self.assertEqual(dialog.titles()[2], 'Benim başlığım')          # what was typed survives a new limit
+        parts, framing, card, titles = dialog.selection()
+        self.assertEqual((len(parts), framing, card), (3, 'blur', True))
 
     def test_english(self):
         dialog = ShortsDialog(total=125, language='en')
         self.assertEqual(dialog.windowTitle(), 'Split into Shorts')
         self.assertIn('will be split into 3 parts', dialog.summary.text())
+        self.assertEqual(dialog.framing.itemText(0), 'Blurred background (fills without cropping)')
 
 
 class WindowTests(unittest.TestCase):
@@ -180,17 +210,14 @@ class WindowTests(unittest.TestCase):
     def test_button_starts_one_worker_for_all_parts(self):
         w = self.window
         started = []
-        with patch('main.silence_cut.measure', return_value=[]), \
-             patch('main.ShortsDialog.exec', new=lambda dialog: 1), \
-             patch('main.QFileDialog.getSaveFileName', return_value=(str(self.root / 'vlog.mp4'), '')), \
-             patch('akis.export_progress.space_problem', return_value=''), \
-             patch.object(w, 'start_worker', side_effect=lambda: started.append(w.worker)):
+        with patch('main.silence_cut.measure', return_value=[]),              patch('main.ShortsDialog.exec', new=lambda dialog: 1),              patch('main.QFileDialog.getExistingDirectory', return_value=str(self.root)),              patch('akis.export_progress.space_problem', return_value=''),              patch.object(w, 'start_worker', side_effect=lambda: started.append(w.worker)):
             w.export_shorts()
         worker = started[0]
         self.assertIsInstance(worker, shorts_split.ShortsExportWorker)
         self.assertEqual(len(worker.parts), 3)
-        self.assertEqual(Path(worker.outputs[-1]).name, 'vlog_short_03.mp4')
-        self.assertEqual(worker.canvas, shorts_split.CANVAS)
+        self.assertEqual([Path(p).parent for p in worker.outputs], [self.root] * 3)
+        self.assertTrue(Path(worker.outputs[-1]).name.startswith('03-'))
+        self.assertEqual((worker.canvas, worker.framing, worker.card), (shorts_split.CANVAS, 'blur', True))
 
 
 if __name__ == '__main__':
