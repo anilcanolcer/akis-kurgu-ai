@@ -59,7 +59,7 @@ from akis import privacy_log
 from akis import fast_export
 from akis import multi_export
 from akis import fcpxml_export
-from akis import beat_sync, retakes, silence_cut
+from akis import beat_sync, emphasis, retakes, silence_cut
 from akis.start_panel import StartPanel
 from akis.saved_templates_dialog import SavedTemplatesDialog
 from akis.inspiration_service import template_for
@@ -786,6 +786,12 @@ class MainWindow(QMainWindow):
                                "Müziğe dokunmaz; internet gerekmez.")
         beat_button.clicked.connect(self.snap_cuts_to_beat)
         v.addWidget(beat_button)
+        punch_button = QPushButton("Vurgu anlarında yakınlaştır")
+        punch_button.setObjectName("secondary")
+        punch_button.setToolTip("Konuşmacının sesinin yükseldiği anlarda görüntü kısa bir süre hafifçe yakınlaşır. "
+                                "Yeniden basınca kaldırmayı sorar; internet gerekmez.")
+        punch_button.clicked.connect(self.punch_in_on_emphasis)
+        v.addWidget(punch_button)
         # Undoes the last step of the shared edit history; right after an AI edit that is the AI edit.
         self.undo_edit_button = QPushButton("↶  Son adımı geri al")
         self.undo_edit_button.setObjectName("secondary")
@@ -1686,6 +1692,39 @@ class MainWindow(QMainWindow):
             self.show_timeline(timeline)
         self.set_status(self.ui_text('{count} kesim müziğin vuruşuna oturtuldu. Beğenmezseniz geri alabilirsiniz (Ctrl+Z).',
                                      count=moved))
+
+    def punch_in_on_emphasis(self) -> None:
+        """Zoom in briefly where the speaker gets louder (akis.emphasis); asks to remove existing ones first."""
+        if not self.can_start_work() or not self.ensure_video():
+            return
+        if any('punch' in clip.style for track in self.multitrack.tracks for clip in track.clips):
+            answer = QMessageBox.question(self, APP_NAME, self.ui_text('Videoda vurgu yakınlaştırmaları var. Kaldırılsın mı?'),
+                                          QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                          QMessageBox.StandardButton.Yes)
+            if answer == QMessageBox.StandardButton.Yes:
+                with self.history_step():
+                    count = emphasis.clear(self.multitrack)
+                self.seek_timeline(self.timeline_frame)
+                self.set_status(self.ui_text('{count} vurgu yakınlaştırması kaldırıldı.', count=count))
+            return
+        main = next((track for track in self.multitrack.tracks if track.kind == 'video'), None)
+        sources = sorted({clip.source for clip in (main.clips if main else []) if clip.source})
+        if not sources:
+            QMessageBox.information(self, APP_NAME, self.ui_text('Zaman çizelgesinde video yok.'))
+            return
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            moments = {source: emphasis.find_moments(silence_cut.measure(ffmpeg_path(), source)) for source in sources}
+        finally:
+            QApplication.restoreOverrideCursor()
+        with self.history_step():
+            placed = emphasis.apply(self.multitrack, moments)
+        if not placed:
+            QMessageBox.information(self, APP_NAME, self.ui_text('Belirgin bir vurgu anı bulunamadı.'))
+            return
+        self.seek_timeline(self.timeline_frame)
+        self.set_status(self.ui_text('{count} vurgu anında yakınlaştırma eklendi. Beğenmezseniz geri alabilirsiniz (Ctrl+Z).',
+                                     count=placed))
 
     def run_prompt_edit(self) -> None:
         if not self.can_start_work() or not self.ensure_video():

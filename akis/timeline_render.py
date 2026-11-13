@@ -11,7 +11,7 @@ import tempfile
 import textwrap
 import zlib
 from pathlib import Path
-from akis import audio_polish, caption_layout, clip_fit
+from akis import audio_polish, caption_layout, clip_fit, emphasis
 from akis.frame_plan import plan_frame, plan_segments
 
 TRANSITIONS = ('fade', 'flash', 'dip', 'slide_left', 'slide_right', 'slide_up', 'slide_down')
@@ -253,6 +253,10 @@ class TimelineRenderer:
                         if self._needs_tone_mapping(clip.source):  # after scaling: the float maths is costly
                             chain += f',{TONE_MAP}'
                         chain += f',{place},setsar=1'
+                        # Punch-in zooms (akis.emphasis); zoompan restarts time at 0, as the chain has here.
+                        zoom = emphasis.zoom_filter(clip, timeline.fps_num, timeline.fps_den, skip, self.width, self.height)
+                        if zoom:
+                            chain += f',{zoom}'
                         if skip:  # restore clip-local time so transitions see where they are
                             chain += f',setpts=PTS+{skip:.9f}/TB'
                         position = ''
