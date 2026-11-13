@@ -12,7 +12,7 @@ from akis.media_service import MediaService
 from akis import timeline_service
 from akis.shape_art import default_tail
 from akis import edit_plan
-from akis import fillers, speech_settings
+from akis import fillers, speaker_model, speakers, speech_settings
 from akis.silence_dialog import SilenceDialog
 from akis import clip_fit
 from akis.call_worker import CallWorker
@@ -21,7 +21,7 @@ from akis import beat_sync, emphasis, retakes, silence_cut
 from PySide6.QtWidgets import QFileDialog, QInputDialog, QMessageBox
 
 from akis import app_support
-from akis.app_support import APP_NAME, UNDO_LIMIT
+from akis.app_support import APP_NAME, UNDO_LIMIT, log
 
 
 class TimelineEditMixin:
@@ -498,6 +498,93 @@ class TimelineEditMixin:
                         local_transcribe(source, model, download=download, timed=True, vocabulary=vocabulary)))
                     for source in sources}
         self.run_analysis(self.ui_text('Dolgu sözcükleri aranıyor (yerel konuşma tanıma)…'), listen, self.finish_fillers)
+
+    def separate_speakers(self) -> None:
+        """Find who speaks when in the main video (akis.speakers); mark the changes or keep one speaker."""
+        if not self.can_start_work() or not self.ensure_video():
+            return
+        main = next((track for track in self.multitrack.tracks if track.kind == 'video'), None)
+        source = next((clip.source for clip in (main.clips if main else []) if clip.source), None)
+        if not source:
+            QMessageBox.information(self, APP_NAME, self.ui_text('Zaman çizelgesinde video yok.'))
+            return
+        model, download = self.local_model.currentText(), self.download_model.isChecked()
+        known = fillers.words_of(self.caption_segments) if self.caption_source == source else []
+        executable = app_support.ffmpeg_path()
+
+        folder = app_support.app_data_dir()
+
+        def listen():
+            from akis.ai_service import local_transcribe
+            from akis.media_service import MediaService
+            words = known or fillers.words_of(local_transcribe(source, model, download=download, timed=True))
+            embedder = None
+            try:   # the speaker model tells similar voices apart; downloaded once (26.5 MB)
+                embedder = speaker_model.Embedder(speaker_model.download(folder))
+            except Exception as exc:     # offline or blocked: pitch still separates clearly different voices
+                log.warning('Konuşmacı modeli kullanılamadı, perdeyle ayrılıyor: %s', exc)
+            found = speakers.find(speakers.decode(MediaService(executable), source), words, embedder)
+            return source, found, embedder is not None
+        text = 'Konuşmacılar ayırt ediliyor…' if speaker_model.available(folder) else \
+            'Konuşmacılar ayırt ediliyor (ilk kullanımda {size} MB ses modeli indirilir)…'
+        self.run_analysis(self.ui_text(text, size=str(speaker_model.SIZE_MB).replace('.', ',')), listen, self.finish_speakers)
+
+    def finish_speakers(self, result) -> None:
+        source, found, with_model = result
+        totals = speakers.summary(found)
+        if len(totals) < 2:
+            QMessageBox.information(self, APP_NAME, self.ui_text('Tek konuşmacı bulundu.') if with_model else self.ui_text(
+                'Tek konuşmacı bulundu. (Ses modeli indirilemediği için sesler perdeden ayrıldı; '
+                'iki erkek sesi gibi benzer sesler böyle ayırt edilemez.)'))
+            return
+        lines = [self.ui_text('{count} konuşmacı bulundu:', count=len(totals)), '']
+        for speaker, (seconds, sample) in sorted(totals.items()):
+            short = sample if len(sample) <= 50 else sample[:49].rstrip() + '…'
+            lines.append(self.ui_text('Konuşmacı {number}: {seconds} sn — “{sample}”', number=speaker + 1,
+                                      seconds=round(seconds), sample=short))
+        box = QMessageBox(QMessageBox.Icon.Question, APP_NAME, '\n'.join(lines), parent=self)
+        mark = box.addButton(self.ui_text('Değişimleri işaretle'), QMessageBox.ButtonRole.AcceptRole)
+        keeps = {box.addButton(self.ui_text('Yalnız Konuşmacı {number}', number=speaker + 1),
+                               QMessageBox.ButtonRole.ActionRole): speaker for speaker in sorted(totals)}
+        box.addButton(QMessageBox.StandardButton.Cancel)
+        box.exec()
+        chosen = box.clickedButton()
+        main = next((track for track in self.multitrack.tracks if track.kind == 'video'), None)
+        clips = [clip for clip in (main.clips if main else []) if clip.source == source]
+        fps = self.multitrack.fps_num / self.multitrack.fps_den
+        if chosen is mark:
+            with self.history_step():
+                self.multitrack.markers = [m for m in self.multitrack.markers
+                                           if not str(m.get('label', '')).startswith('Konuşmacı ')]
+                added = speakers.markers(found, clips, fps)
+                self.multitrack.markers += added
+            self.multitrack_view.update()
+            self.set_status(self.ui_text('{count} konuşmacı değişimi işaretlendi.', count=len(added)))
+        elif chosen in keeps:
+            keep = keeps[chosen]
+            self.keep_only_speaker(source, [(a, b) for a, b, speaker, _ in found if speaker != keep], keep)
+
+    def keep_only_speaker(self, source, spans, keep) -> None:
+        try:
+            sources = [{'path': path, 'duration': seconds} for path, seconds in self.edit_sources()]
+        except (ValueError, RuntimeError, OSError) as exc:
+            QMessageBox.warning(self, APP_NAME, f'Video okunamadı: {exc}')
+            return
+        index = next((i for i, item in enumerate(sources) if item['path'] == source), None)
+        segments = edit_plan.current_segments(self.multitrack, sources)
+        new, removed = silence_cut.keep_segments(segments, {index: spans}, margin=0, min_keep=0.3)
+        if index is None or not removed:
+            QMessageBox.information(self, APP_NAME, self.ui_text('Kesilecek bir yer kalmadı.'))
+            return
+        try:
+            timeline = edit_plan.apply_plan(self.multitrack, sources, {'segments': new})
+        except Exception as exc:
+            QMessageBox.warning(self, APP_NAME, str(exc))
+            return
+        with self.history_step():
+            self.show_timeline(timeline)
+        self.set_status(self.ui_text('Yalnız Konuşmacı {number} kaldı. Beğenmezseniz geri alabilirsiniz (Ctrl+Z).',
+                                     number=keep + 1))
 
     def finish_fillers(self, found) -> None:
         cuts = [cut for source_cuts in found.values() for cut in source_cuts]
