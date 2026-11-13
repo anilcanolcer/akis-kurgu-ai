@@ -20,6 +20,7 @@ from akis.template_dialog import TemplateDialog
 from akis.inspiration_dialog import InspirationDialog
 from akis import speech_settings
 from akis import user_templates
+from akis import clip_fit, style_sample
 from akis.plan_review import PlanReviewDialog
 from akis import word_captions
 from akis.saved_templates_dialog import SavedTemplatesDialog
@@ -122,6 +123,38 @@ class AssistantMixin:
         if dialog.exec() and dialog.selection() is not None:
             self.apply_saved_template(dialog.selection())
 
+    def style_from_sample(self):
+        """Read a finished video's look (akis.style_sample), save it as a template of the user's own and,
+        when the user agrees, apply it to this project."""
+        if not self.can_start_work():
+            return
+        chosen, _ = QFileDialog.getOpenFileName(self, self.ui_text('Stili alınacak örnek video'), '',
+                                                'Video (*.mp4 *.mov *.mkv *.webm *.avi *.m4v)')
+        if not chosen:
+            return
+        main = next((track for track in self.multitrack.tracks if track.kind == 'video'), None)
+        own = next((clip.source for clip in (main.clips if main else []) if clip.source), None)
+        media = MediaService(app_support.ffmpeg_path())
+        self.run_analysis(self.ui_text('Örnek videonun stili okunuyor…'),
+                          lambda: style_sample.measure(media, chosen, own),
+                          lambda found: self.finish_style_sample(found, chosen))
+
+    def finish_style_sample(self, found, chosen):
+        name = user_templates.clean_name(self.ui_text('Örnek: {name}', name=Path(chosen).stem))
+        item = style_sample.to_template(found, name)
+        lines = style_sample.describe(found, item, self.ui_template)
+        question = '\n'.join([self.ui_text('Örnek videoda bulunanlar:'), ''] + lines + ['', self.ui_text(
+            '“{name}” adıyla Şablonlarım’a kaydedilip bu projeye uygulansın mı?', name=name)])
+        if QMessageBox.question(self, APP_NAME, question, QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                QMessageBox.StandardButton.Yes) != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            user_templates.add(app_support.app_data_dir(), item)
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(self, APP_NAME, str(exc))
+            return
+        self.apply_saved_template(user_templates._valid(item))
+
     def capture_template(self, name):
         """The open project's structure and settings as a template of the user's own."""
         return user_templates.capture(
@@ -132,6 +165,11 @@ class AssistantMixin:
     def apply_saved_template(self, item):
         with self.history_step():
             user_templates.apply(self.multitrack, item)
+            if item.get('framing'):                 # a look taken from a sample video
+                for track in self.multitrack.tracks:
+                    if track.kind == 'video':
+                        for clip in track.clips:
+                            clip_fit.apply(clip, item['framing'])
             self._template_before_video = not bool(self.state.source)
             if item['aspect']:
                 self.select_aspect(item['aspect'])
