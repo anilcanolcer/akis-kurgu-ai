@@ -271,6 +271,15 @@ EN_UI = {
     '{count} klip yazıldı.': '{count} clips written.',
     '{count} yazı ve altyazı klibi aktarılmadı.': '{count} text and caption clips were left out.',
     '{count} geçiş aktarılmadı.': '{count} transitions were left out.',
+    # Punch-in zoom on emphasis (akis.emphasis).
+    'Vurgu anlarında yakınlaştır': 'Punch in on emphasis',
+    'Konuşmacının sesinin yükseldiği anlarda görüntü kısa bir süre hafifçe yakınlaşır. Yeniden basınca kaldırmayı sorar; internet gerekmez.':
+        'Where the speaker gets louder, the picture zooms in slightly for a moment. Press again to be asked about removing them; no internet needed.',
+    'Videoda vurgu yakınlaştırmaları var. Kaldırılsın mı?': 'The video has punch-in zooms. Remove them?',
+    '{count} vurgu yakınlaştırması kaldırıldı.': '{count} punch-in zooms were removed.',
+    'Zaman çizelgesinde video yok.': 'There is no video on the timeline.',
+    'Belirgin bir vurgu anı bulunamadı.': 'No clear moment of emphasis was found.',
+    '{count} vurgu anında yakınlaştırma eklendi. Beğenmezseniz geri alabilirsiniz (Ctrl+Z).': '{count} punch-in zooms were added. You can undo it (Ctrl+Z).',
     # Cuts on the beat (akis.beat_sync).
     'Kesimleri müziğin ritmine oturt': 'Put the cuts on the beat',
     'Ses izindeki müziğin vuruşlarını bulur ve video kesimlerini en yakın vuruşa kaydırır. Müziğe dokunmaz; internet gerekmez.':
