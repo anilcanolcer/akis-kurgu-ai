@@ -24,6 +24,8 @@ class GroupTests(unittest.TestCase):
     def test_sentence_end_and_pause_start_a_new_caption(self):
         found = group_words(words(('Merhaba', 0.0, 0.4), ('arkadaşlar.', 0.5, 1.0), ('Bugün', 1.1, 1.4),
                                   ('çok', 1.5, 1.7), ('güzel', 1.8, 2.2), ('bir', 3.5, 3.7), ('gün', 3.8, 4.0)))
+        self.assertEqual(found[0]['words'][1], {'text': 'arkadaşlar.', 'start': 0.5, 'end': 1.0})
+        found = [{k: v for k, v in segment.items() if k != 'words'} for segment in found]
         self.assertEqual(found, [{'start': 0.0, 'end': 1.0, 'text': 'Merhaba arkadaşlar.'},
                                  {'start': 1.1, 'end': 2.2, 'text': 'Bugün çok güzel'},
                                  {'start': 3.5, 'end': 4.0, 'text': 'bir gün'}])
@@ -56,7 +58,9 @@ class ProviderTests(unittest.TestCase):
         with patch('akis.ai_providers.post_json', return_value=reply):
             said = ai_providers.transcribe('xAI', 'k', 'model', self.audio)
         self.assertEqual(said, 'Merhaba arkadaşlar.')
-        self.assertEqual(said.segments, [{'start': 0.0, 'end': 1.0, 'text': 'Merhaba arkadaşlar.'}])
+        self.assertEqual([{k: v for k, v in segment.items() if k != 'words'} for segment in said.segments],
+                         [{'start': 0.0, 'end': 1.0, 'text': 'Merhaba arkadaşlar.'}])
+        self.assertEqual(len(said.segments[0]['words']), 2)       # kept for word-by-word captions
 
     def test_xai_without_words_has_no_timings(self):
         with patch('akis.ai_providers.post_json', return_value={'text': 'Merhaba'}):

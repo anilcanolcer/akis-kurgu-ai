@@ -11,7 +11,7 @@ import tempfile
 import textwrap
 import zlib
 from pathlib import Path
-from akis import audio_polish, caption_layout, clip_fit, emphasis
+from akis import audio_polish, caption_layout, clip_fit, emphasis, word_captions
 from akis.frame_plan import plan_frame, plan_segments
 from akis.timeline_slice import picture_clips, plan_ranges, slice_timeline
 
@@ -191,6 +191,46 @@ class TimelineRenderer:
                 break
         return 0, 0, self.width, self.height
 
+    def _word_pictures(self, timeline, track_index, planned_ids, frame, window, folder, layer):
+        """A concat list of every moment of a track's word-by-word captions (akis.word_captions), each
+        picture with its duration in output time (0 = timeline time `window`), blank pictures between."""
+        fps = timeline.fps_num / timeline.fps_den
+        canvas = (self.width, self.height)
+        blank = folder / f'words{layer}-blank.png'
+        word_captions.draw([], None, 'vurgu', canvas, (0, 0) + canvas, self.font, 12).save(blank)
+        entries, cursor = [], 0.0
+        track = timeline.tracks[track_index]
+        for clip in sorted(track.clips, key=lambda c: c.start):
+            if (track_index, clip.id) not in planned_ids or not clip.style.get('words'):
+                continue
+            rect = self._picture_rect(timeline, clip)
+            whole = rect == (0, 0, self.width, self.height)
+            px = _font_px(self.width, self.height) if whole and self.width >= self.height \
+                else caption_layout.font_px(rect, canvas)
+            px = round(px * 1.5)          # three words at most: larger than a sentence caption
+            look = clip.style.get('look') if clip.style.get('look') in word_captions.LOOKS else 'vurgu'
+            for first, end, lit in word_captions.states(clip):
+                if frame is not None and not clip.start + first <= frame < clip.start + end:
+                    continue
+                begin = max(0.0, (clip.start + first) / fps - window)
+                stop = (clip.start + end) / fps - window
+                if stop <= begin:
+                    continue
+                if begin > cursor + 1e-6:
+                    entries.append((blank, begin - cursor))
+                picture = folder / f'words{layer}-{clip.id}-{"n" if lit is None else lit}.png'
+                word_captions.draw(clip.style['words'], lit, look, canvas, rect, self.font, px).save(picture)
+                entries.append((picture, stop - begin))
+                cursor = stop
+        entries.append((blank, 1.0 / fps))
+        listing = folder / f'words{layer}.txt'
+        lines = ['ffconcat version 1.0']
+        for picture, seconds in entries:
+            lines += [f"file '{picture.as_posix()}'", f'duration {seconds:.6f}']
+        lines.append(f"file '{entries[-1][0].as_posix()}'")   # the demuxer ignores the last duration otherwise
+        listing.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+        return listing
+
     @staticmethod
     def _open_input(args, source, position, with_audio):
         """Adds a source input seeked to `position` seconds; returns how far before `position` the
@@ -243,6 +283,7 @@ class TimelineRenderer:
             voice_filter = audio_polish.voice_filter(self.audio)
             index = 1
             layer = 0
+            worded = set()      # text tracks whose word-by-word captions are already one input
             for track_index, track in enumerate(timeline.tracks):
                 if track.muted:
                     continue
@@ -330,6 +371,17 @@ class TimelineRenderer:
                         index += 1
                     elif not want_video:
                         continue
+                    elif track.kind == 'text' and clip.style.get('words'):
+                        if track_index in worded:
+                            continue
+                        worded.add(track_index)
+                        layer += 1
+                        listing = self._word_pictures(timeline, track_index, planned_ids, frame, window, Path(tmp), layer)
+                        args += ['-f', 'concat', '-safe', '0', '-i', str(listing)]
+                        graph.append(f'[{index}:v]format=rgba,setpts=PTS-STARTPTS[v{layer}]')
+                        graph.append(f'[{base}][v{layer}]overlay=eof_action=pass[base{layer}]')
+                        base = f'base{layer}'
+                        index += 1
                     elif track.kind == 'text' and clip.style.get('shape'):
                         from akis.shape_art import draw_shape
                         layer += 1

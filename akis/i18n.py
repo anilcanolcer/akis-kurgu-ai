@@ -187,6 +187,8 @@ EN_UI = {
     "✎   Hikâye Stüdyosu": "✎   Story Studio", "⇧   Dışa aktarımlar": "⇧   Exports",
     # Timeline toolbar and editor labels.
     "＋ İz": "＋ Track", "− İz": "− Track", "＋ Medya": "＋ Media", "Böl": "Split", "Ripple sil": "Ripple delete",
+    "Kelime kelime: sarı vurgu": "Word by word: yellow highlight", "Kelime kelime: renkli kutu": "Word by word: coloured box",
+    "Kelime kelime: karaoke": "Word by word: karaoke", "Klasik altyazı (cümle cümle)": "Classic captions (sentence by sentence)",
     "Klip hızı": "Clip speed", "Klip hızı: {value}": "Clip speed: {value}",
     "Bu klip hangi hızda oynasın? Uzunluğu buna göre değişir; izdeki sonraki klipler kayar.":
         "How fast should this clip play? Its length changes to match; later clips on its track move along.",
