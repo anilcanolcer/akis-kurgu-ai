@@ -5,7 +5,7 @@ in ranges so ffmpeg never holds hundreds of decoders at once (see TimelineRender
 """
 from copy import deepcopy
 
-from akis.timeline_model import Timeline, Track
+from akis.timeline_model import Timeline, Track, cut_words
 
 
 def slice_timeline(timeline, start, end):
@@ -27,6 +27,7 @@ def slice_timeline(timeline, start, end):
                                    for k, v in piece.keyframes.items()}
             if offset:  # the clip's own entrance belongs to its real start, not to this cut
                 piece.style = {k: v for k, v in piece.style.items() if not k.startswith('transition')}
+            piece.style = cut_words(piece.style, offset, piece.length)
             kept.clips.append(piece)
         part.tracks.append(kept)
     part.markers = [dict(m, frame=m['frame'] - start) for m in timeline.markers if start <= m.get('frame', 0) < end]

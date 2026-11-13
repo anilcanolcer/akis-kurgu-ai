@@ -4,7 +4,37 @@ from akis.caption_layout import split_caption
 from akis.timeline_model import Clip, Track
 
 
-def caption_track(timeline, source, segments):
+def caption_track(timeline, source, segments, look='klasik'):
+    """Caption the clips of `source` from its transcript segments (seconds in the source). look: 'klasik'
+    (sentence by sentence) or a word-by-word look of akis.word_captions, used when the words have timings."""
+    from akis import word_captions
+    words = [w for segment in segments if isinstance(segment, dict) for w in (segment.get('words') or ())]
+    if look in word_captions.LOOKS and words:
+        return _word_track(timeline, source, words, look)
+    return _sentence_track(timeline, source, segments)
+
+
+def _word_track(timeline, source, words, look):
+    from akis import word_captions
+    fps = timeline.fps_num / timeline.fps_den
+    video_track = next((t for t in timeline.tracks if t.kind == 'video'), None)
+    track = Track('text', 'Altyazı / Captions')
+    for clip in sorted(video_track.clips if video_track else [], key=lambda c: c.start):
+        if clip.source != source:
+            continue
+        for start, length, text, style in word_captions.caption_clips(clip, words, fps, look):
+            begin = max(start, max((c.end for c in track.clips), default=0))
+            if start + length - begin < 1:
+                continue
+            shift = begin - start
+            style = dict(style, words=[[max(0, a - shift), b - shift, t] for a, b, t in style['words'] if b - shift > 0])
+            track.add(Clip('', begin, start + length - begin, text=text, style=style))
+    if track.clips:
+        timeline.tracks.append(track)
+    return len(track.clips)
+
+
+def _sentence_track(timeline, source, segments):
     """Map source-time segments through every matching video clip, non-destructively."""
     fps = timeline.fps_num / timeline.fps_den
     track = Track('text', 'Altyazı / Captions')

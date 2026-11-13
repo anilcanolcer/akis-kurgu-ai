@@ -71,6 +71,7 @@ from akis import beat_sync, emphasis, retakes, silence_cut
 from akis.plan_review import PlanReviewDialog
 from akis.start_panel import StartPanel
 from akis import theme
+from akis import word_captions
 from akis.saved_templates_dialog import SavedTemplatesDialog
 from akis.inspiration_service import template_for
 from akis.story_dialog import StoryDialog
@@ -916,6 +917,18 @@ class MainWindow(QMainWindow):
         v.addWidget(transcript)
         self.caption_segments = []
         self.caption_source = ''
+        # How captions look: sentence by sentence, or a few words at a time with the spoken word lit.
+        self.caption_look = QComboBox()
+        self.caption_look.setProperty("i18n_keyed", True)
+        for key in word_captions.CHOICES:
+            self.caption_look.addItem(word_captions.CHOICE_NAMES[key], word_captions.CHOICE_NAMES[key])
+        saved_look = self.settings.value("captions/look", "vurgu")
+        self.caption_look.setCurrentIndex(word_captions.CHOICES.index(saved_look)
+                                          if saved_look in word_captions.CHOICES else 1)
+        self.caption_look.setAccessibleName("Altyazı görünümü")
+        self.caption_look.currentIndexChanged.connect(
+            lambda index: self.settings.setValue("captions/look", word_captions.CHOICES[max(0, index)]))
+        v.addWidget(self.caption_look)
         self.apply_captions_button = QPushButton('Yerel altyazıyı timeline’a ekle / Add local captions')
         self.apply_captions_button.setEnabled(False)
         self.apply_captions_button.clicked.connect(self.apply_local_captions)
@@ -2082,7 +2095,8 @@ class MainWindow(QMainWindow):
             self.multitrack.tracks = [track for track in self.multitrack.tracks
                                       if not (track.kind == 'text' and track.name == edit_plan.CAPTION_TRACK)]
             self.multitrack_view.selected = self.multitrack_view.selected_track = None
-            count = caption_track(self.multitrack, self.caption_source, self.caption_segments)
+            look = word_captions.CHOICES[max(0, self.caption_look.currentIndex())]
+            count = caption_track(self.multitrack, self.caption_source, self.caption_segments, look)
         self.refresh_timeline_view()
         self.multitrack_view.update()
         self.seek_timeline(self.timeline_frame)

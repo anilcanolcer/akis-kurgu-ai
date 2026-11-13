@@ -583,12 +583,18 @@ def group_words(words, gap=0.7, longest=6.0, most=14):
             continue
         if current and (start - current[-1][2] > gap or current[-1][0][-1:] in '.?!…'
                         or end - current[0][1] > longest or len(current) >= most):
-            segments.append({'start': current[0][1], 'end': current[-1][2], 'text': ' '.join(w[0] for w in current)})
+            segments.append(_segment(current))
             current = []
         current.append((text, start, max(end, start)))
     if current:
-        segments.append({'start': current[0][1], 'end': current[-1][2], 'text': ' '.join(w[0] for w in current)})
+        segments.append(_segment(current))
     return segments
+
+
+def _segment(words):
+    """A caption segment from [(text, start, end)], keeping each word's timing for word-by-word captions."""
+    return {'start': words[0][1], 'end': words[-1][2], 'text': ' '.join(w[0] for w in words),
+            'words': [{'text': text, 'start': start, 'end': end} for text, start, end in words]}
 
 
 def _stt_text(provider, result):

@@ -22,6 +22,17 @@ def clip_speed(clip) -> float:
     return min(MAX_CLIP_SPEED, max(MIN_CLIP_SPEED, value)) if value == value else 1.0
 
 
+def cut_words(style, offset, length):
+    """The style of the part [offset, offset+length) of a word-by-word caption (akis.word_captions):
+    its words re-based to the part's start, those outside it dropped. Other styles come back as they are."""
+    words = style.get('words') if isinstance(style, dict) else None
+    if not words:
+        return style
+    kept = [[max(0, w[0] - offset), min(length, w[1] - offset), w[2]] for w in words
+            if w[1] > offset and w[0] < offset + length]
+    return dict(style, words=kept)
+
+
 def source_span(length, speed) -> int:
     """Source frames that `length` timeline frames play at `speed`. Rounded down (with a hair of slack for
     float error), so the two halves of a split never need more source than the whole clip did."""
@@ -115,11 +126,13 @@ class Track:
                      source_in=clip.source_frame(frame) if clip.source else clip.source_in + offset,
                      source_length=clip.source_length,
                      text=clip.text, volume=clip.volume,
-                     style={k: v for k, v in clip.style.items() if not k.startswith('transition')})
+                     style=cut_words({k: v for k, v in clip.style.items() if not k.startswith('transition')},
+                                     offset, clip.length - offset))
         for name, points in clip.keyframes.items():
             right.keyframes[name] = [dict(p, frame=p['frame']-offset) for p in points if p['frame'] >= offset]
             clip.keyframes[name] = [p for p in points if p['frame'] < offset]
         clip.length = offset
+        clip.style = cut_words(clip.style, 0, offset)
         self.add(right)
         return right
 
@@ -164,14 +177,16 @@ class Track:
         source_in = clip.source_in + int(delta * clip.speed + (1e-6 if delta >= 0 else -1e-6)) if clip.source else 0
         if start < 0 or length < 1 or source_in < 0:
             raise ValueError("Invalid trim")
-        old = (clip.start, clip.length, clip.source_in, clip.keyframes)
+        old = (clip.start, clip.length, clip.source_in, clip.keyframes, clip.style)
         clip.start, clip.length, clip.source_in = start, length, source_in
+        if delta > 0:
+            clip.style = cut_words(clip.style, delta, length)
         clip.keyframes = {name: [dict(p, frame=p['frame'] - delta) for p in points if p['frame'] - delta >= 0]
                           for name, points in clip.keyframes.items()}
         try:
             self.validate()
         except Exception:
-            clip.start, clip.length, clip.source_in, clip.keyframes = old
+            clip.start, clip.length, clip.source_in, clip.keyframes, clip.style = old
             raise
 
     def trim_end(self, clip_id: str, end: int, ripple: bool = False):
