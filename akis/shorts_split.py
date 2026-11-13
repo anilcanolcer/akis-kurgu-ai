@@ -181,7 +181,7 @@ class ShortsExportWorker(QThread):
     progress = Signal(int)
 
     def __init__(self, timeline, parts, outputs, executable, *, adjustments=None, framing=clip_fit.BLUR, card=True,
-                 titles=None, say=str, canvas=CANVAS):
+                 titles=None, say=str, canvas=CANVAS, numbered=True):
         super().__init__()
         self.timeline = Timeline.from_dict(timeline.to_dict())
         self.parts = list(parts)
@@ -190,6 +190,7 @@ class ShortsExportWorker(QThread):
         self.adjustments = dict(adjustments or {})
         self.framing, self.card, self.say = framing, card, say
         self.canvas = canvas
+        self.numbered = numbered   # "4 / 7" on the card; off for parts that are not a series
         self.media = MediaService(executable)
         self._percent = None
 
@@ -207,7 +208,8 @@ class ShortsExportWorker(QThread):
             fps = self.timeline.fps_num / self.timeline.fps_den
             for index, ((start, end), output) in enumerate(zip(self.parts, self.outputs)):
                 part = slice_timeline(self.timeline, round(start * fps), round(end * fps))
-                prepare(part, index + 1, len(self.parts), framing=self.framing, card=self.card, title=self.titles[index])
+                prepare(part, index + 1, len(self.parts) if self.numbered else 1, framing=self.framing, card=self.card,
+                        title=self.titles[index])
                 if output_overwrites_source(part, output):
                     raise ValueError(self.say('Çıktı dosyası kaynak medyayla aynı olamaz.'))
                 renderer = TimelineRenderer(self.media, self.canvas, **self.adjustments)
