@@ -98,7 +98,7 @@ class MultitrackWidget(QWidget):
         painter.setOpacity(0.55)
         first = left - (left - x) % width
         for px in range(first, right, width):
-            index = strip.tile_for((clip.source_in + (px - x) / self.zoom) / fps)
+            index = strip.tile_for((clip.source_in + (px - x) / self.zoom * clip.speed) / fps)
             if index is not None:
                 painter.drawImage(px, y + 4, strip.image, index * width, 0, width, strip.image.height())
         painter.restore()
@@ -171,13 +171,14 @@ class MultitrackWidget(QWidget):
                 if peaks and track.kind in ('audio', 'video'):
                     p.setPen(color('waveform'))
                     for px in range(left, right, 2):
-                        source_frame = clip.source_in + (px - x) / self.zoom
+                        source_frame = clip.source_in + (px - x) / self.zoom * clip.speed
                         sample = int(source_frame / fps * SAMPLE_RATE / WINDOW)
                         if 0 <= sample < len(peaks):
                             height = int(peaks[sample] * 14)
                             p.drawLine(px, y + 21 - height, px, y + 21 + height)
                 p.setPen(color('clip_text'))
-                p.drawText(left + 5, y + 25, (clip.text or {'circle': '◯ daire', 'arrow': '➜ ok'}.get(clip.style.get('shape')) or clip.source.replace('\\', '/').split('/')[-1])[:max(0, (right-left) // 7)])
+                tag = f'{clip.speed:g}× ' if clip.source and clip.speed != 1.0 else ''
+                p.drawText(left + 5, y + 25, tag + (clip.text or {'circle': '◯ daire', 'arrow': '➜ ok'}.get(clip.style.get('shape')) or clip.source.replace('\\', '/').split('/')[-1])[:max(0, (right-left) // 7)])
         p.setPen(QPen(color('marker'), 2))
         for marker in self.model.markers:
             x = int(self.x_for(marker.get('frame', 0)))

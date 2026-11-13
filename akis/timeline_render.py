@@ -15,6 +15,20 @@ from akis import audio_polish, caption_layout, clip_fit, emphasis
 from akis.frame_plan import plan_frame, plan_segments
 from akis.timeline_slice import picture_clips, plan_ranges, slice_timeline
 
+
+def atempo_chain(rate):
+    """',atempo=…' filters that change tempo by `rate` (one instance takes 0.5-2.0), or '' for 1.0."""
+    parts = []
+    while rate > 2.0 + 1e-9:
+        parts.append(2.0)
+        rate /= 2.0
+    while rate < 0.5 - 1e-9:
+        parts.append(0.5)
+        rate /= 0.5
+    if abs(rate - 1.0) > 1e-9:
+        parts.append(rate)
+    return ''.join(f',atempo={part:.6f}' for part in parts)
+
 TRANSITIONS = ('fade', 'flash', 'dip', 'slide_left', 'slide_right', 'slide_up', 'slide_down')
 # Picture clips one ffmpeg run may open at once. Each keeps its own decoder and frame queue in memory
 # (about 60 MB at 720p, far more at 4K): 120 clips in one run took 7 GB. Longer edits are rendered in
@@ -236,6 +250,10 @@ class TimelineRenderer:
                     if (track_index, clip.id) not in planned_ids:
                         continue
                     start, length, source_in = clip.start/fps, clip.length/fps, clip.source_in/fps
+                    # The clip's own speed: it plays length × rate seconds of its source in `length`.
+                    rate = clip.speed if clip.source else 1.0
+                    retime = f',setpts=PTS/{rate:.6f}' if rate != 1.0 else ''
+                    tempo = atempo_chain(rate)
                     # skip: how far into this clip the preview moment lies (the last frame for a clip
                     # held under the next clip's transition); placed: output time its remainder starts.
                     skip = 0.0 if frame is None else min(max(0, frame - clip.start), clip.length - 1) / fps
@@ -250,7 +268,7 @@ class TimelineRenderer:
                             raise FileNotFoundError(f'Medya bulunamadı: {clip.source}')
                         if track.kind == 'video' and self.media.has_audio(clip.source):
                             lead = self._open_input(args, clip.source, source_in, True)
-                            graph.append(f'[{index}:a]{self._trim("atrim", lead, length)},asetpts=PTS-STARTPTS,{voice_filter}volume={clip.volume:.6f},adelay={round(start * 1000)}:all=1[a{index}]')
+                            graph.append(f'[{index}:a]{self._trim("atrim", lead, length * rate)},asetpts=PTS-STARTPTS{tempo},{voice_filter}volume={clip.volume:.6f},adelay={round(start * 1000)}:all=1[a{index}]')
                             audio.append(f'[a{index}]')
                             voices.append(f'[a{index}]')
                             index += 1
@@ -261,8 +279,8 @@ class TimelineRenderer:
                         hold = outgoing_hold(track, clip) / fps
                         # Each clip has its own input, seeked (not decoded from the source's start);
                         # the clip's audio below reads the same seeked input.
-                        lead = self._open_input(args, clip.source, source_in + skip, frame is None)
-                        chain = f'[{index}:v]{self._trim("trim", lead, length - skip)},setpts=PTS-STARTPTS'
+                        lead = self._open_input(args, clip.source, source_in + skip * rate, frame is None)
+                        chain = f'[{index}:v]{self._trim("trim", lead, (length - skip) * rate)},setpts=PTS-STARTPTS{retime}'
                         if hold:
                             chain += f',tpad=stop_mode=clone:stop_duration={hold:.9f}'
                         scale, place = clip_fit.filters(clip.style, self.width, self.height, f'k{layer}')  # fit, fill or blur
@@ -295,7 +313,7 @@ class TimelineRenderer:
                         base = f'base{layer}'
                         if track.kind == 'video' and want_audio and self.media.has_audio(clip.source):
                             delay = round(start * 1000)
-                            graph.append(f'[{index}:a]{self._trim("atrim", lead, length)},asetpts=PTS-STARTPTS,{voice_filter}volume={clip.volume:.6f},adelay={delay}:all=1[a{index}]')
+                            graph.append(f'[{index}:a]{self._trim("atrim", lead, length * rate)},asetpts=PTS-STARTPTS{tempo},{voice_filter}volume={clip.volume:.6f},adelay={delay}:all=1[a{index}]')
                             audio.append(f'[a{index}]')
                             voices.append(f'[a{index}]')
                         index += 1

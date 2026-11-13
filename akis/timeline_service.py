@@ -3,7 +3,7 @@ import time
 from typing import NamedTuple
 
 from akis.frame_plan import audio_at, plan_frame
-from akis.timeline_model import Clip, Track
+from akis.timeline_model import MAX_CLIP_SPEED, MIN_CLIP_SPEED, Clip, Track
 from akis.timeline_render import duration_frames, output_overwrites_source
 
 
@@ -93,7 +93,8 @@ def audio_target(timeline, frame, speed):
     if layer is None:
         return None
     milliseconds = round(layer.source_frame * 1000 * timeline.fps_den / timeline.fps_num)
-    return layer.source, milliseconds, speed
+    clip = timeline.tracks[layer.track_index].find(layer.clip_id)
+    return layer.source, milliseconds, speed * clip.speed   # the project's speed times the clip's own
 
 
 class AudioTarget(NamedTuple):
@@ -117,7 +118,7 @@ def audio_targets(timeline, frame, speed):
         if clip.volume <= 0:
             continue
         milliseconds = round(layer.source_frame * 1000 * timeline.fps_den / timeline.fps_num)
-        found.append(AudioTarget(layer.track_index, layer.source, milliseconds, speed, clip.volume))
+        found.append(AudioTarget(layer.track_index, layer.source, milliseconds, speed * clip.speed, clip.volume))
     return found
 
 
@@ -163,6 +164,39 @@ def set_clip_volume(timeline, selection, volume):
     if not 0 <= volume <= 1:
         raise ValueError('Volume must be between 0 and 1')
     clip.volume = volume
+
+
+def set_clip_speed(timeline, selection, speed):
+    """Play the selected media clip at `speed` (0.25-4). The clip keeps the same footage, so its length
+    changes; later clips on its track move with it (ripple). Keyframes are stretched along. Returns the
+    change in length, in frames. Rolls back and raises ValueError when the result would not fit."""
+    track, clip = selected_clip(timeline, selection)
+    if clip is None or not clip.source or track.kind not in ('video', 'overlay', 'audio'):
+        raise ValueError('Select a video or audio clip')
+    if not MIN_CLIP_SPEED <= speed <= MAX_CLIP_SPEED:
+        raise ValueError('Speed out of range')
+    footage, old = clip.source_frames, clip.speed
+    length = max(1, round(footage / speed))
+    delta = length - clip.length
+    later = [other for other in track.clips if other is not clip and other.start >= clip.end]
+    saved = (clip.length, dict(clip.style), clip.keyframes, [other.start for other in later])
+    style = {key: value for key, value in clip.style.items() if key != 'speed'}
+    if speed != 1.0:
+        style['speed'] = speed
+    clip.style = style
+    clip.length = length
+    clip.keyframes = {name: [dict(p, frame=min(length - 1, round(p['frame'] * old / speed))) for p in points]
+                      for name, points in clip.keyframes.items()}
+    for other in later:
+        other.start += delta
+    try:
+        track.validate()
+    except ValueError:
+        clip.length, clip.style, clip.keyframes = saved[0], saved[1], saved[2]
+        for other, start in zip(later, saved[3]):
+            other.start = start
+        raise
+    return delta
 
 
 def playback_volume(timeline, frame, master):

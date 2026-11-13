@@ -23,7 +23,7 @@ from pathlib import Path
 if sys.platform == "win32":
     os.environ.setdefault("QT_MEDIA_BACKEND", "windows")
 
-from akis.timeline_model import Clip, Timeline, Track
+from akis.timeline_model import CLIP_SPEEDS, Clip, Timeline, Track
 from akis.multitrack_widget import MultitrackWidget
 from akis import project_service
 from akis.media_service import MediaService
@@ -695,7 +695,7 @@ class MainWindow(QMainWindow):
         tools.setContentsMargins(0, 0, 0, 0)
         for label, action in [('＋ İz', self.add_track), ('− İz', self.remove_track),
                               ('＋ Medya', self.add_timeline_media), ('Böl', self.split_clip),
-                              ('Ripple sil', self.ripple_delete), ('Klip sesi', self.set_clip_volume), ('Kadraj', self.set_clip_fit), ('Metni düzenle', self.edit_text_clip)]:
+                              ('Ripple sil', self.ripple_delete), ('Klip sesi', self.set_clip_volume), ('Klip hızı', self.set_clip_speed), ('Kadraj', self.set_clip_fit), ('Metni düzenle', self.edit_text_clip)]:
             button = QPushButton(label)
             button.clicked.connect(action)
             if label == 'Ripple sil':
@@ -3145,6 +3145,31 @@ class MainWindow(QMainWindow):
             self.sync_timeline_audio(force=True)
             self.set_status(self.ui_text('Klip sesi: %{value}', value=value))
 
+    def set_clip_speed(self):
+        """Play the selected clip faster or slower (slow motion, time-lapse); one undo step."""
+        track, clip = self.selected_clip()
+        if not clip or not clip.source or track.kind not in ('audio', 'video', 'overlay'):
+            self.set_status(self.ui_text('Bir ses veya video klibi seçin.'))
+            return
+        labels = [f'{value:g}×' for value in CLIP_SPEEDS]
+        current = min(range(len(CLIP_SPEEDS)), key=lambda i: abs(CLIP_SPEEDS[i] - clip.speed))
+        chosen, ok = QInputDialog.getItem(self, self.ui_text('Klip hızı'),
+                                          self.ui_text('Bu klip hangi hızda oynasın? Uzunluğu buna göre değişir; '
+                                                       'izdeki sonraki klipler kayar.'), labels, current, False)
+        if not ok:
+            return
+        speed = CLIP_SPEEDS[labels.index(chosen)]
+        try:
+            with self.history_step():
+                timeline_service.set_clip_speed(self.multitrack, self.multitrack_view.selected, speed)
+        except ValueError:
+            self.set_status(self.ui_text('Bu hız uygulanamadı: klip kaynağın sonunu aşıyor.'))
+            return
+        self.refresh_timeline_view()
+        self.seek_timeline(self.timeline_frame)
+        self.sync_timeline_audio(force=True)
+        self.set_status(self.ui_text('Klip hızı: {value}', value=chosen))
+
     def set_clip_fit(self):
         """Fit the selected video clip inside the canvas or let it fill the canvas (cropped), one undo step."""
         track, clip = self.selected_clip()
@@ -3490,7 +3515,7 @@ class MainWindow(QMainWindow):
                             log.warning("Medya süresi okunamadı: %s", clip.source)
                 frames = round(known[clip.source] * fps)
                 if frames > 0:  # never shorter than what the clip already uses
-                    clip.source_length = max(frames, clip.source_in + clip.length)
+                    clip.source_length = max(frames, clip.source_end)
 
     def untitled_recovery_path(self) -> Path:
         """This instance's recovery file for an untitled project, with its lock taken (one per process)."""

@@ -8,6 +8,25 @@ from copy import deepcopy
 from dataclasses import asdict, dataclass, field
 from uuid import uuid4
 
+# A clip's own speed (style['speed']): the clip keeps its place and length on the timeline and plays
+# length × speed frames of its source. 1.0 when absent, so older projects are unchanged.
+CLIP_SPEEDS = (0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 4.0)
+MIN_CLIP_SPEED, MAX_CLIP_SPEED = CLIP_SPEEDS[0], CLIP_SPEEDS[-1]
+
+
+def clip_speed(clip) -> float:
+    try:
+        value = float((clip.style or {}).get('speed', 1.0))
+    except (TypeError, ValueError):
+        return 1.0
+    return min(MAX_CLIP_SPEED, max(MIN_CLIP_SPEED, value)) if value == value else 1.0
+
+
+def source_span(length, speed) -> int:
+    """Source frames that `length` timeline frames play at `speed`. Rounded down (with a hair of slack for
+    float error), so the two halves of a split never need more source than the whole clip did."""
+    return max(1, int(length * speed + 1e-6))
+
 
 @dataclass
 class Clip:
@@ -28,12 +47,33 @@ class Clip:
             raise ValueError("Volume must be between 0 and 1")
         if self.start < 0 or self.source_in < 0 or self.length < 1:
             raise ValueError("Invalid clip range")
-        if self.source_length is not None and self.source_in + self.length > self.source_length:
+        if self.source_length is not None and self.source_end > self.source_length:
             raise ValueError("Clip exceeds source duration")
 
     @property
     def end(self):
         return self.start + self.length
+
+    @property
+    def speed(self) -> float:
+        return clip_speed(self)
+
+    @property
+    def source_frames(self) -> int:
+        """How many source frames the clip plays (its length at its own speed)."""
+        return source_span(self.length, self.speed) if self.source else self.length
+
+    @property
+    def source_end(self) -> int:
+        return self.source_in + self.source_frames
+
+    def source_frame(self, frame) -> int:
+        """The source frame shown at timeline `frame` (inside the clip)."""
+        return self.source_in + int((frame - self.start) * self.speed + 1e-6)
+
+    def timeline_frame(self, source_frame) -> float:
+        """Where source frame `source_frame` falls on the timeline (may lie outside the clip)."""
+        return self.start + (source_frame - self.source_in) / self.speed
 
 
 @dataclass
@@ -51,7 +91,7 @@ class Track:
     def validate(self):
         clips = sorted(self.clips, key=lambda c: c.start)
         if any(c.start < 0 or c.source_in < 0 or c.length < 1 or
-               (c.source_length is not None and c.source_in + c.length > c.source_length) for c in clips):
+               (c.source_length is not None and c.source_end > c.source_length) for c in clips):
             raise ValueError("Invalid clip range")
         if len({c.id for c in clips}) != len(clips):
             raise ValueError("Duplicate clip id")
@@ -72,7 +112,8 @@ class Track:
         if not 0 < offset < clip.length:
             raise ValueError("Split must be inside clip")
         right = Clip(source=clip.source, start=frame, length=clip.length-offset,
-                     source_in=clip.source_in+offset, source_length=clip.source_length,
+                     source_in=clip.source_frame(frame) if clip.source else clip.source_in + offset,
+                     source_length=clip.source_length,
                      text=clip.text, volume=clip.volume,
                      style={k: v for k, v in clip.style.items() if not k.startswith('transition')})
         for name, points in clip.keyframes.items():
@@ -88,7 +129,7 @@ class Track:
     def slip(self, clip_id: str, delta: int):
         clip = self.find(clip_id)
         new_in = clip.source_in + delta
-        if new_in < 0 or (clip.source_length is not None and new_in + clip.length > clip.source_length):
+        if new_in < 0 or (clip.source_length is not None and new_in + clip.source_frames > clip.source_length):
             raise ValueError("Slip exceeds source duration")
         clip.source_in = new_in
 
@@ -120,7 +161,7 @@ class Track:
         delta = start - clip.start
         length = clip.length - delta
         # A clip without media (text, shape) has no earlier material to run out of.
-        source_in = clip.source_in + delta if clip.source else 0
+        source_in = clip.source_in + int(delta * clip.speed + (1e-6 if delta >= 0 else -1e-6)) if clip.source else 0
         if start < 0 or length < 1 or source_in < 0:
             raise ValueError("Invalid trim")
         old = (clip.start, clip.length, clip.source_in, clip.keyframes)
@@ -136,7 +177,8 @@ class Track:
     def trim_end(self, clip_id: str, end: int, ripple: bool = False):
         clip = self.find(clip_id)
         length = end - clip.start
-        if length < 1 or (clip.source_length is not None and clip.source_in + length > clip.source_length):
+        if length < 1 or (clip.source_length is not None and
+                          clip.source_in + source_span(length, clip.speed) > clip.source_length):
             raise ValueError("Invalid trim")
         old_length = clip.length
         following = [c for c in self.clips if c.id != clip.id and c.start >= clip.end]

@@ -17,7 +17,7 @@ def plan_frame(timeline, frame):
         raise ValueError('Frame must be a non-negative integer')
     return tuple(
         FrameLayer(index, track.kind, clip.id, clip.source,
-                   clip.source_in + frame - clip.start, clip.text)
+                   clip.source_frame(frame), clip.text)
         for index, track in enumerate(timeline.tracks) if not track.muted
         for clip in track.clips if clip.start <= frame < clip.end
     )

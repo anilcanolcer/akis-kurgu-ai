@@ -66,11 +66,11 @@ def timeline_pauses(timeline, levels_for):
             continue
         if clip.source not in cache:
             cache[clip.source] = silence_cut.silent_spans(levels_for(clip.source), min_silence=0.25)
-        first, last = clip.source_in / fps, (clip.source_in + clip.length) / fps
+        first, last = clip.source_in / fps, clip.source_end / fps
         for a, b in cache[clip.source]:
             middle = (a + b) / 2
             if first <= middle < last:
-                found.append(clip.start / fps + middle - first)
+                found.append(clip.start / fps + (middle - first) / clip.speed)
     return sorted(found)
 
 
@@ -137,11 +137,11 @@ def spoken_on_timeline(timeline, source, segments):
     for clip in main.clips if main else ():
         if clip.source != source:
             continue
-        first, last = clip.source_in / fps, (clip.source_in + clip.length) / fps
+        first, last = clip.source_in / fps, clip.source_end / fps
         for segment in segments:
             start = float(segment.get('start', 0))
             if first <= start < last:
-                found.append((clip.start / fps + start - first, str(segment.get('text', ''))))
+                found.append((clip.start / fps + (start - first) / clip.speed, str(segment.get('text', ''))))
     return sorted(found)
 
 

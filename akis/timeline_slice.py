@@ -21,7 +21,7 @@ def slice_timeline(timeline, start, end):
             offset = a - clip.start
             piece.start, piece.length = a - start, b - a
             if piece.source:
-                piece.source_in = clip.source_in + offset
+                piece.source_in = clip.source_frame(a)
             if offset and piece.keyframes:
                 piece.keyframes = {k: [dict(p, frame=p['frame'] - offset) for p in v if p['frame'] >= offset]
                                    for k, v in piece.keyframes.items()}

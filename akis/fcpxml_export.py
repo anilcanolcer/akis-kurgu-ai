@@ -33,7 +33,7 @@ def build(timeline, canvas, media, name='Akış Kurgu'):
     num, den = timeline.fps_num, timeline.fps_den
     time = lambda frames: rational(frames, num, den)
     width, height = canvas
-    report = {'clips': 0, 'texts': 0, 'transitions': 0}
+    report = {'clips': 0, 'texts': 0, 'transitions': 0, 'speeds': 0}
 
     root = ET.Element('fcpxml', version=VERSION)
     resources = ET.SubElement(root, 'resources')
@@ -75,6 +75,8 @@ def build(timeline, canvas, media, name='Akış Kurgu'):
         report['clips'] += 1
         if clip.style.get('transition'):
             report['transitions'] += 1
+        if clip.speed != 1.0:   # written at normal speed, from its in-point, for its timeline length
+            report['speeds'] += 1
         return element
 
     tracks = [track for track in timeline.tracks if not track.muted]
@@ -139,4 +141,6 @@ def describe(report, say=str):
         parts.append(say('{count} yazı ve altyazı klibi aktarılmadı.').format(count=report['texts']))
     if report['transitions']:
         parts.append(say('{count} geçiş aktarılmadı.').format(count=report['transitions']))
+    if report.get('speeds'):
+        parts.append(say('{count} klibin hızı aktarılmadı; normal hızda yazıldı.').format(count=report['speeds']))
     return ' '.join(parts)

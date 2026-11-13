@@ -55,7 +55,7 @@ def apply(timeline, moments_by_source):
     main = next((track for track in timeline.tracks if track.kind == 'video'), None)
     for clip in main.clips if main else ():
         frames = [round(second * fps) for second in moments_by_source.get(clip.source, ())]
-        punches = [[frame, hold] for frame in frames if clip.source_in <= frame < clip.source_in + clip.length]
+        punches = [[frame, hold] for frame in frames if clip.source_in <= frame < clip.source_end]
         style = {key: value for key, value in clip.style.items() if key != 'punch'}
         if punches:
             style['punch'] = punches
@@ -78,8 +78,8 @@ def clear(timeline):
 def zoom_filter(clip, fps_num, fps_den, skip, width, height):
     """The zoompan filter for a clip's punches, or '' when it has none.
 
-    The filter sees the clip from `skip` seconds in, starting at time 0; source time is
-    source_in + skip + its own input time."""
+    The filter sees the clip from `skip` timeline seconds in, starting at time 0, already retimed to the
+    clip's own speed; source time is source_in + (skip + its own input time) x speed."""
     punches = clip.style.get('punch') or []
     fps = fps_num / fps_den
     terms = []
@@ -94,8 +94,10 @@ def zoom_filter(clip, fps_num, fps_den, skip, width, height):
         terms.append(f'clip(min((T-{start:.4f})/{ramp:.4f}\\,({end:.4f}-T)/{ramp:.4f})\\,0\\,1)')
     if not terms:
         return ''
-    offset = clip.source_in / fps + skip
+    rate = clip.speed
+    offset = clip.source_in / fps + skip * rate
     envelope = 'min(1\\,' + '+'.join(terms) + ')' if len(terms) > 1 else terms[0]
-    zoom = f'1+{ZOOM - 1:.4f}*{envelope}'.replace('T', f'(it+{offset:.6f})')
+    source_time = f'(it+{offset:.6f})' if rate == 1.0 else f'(it*{rate:.6f}+{offset:.6f})'
+    zoom = f'1+{ZOOM - 1:.4f}*{envelope}'.replace('T', source_time)
     return (f"fps={fps_num}/{fps_den},zoompan=z='{zoom}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
             f":d=1:s={width}x{height}:fps={fps_num}/{fps_den}")
