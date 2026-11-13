@@ -1,5 +1,6 @@
 """Timed caption and timeline snapping operations."""
 import math
+from akis.caption_layout import split_caption
 from akis.timeline_model import Clip, Track
 
 
@@ -19,10 +20,12 @@ def caption_track(timeline, source, segments):
                 text = str(segment['text']).strip()
                 if not text or not math.isfinite(start) or not math.isfinite(end) or start >= end:
                     continue
-                left = max(clip.source_in, round(start * fps))
-                right = min(clip.source_in + clip.length, round(end * fps))
-                if right > left:
-                    spans.append((clip.start + left - clip.source_in, clip.start + right - clip.source_in, text))
+                # A long sentence becomes several short captions in a row, not one block of many lines.
+                for piece_start, piece_end, piece in split_caption(text, start, end):
+                    left = max(clip.source_in, round(piece_start * fps))
+                    right = min(clip.source_in + clip.length, round(piece_end * fps))
+                    if right > left:
+                        spans.append((clip.start + left - clip.source_in, clip.start + right - clip.source_in, piece))
     for start, end, text in sorted(spans):
         start = max(start, max((c.end for c in track.clips), default=0))
         if end > start:
