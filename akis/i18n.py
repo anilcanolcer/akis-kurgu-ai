@@ -386,6 +386,15 @@ EN_UI = {
     '{count} kesim müziğin vuruşuna oturtuldu. Beğenmezseniz geri alabilirsiniz (Ctrl+Z).': '{count} cuts were put on the beat. You can undo it (Ctrl+Z).',
     # Retakes (akis.retakes).
     'Tekrar çekimleri temizle': 'Remove retakes',
+    'Dolgu sözcüklerini kes (ııı, eee, şey)': 'Cut filler words (um, uh, like)',
+    'Duraksamaları ve “şey, yani” gibi dolgu sözcüklerini bulup keser. Yerel konuşma tanımayla çalışır; internet gerekmez.':
+        'Finds hesitations and filler words such as “şey, yani” and cuts them. Uses local speech recognition; no internet needed.',
+    'Dolgu sözcükleri aranıyor (yerel konuşma tanıma)…': 'Looking for filler words (local speech recognition)…',
+    'Dolgu sözcüğü bulunamadı.': 'No filler words were found.',
+    'Dolgu sözcükleri zaten kesilmiş.': 'The filler words are already cut.',
+    'Dolgu sözcükleri kesilemedi: {error}': 'The filler words could not be cut: {error}',
+    '{count} dolgu sözcüğü kesildi. Beğenmezseniz geri alabilirsiniz (Ctrl+Z).': '{count} filler words were cut. You can undo this (Ctrl+Z).',
+    '{count} dolgu sözcüğü bulundu (toplam {seconds} sn):': '{count} filler words found ({seconds} s in all):',
     'Aynı cümle birkaç kez söylendiyse yalnızca son denemeyi bırakır. Önce aşağıdan yerel konuşma metnini çıkarın; internet gerekmez.':
         'When a sentence was said several times, keeps only the last try. Make the local transcript below first; no internet needed.',
     'Önce “Konuşma metni ve seslendirme” bölümünden yerel konuşma metnini çıkarın; tekrarlar bu metinden bulunur.':
