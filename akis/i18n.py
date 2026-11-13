@@ -261,6 +261,12 @@ EN_UI = {
     'Hazır bir şablon uygulayın ya da AI sekmesine isteğinizi yazın.': 'Apply a ready-made template or write what you want in the AI tab.',
     'Dışa aktarın': 'Export it',
     'Beğendiğinizde sağ üstteki “Dışa aktar” düğmesiyle videonuzu kaydedin.': 'When you like it, save your video with the “Export” button at the top right.',
+    # Three formats at once (akis.multi_export).
+    'Üç biçimde dışa aktar': 'Export in three formats',
+    'Aynı kurguyu tek seferde dikey (9:16), kare (1:1) ve yatay (16:9) üç ayrı dosya olarak kaydeder.':
+        'Saves the same edit in one go as three files: vertical (9:16), square (1:1) and landscape (16:9).',
+    'Şu dosyalar zaten var ve üzerine yazılacak:\n{names}\n\nDevam edilsin mi?':
+        'These files already exist and will be overwritten:\n{names}\n\nContinue?',
     # Export by copying (akis.fast_export).
     'Bu kurgu yalnızca kesimlerden oluşuyor. Yeniden kodlamadan, hızlı dışa aktarılsın mı?\n\nKalite hiç düşmez ve işlem çok daha kısa sürer. Kesim noktaları en yakın anahtar kareye kayabilir; her parçanın başında genellikle iki saniyeden kısa bir fazlalık kalabilir ve birleşme yerinde tek bir kare atlanabilir.\n\n“Hayır” derseniz olağan (kare hassasiyetli) dışa aktarma yapılır.':
         'This edit is nothing but cuts. Export it quickly, without encoding it again?\n\nNo quality is lost and it takes far less time. Cuts may move to the nearest keyframe; each piece may start with usually less than two extra seconds, and a single frame may be skipped at a join.\n\nChoose “No” for the normal, frame-accurate export.',

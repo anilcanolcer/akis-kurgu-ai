@@ -57,6 +57,7 @@ from akis import preflight
 from akis import user_templates
 from akis import privacy_log
 from akis import fast_export
+from akis import multi_export
 from akis.start_panel import StartPanel
 from akis.saved_templates_dialog import SavedTemplatesDialog
 from akis.inspiration_service import template_for
@@ -1045,6 +1046,11 @@ class MainWindow(QMainWindow):
         profile_hint = QLabel('Profil oranı seçer; 4K seçenekleri seçili oranı iki kat çözünürlükte dışa aktarır.')
         profile_hint.setWordWrap(True)
         v.addWidget(profile_hint)
+        three = QPushButton("Üç biçimde dışa aktar")
+        three.setObjectName("secondary")
+        three.setToolTip("Aynı kurguyu tek seferde dikey (9:16), kare (1:1) ve yatay (16:9) üç ayrı dosya olarak kaydeder.")
+        three.clicked.connect(self.export_three_formats)
+        v.addWidget(three)
         v.addWidget(self.section("SES İYİLEŞTİRME"))
         self.loudness = QCheckBox("Ses yüksekliğini -14 LUFS'a normalleştir")
         self.loudness.setToolTip("Kısık çekilmiş videoyu yayın düzeyine çıkarır; önizlemede ve dışa aktarmada uygulanır.")
@@ -1959,6 +1965,53 @@ class MainWindow(QMainWindow):
                                       QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                                       QMessageBox.StandardButton.No)
         return answer == QMessageBox.StandardButton.Yes
+
+    def export_three_formats(self) -> None:
+        """The same edit as vertical, square and landscape files, one after the other (akis.multi_export)."""
+        if not self.can_start_work() or not self.ensure_video():
+            return
+        findings = preflight.check(self.multitrack, say=self.ui_template)
+        if findings and QMessageBox.question(self, APP_NAME, preflight.question(findings, self.ui_template),
+                                             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                             QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
+            self.set_status(self.ui_text('Dışa aktarma başlatılmadı.'))
+            return
+        default = safe_filename(self.project_title.text()) + "_akis.mp4"
+        chosen, _ = QFileDialog.getSaveFileName(self, self.ui_text("Üç biçimde dışa aktar"),
+                                                str(Path.home() / "Videos" / default), "MP4 Video (*.mp4)")
+        if not chosen:
+            return
+        outputs = multi_export.targets(normalize_export_path(chosen))
+        for _, _, path in outputs:
+            if timeline_service.output_overwrites_source(self.multitrack, path, (self.state.source,)):
+                QMessageBox.warning(self, APP_NAME, 'Çıktı yolu kaynak medya ile aynı olamaz; başka bir dosya adı seçin.')
+                return
+        existing = [Path(path).name for _, _, path in outputs if Path(path).exists()]
+        if existing and QMessageBox.question(
+                self, APP_NAME, self.ui_text('Şu dosyalar zaten var ve üzerine yazılacak:\n{names}\n\nDevam edilsin mi?',
+                                             names='\n'.join(existing)),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
+            return
+        fps = self.multitrack.fps_num / self.multitrack.fps_den
+        seconds = duration_frames(self.multitrack) / fps / self.state.speed
+        needed = sum(export_progress.estimated_bytes(canvas, fps, seconds) for _, canvas, _ in outputs)
+        problem = export_progress.space_problem(outputs[0][2], needed, say=self.ui_template)
+        if problem and QMessageBox.question(self, APP_NAME, problem + '\n\n' + self.ui_text('Yine de devam edilsin mi?'),
+                                            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                            QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
+            self.set_status(self.ui_text('Dışa aktarma başlatılmadı.'))
+            return
+        self.worker = multi_export.MultiExportWorker(self.multitrack, outputs, ffmpeg_path(),
+                                                     adjustments=self.render_adjustments())
+        self.begin_work(self.ui_text("Dışa aktarma hazırlanıyor…"))
+        self._export_estimator = export_progress.Estimator()
+        self.worker.progress.connect(self.on_export_progress)
+        self.worker.finished.connect(lambda: self.progress.setRange(0, 0))
+        self.worker.completed.connect(self.on_exported)
+        self.worker.failed.connect(self.on_worker_error)
+        self.worker.cancelled.connect(self.on_export_cancelled)
+        self.start_worker()
 
     def on_exported(self, path: str) -> None:
         if self._shutting_down:
