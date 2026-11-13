@@ -17,7 +17,10 @@ class TimelineRenderWorker(QThread):
         self.executable = executable
         self.timeline = Timeline.from_dict(timeline.to_dict())
         self.output, self.size, self.frame = output, size, frame
-        self.adjustments = adjustments or {}
+        self.adjustments = dict(adjustments or {})
+        # The playback proxy passes a folder of stored pieces (akis.chunk_preview): only changed pieces
+        # are drawn again.
+        self.pieces = self.adjustments.pop('pieces', None)
         # The playback proxy is background work: keep it from starving still previews.
         self.media = MediaService(executable, low_priority=bool(self.adjustments.get('fast')))
 
@@ -34,7 +37,9 @@ class TimelineRenderWorker(QThread):
     def run(self):
         try:
             renderer = TimelineRenderer(self.media, self.size, **self.adjustments)
-            if self.frame is None:
+            if self.frame is None and self.pieces:
+                renderer.export_pieces(self.timeline, self.output, self.pieces, on_progress=self._report)
+            elif self.frame is None:
                 renderer.export(self.timeline, self.output, on_progress=self._report)
             else:
                 renderer.preview(self.timeline, self.frame, self.output)
