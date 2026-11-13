@@ -271,6 +271,20 @@ EN_UI = {
     '{count} klip yazıldı.': '{count} clips written.',
     '{count} yazı ve altyazı klibi aktarılmadı.': '{count} text and caption clips were left out.',
     '{count} geçiş aktarılmadı.': '{count} transitions were left out.',
+    # Retakes (akis.retakes).
+    'Tekrar çekimleri temizle': 'Remove retakes',
+    'Aynı cümle birkaç kez söylendiyse yalnızca son denemeyi bırakır. Önce aşağıdan yerel konuşma metnini çıkarın; internet gerekmez.':
+        'When a sentence was said several times, keeps only the last try. Make the local transcript below first; no internet needed.',
+    'Önce “Konuşma metni ve seslendirme” bölümünden yerel konuşma metnini çıkarın; tekrarlar bu metinden bulunur.':
+        'First make the local transcript in “Transcript and voiceover”; retakes are found in it.',
+    'Tekrar çekim bulunamadı.': 'No retakes were found.',
+    'Konuşma metninin videosu zaman çizelgesinde yok.': "The transcript's video is not on the timeline.",
+    'Tekrarlar zaten kesilmiş.': 'The retakes are already cut.',
+    'Tekrarlar kesilemedi: {error}': 'The retakes could not be cut: {error}',
+    '{count} tekrar çekim kesildi. Beğenmezseniz geri alabilirsiniz (Ctrl+Z).': '{count} retakes were cut. You can undo it (Ctrl+Z).',
+    '{count} tekrar çekim bulundu; her birinin yalnızca son denemesi kalacak:': '{count} retakes found; only the last try of each will stay:',
+    '… ve {count} tane daha.': '… and {count} more.',
+    'Kesilsin mi? Beğenmezseniz tek adımda geri alabilirsiniz.': 'Cut them? You can undo it in one step.',
     # Three formats at once (akis.multi_export).
     'Üç biçimde dışa aktar': 'Export in three formats',
     'Aynı kurguyu tek seferde dikey (9:16), kare (1:1) ve yatay (16:9) üç ayrı dosya olarak kaydeder.':
