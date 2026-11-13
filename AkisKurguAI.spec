@@ -40,11 +40,18 @@ ffmpeg = os.environ.get("AKIS_FFMPEG") or shutil.which("ffmpeg")
 if not ffmpeg or not Path(ffmpeg).is_file():
     raise SystemExit("FFmpeg bulunamadı: PATH veya AKIS_FFMPEG ayarlayın.")
 
+# FFmpeg's licence travels with it (the gyan.dev build keeps LICENSE beside its bin folder), and the
+# notice naming every bundled third-party program goes into _internal with it.
+licence_datas = [(str(project_dir / "THIRD_PARTY_NOTICES.txt"), ".")]
+ffmpeg_licence = Path(ffmpeg).resolve().parent.parent / "LICENSE"
+if ffmpeg_licence.is_file():
+    licence_datas.append((str(ffmpeg_licence), "licenses/ffmpeg"))
+
 a = Analysis(
     [str(project_dir / "main.py")],
     pathex=[str(project_dir)],
     binaries=[(ffmpeg, ".")] + extra_binaries,
-    datas=[(str(project_dir / "app.ico"), ".")] + extra_datas,
+    datas=[(str(project_dir / "app.ico"), ".")] + licence_datas + extra_datas,
     hiddenimports=[
         "keyring.backends.Windows",
         "openai",

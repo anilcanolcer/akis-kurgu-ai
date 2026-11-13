@@ -230,6 +230,21 @@ class InstallerScriptTests(unittest.TestCase):
         self.assertNotIn('$DESKTOP', test)  # test builds never touch the real desktop
         self.assertNotIn('CreateDesktopShortcut', block('Section "Install"'))  # updates leave it alone
 
+    def test_ffmpeg_is_pinned_and_its_notice_ships(self):
+        workflow = (ROOT / '.github' / 'workflows' / 'windows-build.yml').read_text(encoding='utf-8')
+        pinned = re.search(r"\$ffmpegVersion = '([\d.]+)'", workflow)
+        self.assertIsNotNone(pinned, 'the build must install one fixed FFmpeg version')
+        self.assertIn('choco install ffmpeg --version $ffmpegVersion', workflow)
+        self.assertIn('-notmatch "^ffmpeg version', workflow)            # and check it got that one
+        notice = (ROOT / 'THIRD_PARTY_NOTICES.txt').read_text(encoding='utf-8')
+        version = pinned.group(1)
+        self.assertIn(f'FFmpeg {version} (ffmpeg.exe)', notice)
+        self.assertIn(f'ffmpeg-{version}.tar.xz', notice)
+        self.assertIn(f'version {version}.', notice)
+        spec = (ROOT / 'AkisKurguAI.spec').read_text(encoding='utf-8')
+        self.assertIn('"THIRD_PARTY_NOTICES.txt"', spec)
+        self.assertIn('licence_datas', spec[spec.index('datas='):])
+
     def test_release_notes_come_from_the_repository(self):
         workflow = (ROOT / '.github' / 'workflows' / 'windows-build.yml').read_text(encoding='utf-8')
         release = workflow[workflow.index('\n  release:'):]

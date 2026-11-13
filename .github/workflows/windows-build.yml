@@ -22,10 +22,15 @@ jobs:
       - name: Install FFmpeg
         shell: pwsh
         run: |
-          choco install ffmpeg --yes --no-progress
+          # One pinned version, the one THIRD_PARTY_NOTICES.txt names (tests check they agree): a new
+          # FFmpeg arrives only when this line and the notice change together.
+          $ffmpegVersion = '9.0.2'
+          choco install ffmpeg --version $ffmpegVersion --yes --no-progress
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $ffmpegFile = Get-ChildItem -LiteralPath 'C:\ProgramData\chocolatey\lib\ffmpeg\tools' -Filter 'ffmpeg.exe' -File -Recurse | Where-Object { $_.Length -gt 10MB } | Select-Object -First 1
           if (-not $ffmpegFile) { throw 'FFmpeg executable not found' }
+          $banner = (& $ffmpegFile.FullName -hide_banner -version | Select-Object -First 1)
+          if ($banner -notmatch "^ffmpeg version $([regex]::Escape($ffmpegVersion))\b") { throw "Unexpected FFmpeg: $banner" }
           $ffmpegFile.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Append
           "AKIS_FFMPEG=$($ffmpegFile.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
       - name: Install dependencies

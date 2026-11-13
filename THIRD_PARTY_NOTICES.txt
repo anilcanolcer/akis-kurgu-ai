@@ -1,0 +1,24 @@
+Akış Kurgu AI - third-party software
+=====================================
+
+Akış Kurgu AI ships the programs and libraries below unchanged. Each keeps its own licence; the
+licence of Akış Kurgu AI itself (LICENSE) does not apply to them.
+
+FFmpeg 9.0.2 (ffmpeg.exe)
+  Build:   "essentials" build by gyan.dev (https://www.gyan.dev/ffmpeg/builds/), installed by the build
+           through the Chocolatey package "ffmpeg", version 9.0.2.
+  Licence: GNU General Public License, version 3 (this build includes GPL components such as x264).
+           The licence text is in licenses/ffmpeg/LICENSE next to this file when the build provides it,
+           and at https://www.gnu.org/licenses/gpl-3.0.html.
+  Source:  https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz and https://github.com/FFmpeg/FFmpeg ;
+           the build scripts and the sources of the bundled libraries are listed at
+           https://www.gyan.dev/ffmpeg/builds/.
+  Akış Kurgu AI starts ffmpeg.exe as a separate program; it is not linked into the application.
+
+PyAV and its FFmpeg libraries (av, used by faster-whisper to read audio for local speech recognition)
+  Licence: PyAV is BSD-licensed; the FFmpeg libraries in its wheels are LGPL-licensed builds.
+  Source:  https://github.com/PyAV-Org/PyAV
+
+Other Python packages (PySide6/Qt, faster-whisper, CTranslate2, ONNX Runtime, tokenizers, huggingface_hub,
+OpenAI, Pillow, keyring, winrt and their dependencies) keep their own licences, which ship inside their
+folders in _internal. Qt is used under the LGPL version 3 (https://www.qt.io/licensing/).
