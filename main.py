@@ -351,7 +351,7 @@ class MainWindow(QMainWindow):
         self.preview_audio_output.setVolume(0.8)
         self.preview_audio = QMediaPlayer()
         self.preview_audio.setAudioOutput(self.preview_audio_output)
-        self.timeline_audio = TimelineAudio(self.preview_audio, self)
+        self.timeline_audio = TimelineAudio(self.preview_audio, self, player_factory=self.new_preview_player)
         self.timeline_audio.failed.connect(self.set_status)
 
         root = QWidget()
@@ -2818,7 +2818,14 @@ class MainWindow(QMainWindow):
     def sync_timeline_audio(self, force=False):
         if self.play_timer.isActive():
             self.preview_audio_output.setVolume(timeline_service.playback_volume(self.multitrack, self.timeline_frame, self.master_volume))
-            self.timeline_audio.sync(self.multitrack, self.timeline_frame, self.state.speed, force)
+            self.timeline_audio.sync(self.multitrack, self.timeline_frame, self.state.speed, force, master=self.master_volume)
+
+    def new_preview_player(self):
+        """Another player for frame-by-frame playback, so the video's voice and the music sound together."""
+        output = QAudioOutput(self)
+        player = QMediaPlayer(self)
+        player.setAudioOutput(output)
+        return player, output
 
     def change_master_volume(self, value):
         self.master_volume = value / 100
