@@ -59,7 +59,7 @@ from akis import privacy_log
 from akis import fast_export
 from akis import multi_export
 from akis import fcpxml_export
-from akis import retakes, silence_cut
+from akis import beat_sync, retakes, silence_cut
 from akis.start_panel import StartPanel
 from akis.saved_templates_dialog import SavedTemplatesDialog
 from akis.inspiration_service import template_for
@@ -780,6 +780,12 @@ class MainWindow(QMainWindow):
                                  "Önce aşağıdan yerel konuşma metnini çıkarın; internet gerekmez.")
         retake_button.clicked.connect(self.remove_retakes)
         v.addWidget(retake_button)
+        beat_button = QPushButton("Kesimleri müziğin ritmine oturt")
+        beat_button.setObjectName("secondary")
+        beat_button.setToolTip("Ses izindeki müziğin vuruşlarını bulur ve video kesimlerini en yakın vuruşa kaydırır. "
+                               "Müziğe dokunmaz; internet gerekmez.")
+        beat_button.clicked.connect(self.snap_cuts_to_beat)
+        v.addWidget(beat_button)
         # Undoes the last step of the shared edit history; right after an AI edit that is the AI edit.
         self.undo_edit_button = QPushButton("↶  Son adımı geri al")
         self.undo_edit_button.setObjectName("secondary")
@@ -1635,6 +1641,51 @@ class MainWindow(QMainWindow):
             self.show_timeline(timeline)
         self.set_status(self.ui_text('{count} tekrar çekim kesildi. Beğenmezseniz geri alabilirsiniz (Ctrl+Z).',
                                      count=len(cuts)))
+
+    def snap_cuts_to_beat(self) -> None:
+        """Move each cut of the main video to the nearest beat of the music (akis.beat_sync)."""
+        if not self.can_start_work() or not self.ensure_video():
+            return
+        music = beat_sync.music_clip(self.multitrack)
+        if music is None:
+            QMessageBox.information(self, APP_NAME, self.ui_text('Önce bir ses izine müzik ekleyin; kesimler onun vuruşuna oturtulur.'))
+            return
+        try:
+            sources = [{'path': path, 'duration': seconds} for path, seconds in self.edit_sources()]
+        except (ValueError, RuntimeError, OSError) as exc:
+            QMessageBox.warning(self, APP_NAME, f'Video okunamadı: {exc}')
+            return
+        segments = edit_plan.current_segments(self.multitrack, sources)
+        if len(segments) < 2:
+            QMessageBox.information(self, APP_NAME, self.ui_text('Ritme oturtulacak kesim yok; önce videoyu bölün ya da birkaç klip ekleyin.'))
+            return
+        fps = self.multitrack.fps_num / self.multitrack.fps_den
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            onsets = beat_sync.read_onsets(ffmpeg_path(), music.source, music.source_in / fps, music.length / fps)
+        finally:
+            QApplication.restoreOverrideCursor()
+        found = [music.start / fps + beat for beat in beat_sync.beats(onsets)]
+        if not found:
+            QMessageBox.information(self, APP_NAME, self.ui_text('Müzikte belirgin bir ritim bulunamadı.'))
+            return
+        new, moved = beat_sync.snap_segments(segments, found, {i: s['duration'] for i, s in enumerate(sources)})
+        if not moved:
+            QMessageBox.information(self, APP_NAME, self.ui_text('Kesimler zaten vuruşta ya da yakınlarında vuruş yok.'))
+            return
+        try:
+            timeline = edit_plan.apply_plan(self.multitrack, sources, {'segments': new})
+        except Exception as exc:
+            QMessageBox.warning(self, APP_NAME, self.ui_text('Kesimler ritme oturtulamadı: {error}', error=exc))
+            return
+        # The music sets the beat: it stays exactly where it was, whatever happened to the picture.
+        for index, track in enumerate(self.multitrack.tracks):
+            if track.kind == 'audio' and index < len(timeline.tracks) and timeline.tracks[index].name == track.name:
+                timeline.tracks[index].clips = copy.deepcopy(track.clips)
+        with self.history_step():
+            self.show_timeline(timeline)
+        self.set_status(self.ui_text('{count} kesim müziğin vuruşuna oturtuldu. Beğenmezseniz geri alabilirsiniz (Ctrl+Z).',
+                                     count=moved))
 
     def run_prompt_edit(self) -> None:
         if not self.can_start_work() or not self.ensure_video():

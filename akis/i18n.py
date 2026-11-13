@@ -271,6 +271,16 @@ EN_UI = {
     '{count} klip yazıldı.': '{count} clips written.',
     '{count} yazı ve altyazı klibi aktarılmadı.': '{count} text and caption clips were left out.',
     '{count} geçiş aktarılmadı.': '{count} transitions were left out.',
+    # Cuts on the beat (akis.beat_sync).
+    'Kesimleri müziğin ritmine oturt': 'Put the cuts on the beat',
+    'Ses izindeki müziğin vuruşlarını bulur ve video kesimlerini en yakın vuruşa kaydırır. Müziğe dokunmaz; internet gerekmez.':
+        'Finds the beats of the music on the audio track and moves the video cuts to the nearest beat. The music is not touched; no internet needed.',
+    'Önce bir ses izine müzik ekleyin; kesimler onun vuruşuna oturtulur.': 'First add music to an audio track; the cuts are put on its beat.',
+    'Ritme oturtulacak kesim yok; önce videoyu bölün ya da birkaç klip ekleyin.': 'There are no cuts to put on the beat; split the video or add a few clips first.',
+    'Müzikte belirgin bir ritim bulunamadı.': 'No clear beat was found in the music.',
+    'Kesimler zaten vuruşta ya da yakınlarında vuruş yok.': 'The cuts are already on the beat, or no beat is close to them.',
+    'Kesimler ritme oturtulamadı: {error}': 'The cuts could not be put on the beat: {error}',
+    '{count} kesim müziğin vuruşuna oturtuldu. Beğenmezseniz geri alabilirsiniz (Ctrl+Z).': '{count} cuts were put on the beat. You can undo it (Ctrl+Z).',
     # Retakes (akis.retakes).
     'Tekrar çekimleri temizle': 'Remove retakes',
     'Aynı cümle birkaç kez söylendiyse yalnızca son denemeyi bırakır. Önce aşağıdan yerel konuşma metnini çıkarın; internet gerekmez.':
