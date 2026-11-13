@@ -522,6 +522,7 @@ EN_UI = {
         "Creative video ideas: pick one, write it into the edit request and, if you like, apply its template too.",
     "Bu aramaya uygun fikir bulunamadı.": "No ideas match this search.", "Açılış:": "Opening:",
     "Çekim listesi": "Shot list", "Önerilen kurgu isteği": "Suggested edit request", "Uygun şablon:": "Matching template:",
+    "Koyu tema": "Dark theme", "Açık tema": "Light theme", "Tema": "Theme", "Görünüm değiştirildi.": "Appearance changed.",
 }
 TR_UI = {english: turkish for turkish, english in EN_UI.items()}
 

@@ -5,16 +5,14 @@ cut, and reads `segments` after the dialog is accepted; applying them is the hos
 (edit_plan.apply_plan), so the cut lands in the normal undo history.
 """
 from PySide6.QtCore import Qt, QThread, Signal
-from PySide6.QtGui import QColor, QPainter
+from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QFormLayout, QLabel, QProgressBar, QSlider,
                                QVBoxLayout, QWidget)
 
 from akis import i18n, silence_cut
+from akis.theme import color
 
 TITLE = 'Sessizlikleri çıkar'
-KEPT = QColor('#2f9e6e')
-CUT = QColor('#d6453d')
-EMPTY = QColor('#2a2f37')
 
 
 class MeasureWorker(QThread):
@@ -62,11 +60,11 @@ class CutStrip(QWidget):
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.fillRect(self.rect(), EMPTY)
+        painter.fillRect(self.rect(), color('empty'))
         width, height = self.width(), self.height()
         for start, end, removed in self.ranges():
             x = round(start * width)
-            painter.fillRect(x, 0, max(1, round(end * width) - x), height, CUT if removed else KEPT)
+            painter.fillRect(x, 0, max(1, round(end * width) - x), height, color('cut' if removed else 'kept'))
         painter.end()
 
 

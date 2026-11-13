@@ -11,6 +11,7 @@ from PySide6.QtGui import QColor, QImage, QPainter, QPixmap
 from PySide6.QtWidgets import QWidget
 
 from akis.render_worker import TimelineRenderWorker
+from akis.theme import color
 
 MAX_ZOOM = 8.0
 
@@ -112,9 +113,9 @@ class PreviewView(QWidget):
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor('#0b0c11'))
+        painter.fillRect(self.rect(), color('video_bg'))
         if self.image is None:
-            painter.setPen(QColor('#9195a7'))
+            painter.setPen(color('video_text'))
             painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self.placeholder)
             return
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
@@ -127,7 +128,7 @@ class PreviewView(QWidget):
             label = f'%{round(self.zoom * 100)}  ·  orta tuş: sıfırla'
             box = QRectF(10, 10, painter.fontMetrics().horizontalAdvance(label) + 16, 24)
             painter.fillRect(box, QColor(0, 0, 0, 170))
-            painter.setPen(QColor('#e8e9f0'))
+            painter.setPen(color('video_caption'))
             painter.drawText(box, Qt.AlignmentFlag.AlignCenter, label)
 
 
