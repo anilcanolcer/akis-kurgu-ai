@@ -64,6 +64,8 @@ from akis.batch_dialog import BatchDialog
 from akis import shorts_split
 from akis.shorts_dialog import ShortsDialog
 from akis.call_worker import CallWorker
+from akis import highlights
+from akis.highlights_dialog import HighlightsDialog
 from akis.batch_export import BatchExportWorker, output_for
 from akis import beat_sync, emphasis, retakes, silence_cut
 from akis.plan_review import PlanReviewDialog
@@ -1098,6 +1100,11 @@ class MainWindow(QMainWindow):
         shorts.setToolTip("Videonun tamamını art arda dikey kısa videolara böler ve hepsini dışa aktarır.")
         shorts.clicked.connect(self.export_shorts)
         v.addWidget(shorts)
+        best = QPushButton("Öne çıkan anları bul…")
+        best.setObjectName("secondary")
+        best.setToolTip("Videonun en canlı bölümlerini gerekçesiyle listeler; seçtiklerinizi dikey kısa video olarak kaydeder.")
+        best.clicked.connect(self.find_highlights)
+        v.addWidget(best)
         handoff = QPushButton("Kurgu dosyası olarak aktar (DaVinci Resolve)")
         handoff.setObjectName("secondary")
         handoff.setToolTip("Kesimleri FCPXML dosyası olarak kaydeder; DaVinci Resolve ve Final Cut Pro aynı kurguyu "
@@ -2292,6 +2299,57 @@ class MainWindow(QMainWindow):
         self.run_analysis(self.ui_text('Konuşmadaki duraklamalar aranıyor…'),
                           lambda: shorts_split.timeline_pauses(timeline, lambda source: silence_cut.measure(executable, source)),
                           lambda pauses: self.choose_shorts(pauses, total))
+
+    def find_highlights(self) -> None:
+        """List the liveliest stretches of the edit and export the chosen ones as Shorts (akis.highlights)."""
+        if not self.can_start_work() or not self.ensure_video():
+            return
+        if duration_frames(self.multitrack) / (self.multitrack.fps_num / self.multitrack.fps_den) < 60:
+            QMessageBox.information(self, APP_NAME, self.ui_text('Öne çıkan anlar en az bir dakikalık videolarda aranır.'))
+            return
+        executable = ffmpeg_path()
+        timeline = copy.deepcopy(self.multitrack)
+
+        def work():
+            levels = {}
+            read = lambda source: levels.setdefault(source, silence_cut.measure(executable, source))
+            pauses = shorts_split.timeline_pauses(timeline, read)
+            return highlights.find(timeline, read, pauses=pauses)
+        self.run_analysis(self.ui_text('Öne çıkan anlar aranıyor…'), work, self.choose_highlights)
+
+    def choose_highlights(self, found) -> None:
+        if not found:
+            QMessageBox.information(self, APP_NAME, self.ui_text('Öne çıkan bir an bulunamadı.'))
+            return
+        said = shorts_split.spoken_on_timeline(self.multitrack, self.caption_source, self.caption_segments) \
+            if self.caption_source and self.caption_segments else []
+        titles = shorts_split.suggest_titles([item[:2] for item in found], said)
+        dialog = HighlightsDialog(self, found=found, titles=titles, language=self.ui_language())
+        if not dialog.exec():
+            return
+        parts, titles = dialog.selection()
+        folder = QFileDialog.getExistingDirectory(self, self.ui_text('Kaydedilecek klasör'), str(Path.home() / "Videos"))
+        if not folder:
+            return
+        outputs = shorts_split.outputs_for(folder, titles, safe_filename(self.project_title.text()) + '-one-cikan')
+        existing = [Path(path).name for path in outputs if Path(path).exists()]
+        if existing and QMessageBox.question(
+                self, APP_NAME, self.ui_text('Şu dosyalar zaten var ve üzerine yazılacak:\n{names}\n\nDevam edilsin mi?',
+                                             names='\n'.join(existing)),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
+            return
+        self.worker = shorts_split.ShortsExportWorker(self.multitrack, parts, outputs, ffmpeg_path(),
+                                                      adjustments=self.render_adjustments(), titles=titles,
+                                                      say=self.ui_template, numbered=False)
+        self.begin_work(self.ui_text("Dışa aktarma hazırlanıyor…"))
+        self._export_estimator = export_progress.Estimator()
+        self.worker.progress.connect(self.on_export_progress)
+        self.worker.finished.connect(lambda: self.progress.setRange(0, 0))
+        self.worker.completed.connect(self.on_exported)
+        self.worker.failed.connect(self.on_worker_error)
+        self.worker.cancelled.connect(self.on_export_cancelled)
+        self.start_worker()
 
     def choose_shorts(self, pauses, total) -> None:
         fps = self.multitrack.fps_num / self.multitrack.fps_den
