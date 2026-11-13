@@ -271,6 +271,12 @@ EN_UI = {
     '{count} klip yazıldı.': '{count} clips written.',
     '{count} yazı ve altyazı klibi aktarılmadı.': '{count} text and caption clips were left out.',
     '{count} geçiş aktarılmadı.': '{count} transitions were left out.',
+    # Voiceover (akis.tts_service).
+    'Konuşma diline uygun ses': 'Voice matching the speech language',
+    'Seslendirmeyi okuyacak Windows sesi. Yeni ses dili Windows Ayarları › Zaman ve dil › Konuşma bölümünden eklenir.': 'The Windows voice that reads the voiceover. More voices are added in Windows Settings › Time & language › Speech.',
+    'Oynatma çizgisinden zaman çizelgesine ekle': 'Add to the timeline at the playhead',
+    'Ses kaydedildi: {path}': 'Audio saved: {path}',
+    'Seslendirme zaman çizelgesine eklendi: {name}': 'Voiceover added to the timeline: {name}',
     # Batch export (akis.batch_export, akis.batch_dialog).
     'Toplu dışa aktar…': 'Batch export…',
     'Toplu dışa aktar': 'Batch export',

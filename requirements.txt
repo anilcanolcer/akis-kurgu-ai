@@ -3,4 +3,10 @@ openai>=2.7.1,<3
 keyring>=25.6,<26
 pyinstaller>=6.16,<7
 Pillow>=10,<13
+# Windows speech for voiceovers (akis.tts_service); the modern voices, Turkish included.
+winrt-runtime>=3,<5
+winrt-Windows.Media.SpeechSynthesis
+winrt-Windows.Storage.Streams
+winrt-Windows.Foundation
+winrt-Windows.Foundation.Collections
 

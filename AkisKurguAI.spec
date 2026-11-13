@@ -48,6 +48,11 @@ a = Analysis(
     hiddenimports=[
         "keyring.backends.Windows",
         "openai",
+        # Voiceovers through the Windows speech API (akis.tts_service imports these lazily).
+        "winrt.windows.media.speechsynthesis",
+        "winrt.windows.storage.streams",
+        "winrt.windows.foundation",
+        "winrt.windows.foundation.collections",
     ] + extra_hidden,
     hookspath=[],
     hooksconfig={},
