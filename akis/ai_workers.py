@@ -131,6 +131,7 @@ class AIWorker(CancellableWorker):
 
 class TranscriptWorker(CancellableWorker):
     completed = Signal(str)
+    timed = Signal(list)        # [{'start', 'end', 'text'}], before completed, when the service gave timings
     failed = Signal(str)
     status = Signal(str)
 
@@ -154,7 +155,10 @@ class TranscriptWorker(CancellableWorker):
                 self.status.emit("Konuşma metne çevriliyor…")
                 text = self.call(transcribe, self.provider, self.api_key, self.model, audio)
             self.check_cancelled()
-            self.completed.emit(text)
+            segments = getattr(text, 'segments', None)
+            if segments:
+                self.timed.emit(list(segments))
+            self.completed.emit(str(text))
         except Exception as exc:
             self.report_error(exc)
 
