@@ -12,6 +12,7 @@ from akis.media_service import MediaService
 from akis import timeline_service
 from akis.shape_art import default_tail
 from akis import edit_plan
+from akis import fillers, speech_settings
 from akis.silence_dialog import SilenceDialog
 from akis import clip_fit
 from akis.call_worker import CallWorker
@@ -475,6 +476,60 @@ class TimelineEditMixin:
             self.show_timeline(timeline)
         self.set_status(self.ui_text('{count} tekrar çekim kesildi. Beğenmezseniz geri alabilirsiniz (Ctrl+Z).',
                                      count=len(cuts)))
+
+    def remove_fillers(self) -> None:
+        """Cut "ııı", "eee", "hmm" and pause-words ("şey", "yani") out of the main video (akis.fillers).
+
+        A separate local recognition run writes the fillers down (captions keep their clean transcript);
+        it runs off the window's thread, then the cuts are shown for confirmation and applied in one step."""
+        if not self.can_start_work() or not self.ensure_video():
+            return
+        main = next((track for track in self.multitrack.tracks if track.kind == 'video'), None)
+        sources = sorted({clip.source for clip in (main.clips if main else []) if clip.source})
+        if not sources:
+            QMessageBox.information(self, APP_NAME, self.ui_text('Zaman çizelgesinde video yok.'))
+            return
+        model, download = self.local_model.currentText(), self.download_model.isChecked()
+        vocabulary = ' '.join(filter(None, [fillers.PROMPT, speech_settings.vocabulary(None)]))
+
+        def listen():
+            from akis.ai_service import local_transcribe
+            return {source: fillers.find(fillers.words_of(
+                        local_transcribe(source, model, download=download, timed=True, vocabulary=vocabulary)))
+                    for source in sources}
+        self.run_analysis(self.ui_text('Dolgu sözcükleri aranıyor (yerel konuşma tanıma)…'), listen, self.finish_fillers)
+
+    def finish_fillers(self, found) -> None:
+        cuts = [cut for source_cuts in found.values() for cut in source_cuts]
+        if not cuts:
+            QMessageBox.information(self, APP_NAME, self.ui_text('Dolgu sözcüğü bulunamadı.'))
+            return
+        try:
+            sources = [{'path': path, 'duration': seconds} for path, seconds in self.edit_sources()]
+        except (ValueError, RuntimeError, OSError) as exc:
+            QMessageBox.warning(self, APP_NAME, f'Video okunamadı: {exc}')
+            return
+        index = {source['path']: i for i, source in enumerate(sources)}
+        segments = edit_plan.current_segments(self.multitrack, sources)
+        wanted = {index[path]: [(a, b) for a, b, _ in source_cuts] for path, source_cuts in found.items()
+                  if path in index and source_cuts}
+        new, removed = silence_cut.keep_segments(segments, wanted, margin=0, min_keep=0.05)
+        if not removed:
+            QMessageBox.information(self, APP_NAME, self.ui_text('Dolgu sözcükleri zaten kesilmiş.'))
+            return
+        if QMessageBox.question(self, APP_NAME, fillers.summary(cuts, self.ui_template),
+                                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                QMessageBox.StandardButton.Yes) != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            timeline = edit_plan.apply_plan(self.multitrack, sources, {'segments': new})
+        except Exception as exc:
+            QMessageBox.warning(self, APP_NAME, self.ui_text('Dolgu sözcükleri kesilemedi: {error}', error=exc))
+            return
+        with self.history_step():
+            self.show_timeline(timeline)
+        self.set_status(self.ui_text('{count} dolgu sözcüğü kesildi. Beğenmezseniz geri alabilirsiniz (Ctrl+Z).',
+                                     count=len(removed)))
 
     def snap_cuts_to_beat(self) -> None:
         """Move each cut of the main video to the nearest beat of the music (akis.beat_sync)."""

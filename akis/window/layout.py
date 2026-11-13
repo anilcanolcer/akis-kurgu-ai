@@ -382,6 +382,12 @@ class LayoutMixin:
                                  "Önce aşağıdan yerel konuşma metnini çıkarın; internet gerekmez.")
         retake_button.clicked.connect(self.remove_retakes)
         v.addWidget(retake_button)
+        filler_button = QPushButton("Dolgu sözcüklerini kes (ııı, eee, şey)")
+        filler_button.setObjectName("secondary")
+        filler_button.setToolTip("Duraksamaları ve “şey, yani” gibi dolgu sözcüklerini bulup keser. "
+                                 "Yerel konuşma tanımayla çalışır; internet gerekmez.")
+        filler_button.clicked.connect(self.remove_fillers)
+        v.addWidget(filler_button)
         beat_button = QPushButton("Kesimleri müziğin ritmine oturt")
         beat_button.setObjectName("secondary")
         beat_button.setToolTip("Ses izindeki müziğin vuruşlarını bulur ve video kesimlerini en yakın vuruşa kaydırır. "
