@@ -46,11 +46,13 @@
   !define REG_ROOT HKCU
   !define SHELL_CONTEXT current
   !define SHORTCUT_DIR "$INSTDIR\..\StartMenu\${PRODUCT_NAME}"  ; beside the test folder, not the real Start Menu
+  !define DESKTOP_LINK "$INSTDIR\..\Desktop\${DISPLAY_NAME}.lnk"
 !else
   RequestExecutionLevel admin
   !define REG_ROOT HKLM
   !define SHELL_CONTEXT all
   !define SHORTCUT_DIR "$SMPROGRAMS\${PRODUCT_NAME}"
+  !define DESKTOP_LINK "$DESKTOP\${DISPLAY_NAME}.lnk"  ; the public desktop (shell context all)
 !endif
 
 ; Exit codes besides 0 (1 = cancelled by the user and 2 = aborted are NSIS defaults); keep in sync with
@@ -99,6 +101,11 @@ Var Failed
 ; Interactive installs only: the finish page is skipped in update mode and not shown with /S.
 !define MUI_FINISHPAGE_RUN
 !define MUI_FINISHPAGE_RUN_FUNCTION RelaunchApp
+; The finish page's second box (its "show readme" box) adds the desktop shortcut; ticked by default.
+; Updates never show this page, so a shortcut the user deleted stays deleted.
+!define MUI_FINISHPAGE_SHOWREADME ""
+!define MUI_FINISHPAGE_SHOWREADME_TEXT "Masaüstüne kısayol ekle"
+!define MUI_FINISHPAGE_SHOWREADME_FUNCTION CreateDesktopShortcut
 !define MUI_PAGE_CUSTOMFUNCTION_PRE SkipPageInUpdateMode
 !insertmacro MUI_PAGE_FINISH
 !insertmacro MUI_UNPAGE_CONFIRM
@@ -199,6 +206,11 @@ Function .onInit
     StrCpy $LegacyLog ""
   ${EndIf}
   ClearErrors
+FunctionEnd
+
+Function CreateDesktopShortcut
+  SetShellVarContext ${SHELL_CONTEXT}
+  CreateShortcut "${DESKTOP_LINK}" "$INSTDIR\AkisKurguAI.exe"
 FunctionEnd
 
 Function OnGuiInit
@@ -535,6 +547,7 @@ Section "Uninstall"
   SetShellVarContext ${SHELL_CONTEXT}
   Delete "${SHORTCUT_DIR}\${PRODUCT_NAME}.lnk"
   RMDir "${SHORTCUT_DIR}"
+  Delete "${DESKTOP_LINK}"
   SetRegView 64
   DeleteRegKey ${REG_ROOT} "${UNINSTALL_KEY}"
 SectionEnd

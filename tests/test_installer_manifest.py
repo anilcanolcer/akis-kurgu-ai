@@ -218,6 +218,18 @@ class InstallerScriptTests(unittest.TestCase):
         self.assertIn('!define MUI_FINISHPAGE_RUN_FUNCTION RelaunchApp', finish)
         self.assertIn('explorer.exe', block('Function RelaunchApp', 'FunctionEnd'))
 
+    def test_finish_page_offers_a_desktop_shortcut_that_uninstall_removes(self):
+        finish = NSI[NSI.index('!insertmacro MUI_PAGE_INSTFILES'):NSI.index('!insertmacro MUI_PAGE_FINISH')]
+        self.assertIn('!define MUI_FINISHPAGE_SHOWREADME_TEXT "Masaüstüne kısayol ekle"', finish)
+        self.assertIn('!define MUI_FINISHPAGE_SHOWREADME_FUNCTION CreateDesktopShortcut', finish)
+        self.assertNotIn('MUI_FINISHPAGE_SHOWREADME_NOTCHECKED', NSI)  # ticked by default
+        create = code_lines(block('Function CreateDesktopShortcut', 'FunctionEnd'))
+        self.assertIn('CreateShortcut "${DESKTOP_LINK}"', create)
+        self.assertIn('Delete "${DESKTOP_LINK}"', block('Section "Uninstall"'))
+        test = re.search(r'!ifdef TEST_USER_LEVEL(.*?)!else', NSI, re.S).group(1)
+        self.assertNotIn('$DESKTOP', test)  # test builds never touch the real desktop
+        self.assertNotIn('CreateDesktopShortcut', block('Section "Install"'))  # updates leave it alone
+
     def test_release_notes_come_from_the_repository(self):
         workflow = (ROOT / '.github' / 'workflows' / 'windows-build.yml').read_text(encoding='utf-8')
         release = workflow[workflow.index('\n  release:'):]
