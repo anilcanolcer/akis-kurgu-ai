@@ -61,7 +61,7 @@ class BuildTests(unittest.TestCase):
         self.assertEqual((gap.get('offset'), gap.get('duration')), ('2s', '1s'))
         self.assertEqual((second.get('offset'), second.get('duration')), ('3s', '1s'))
         self.assertEqual(root.find('library/event/project/sequence').get('duration'), '4s')
-        self.assertEqual(report, {'clips': 2, 'texts': 0, 'transitions': 0})
+        self.assertEqual(report, {'clips': 2, 'texts': 0, 'transitions': 0, 'speeds': 0})
 
     def test_each_file_is_one_asset_pointing_at_the_original(self):
         timeline = Timeline(fps_num=30, tracks=[Track('video', 'V', [Clip(self.a, 0, 30), Clip(self.a, 30, 30, source_in=90)])])
@@ -100,7 +100,7 @@ class BuildTests(unittest.TestCase):
         text = Track('text', 'Altyazı', [Clip('', 0, 30, text='Merhaba'), Clip('', 30, 30, text='Dünya')])
         root, report = self.parse(Timeline(fps_num=30000, fps_den=1001, tracks=[video, text]))
         self.assertEqual(root.find('resources/format').get('frameDuration'), '1001/30000s')
-        self.assertEqual(report, {'clips': 2, 'texts': 2, 'transitions': 1})
+        self.assertEqual(report, {'clips': 2, 'texts': 2, 'transitions': 1, 'speeds': 0})
         self.assertEqual(fcpxml_export.describe(report), '2 klip yazıldı. 2 yazı ve altyazı klibi aktarılmadı. 1 geçiş aktarılmadı.')
 
     def test_muted_tracks_are_not_written(self):

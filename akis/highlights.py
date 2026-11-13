@@ -27,9 +27,10 @@ def timeline_levels(timeline, levels_for, window=WINDOW):
         if clip.source not in cache:
             cache[clip.source] = levels_for(clip.source)
         levels = cache[clip.source]
-        first, place = int(clip.source_in / fps / window), int(clip.start / fps / window)
-        count = int(clip.length / fps / window)
-        piece = levels[first:first + count]
+        first, place = clip.source_in / fps / window, int(clip.start / fps / window)
+        count, rate = int(clip.length / fps / window), clip.speed
+        # One value per timeline window; a clip at its own speed reads its source faster or slower.
+        piece = [levels[index] for index in (int(first + i * rate) for i in range(count)) if index < len(levels)]
         curve[place:place + len(piece)] = piece
     return curve
 

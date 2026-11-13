@@ -187,6 +187,10 @@ EN_UI = {
     "✎   Hikâye Stüdyosu": "✎   Story Studio", "⇧   Dışa aktarımlar": "⇧   Exports",
     # Timeline toolbar and editor labels.
     "＋ İz": "＋ Track", "− İz": "− Track", "＋ Medya": "＋ Media", "Böl": "Split", "Ripple sil": "Ripple delete",
+    "Klip hızı": "Clip speed", "Klip hızı: {value}": "Clip speed: {value}",
+    "Bu klip hangi hızda oynasın? Uzunluğu buna göre değişir; izdeki sonraki klipler kayar.":
+        "How fast should this clip play? Its length changes to match; later clips on its track move along.",
+    "Bu hız uygulanamadı: klip kaynağın sonunu aşıyor.": "This speed could not be applied: the clip would run past the end of its source.",
     "Klip sesi": "Clip volume", "Metni düzenle": "Edit text", "Yakınlık": "Zoom",
     "API transkripsiyon modeli": "API transcription model",
     "Çevrimdışı Windows sistem sesi kullanılır; dil ve ses işletim sisteminde yüklü seslere bağlıdır.":
@@ -271,6 +275,7 @@ EN_UI = {
     '{count} klip yazıldı.': '{count} clips written.',
     '{count} yazı ve altyazı klibi aktarılmadı.': '{count} text and caption clips were left out.',
     '{count} geçiş aktarılmadı.': '{count} transitions were left out.',
+    '{count} klibin hızı aktarılmadı; normal hızda yazıldı.': 'The speed of {count} clips was left out; they play at normal speed.',
     # Split into Shorts (akis.shorts_split, akis.shorts_dialog).
     "Shorts'a böl…": 'Split into Shorts…',
     "Shorts'a böl": 'Split into Shorts',

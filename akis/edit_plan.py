@@ -159,7 +159,7 @@ def current_segments(timeline, sources):
         if clip.source not in index:
             continue
         segment = {'source': index[clip.source], 'start': round(clip.source_in / fps, 2),
-                   'end': round((clip.source_in + clip.length) / fps, 2)}
+                   'end': round(clip.source_end / fps, 2)}
         if segments and clip.style.get('transition') in TRANSITIONS:
             segment['transition'] = clip.style['transition']
         segments.append(segment)
@@ -218,7 +218,7 @@ def _source_at(timeline, sources, frame):
     fps = timeline.fps_num / timeline.fps_den
     for clip in primary.clips:
         if clip.start <= frame < clip.end and clip.source in index:
-            return f'K{index[clip.source]} @ {(clip.source_in + frame - clip.start) / fps:.2f}s'
+            return f'K{index[clip.source]} @ {clip.source_frame(frame) / fps:.2f}s'
     return ''
 
 
@@ -708,10 +708,11 @@ def _place_marks(result, sources, marks, canvas):
             for clip in video.clips:
                 if clip.source != str(source['path']):
                     continue
-                left, right = max(first, clip.source_in), min(last, clip.source_in + clip.length)
+                left, right = max(first, clip.source_in), min(last, clip.source_end)
                 if right - left < 3:
                     continue
-                piece = Clip('', clip.start + left - clip.source_in, right - left, style=dict(style))
+                at = round(clip.timeline_frame(left))
+                piece = Clip('', at, max(1, round(clip.timeline_frame(right)) - at), style=dict(style))
                 for track in tracks:
                     if all(piece.end <= other.start or piece.start >= other.end for other in track.clips):
                         track.add(piece)
@@ -747,21 +748,24 @@ def _recut_pieces(old_clips, source, first, length):
     Returns [(source_first, length, volume, style, keyframes)].
     """
     end = first + length
-    owners = sorted((c for c in old_clips if c.source == source and c.source_in < end and c.source_in + c.length > first),
+    owners = sorted((c for c in old_clips if c.source == source and c.source_in < end and c.source_end > first),
                     key=lambda c: c.start)
     cuts = {first, end}
     for clip in owners:
-        cuts.update(x for x in (clip.source_in, clip.source_in + clip.length) if first < x < end)
+        cuts.update(x for x in (clip.source_in, clip.source_end) if first < x < end)
     cuts = sorted(cuts)
     pieces = []
     for a, b in zip(cuts, cuts[1:]):
         # The same footage used twice in the old cut: the earlier use decides.
-        owner = next((c for c in owners if c.source_in <= a < c.source_in + c.length), None)
+        owner = next((c for c in owners if c.source_in <= a < c.source_end), None)
         if owner is None:
             piece = [a, b - a, 1.0, {}, {}]
         else:
-            piece = [a, b - a, owner.volume, {k: v for k, v in owner.style.items() if not k.startswith('transition')},
-                     _slice_keyframes(owner.keyframes, a - owner.source_in, b - a)]
+            # A plan's segments are source ranges played as they are: a clip's own speed is not carried over.
+            piece = [a, b - a, owner.volume,
+                     {k: v for k, v in owner.style.items() if not k.startswith('transition') and k != 'speed'},
+                     _slice_keyframes(owner.keyframes, round((a - owner.source_in) / owner.speed),
+                                      round((b - a) / owner.speed))]
         if pieces and pieces[-1][2:4] == piece[2:4]:
             last = pieces[-1]
             for name, points in piece[4].items():
@@ -792,9 +796,9 @@ class _FrameMap:
             for source, src_a, src_b, new_a in new_runs:
                 if source != clip.source:
                     continue
-                lo, hi = max(src_a, clip.source_in), min(src_b, clip.source_in + clip.length)
+                lo, hi = max(src_a, clip.source_in), min(src_b, clip.source_end)
                 if hi > lo:
-                    pieces.append((clip.start + lo - clip.source_in, clip.start + hi - clip.source_in, new_a + lo - src_a))
+                    pieces.append((round(clip.timeline_frame(lo)), round(clip.timeline_frame(hi)), new_a + lo - src_a))
         self.pieces = pieces
         kept = []
         for a, b in sorted((a, b) for a, b, _ in pieces):
