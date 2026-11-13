@@ -11,7 +11,7 @@ import tempfile
 import textwrap
 import zlib
 from pathlib import Path
-from akis import audio_polish, clip_fit
+from akis import audio_polish, caption_layout, clip_fit
 from akis.frame_plan import plan_frame, plan_segments
 
 TRANSITIONS = ('fade', 'flash', 'dip', 'slide_left', 'slide_right', 'slide_up', 'slide_down')
@@ -154,6 +154,23 @@ class TimelineRenderer:
                     and self.media.has_filter('tonemap') is True)
         except (AttributeError, TypeError):  # a stand-in media service without these probes
             return False
+
+    def _picture_rect(self, timeline, text_clip):
+        """The rectangle the video under a text clip covers on the canvas; the whole canvas when there is
+        no video there or its size cannot be read."""
+        canvas = (self.width, self.height)
+        for track in timeline.tracks:
+            if track.kind != 'video' or track.muted:
+                continue
+            under = next((clip for clip in track.clips if clip.start <= text_clip.start < clip.end), None)
+            if under is None:
+                continue
+            try:
+                size = self.media.dimensions(under.source)
+                return caption_layout.picture_rect(canvas, (int(size[0]), int(size[1])), clip_fit.is_fill(under.style))
+            except Exception:  # an unreadable file or a stand-in media service
+                break
+        return 0, 0, self.width, self.height
 
     @staticmethod
     def _open_input(args, source, position, with_audio):
@@ -306,13 +323,21 @@ class TimelineRenderer:
                                          f':x=\'max(10,min(w-text_w-10,w*{x:.4f}-text_w/2))\''
                                          f':y=\'max(10,min(h-text_h-10,h*{y:.4f}-text_h/2))\':{visible}[base{layer}]')
                         else:
-                            px = _font_px(self.width, self.height)
+                            # A caption is sized and placed by the picture under it, not by the whole canvas.
+                            left, top, across, down = self._picture_rect(timeline, clip)
+                            whole = (left, top, across, down) == (0, 0, self.width, self.height)
+                            px = _font_px(self.width, self.height) if whole and self.width >= self.height \
+                                else caption_layout.font_px((left, top, across, down), (self.width, self.height))
                             pad = max(6, round(px / 5))
-                            lines = _fit_lines(clip.text, self.font, px, self.width * 0.9 - 2 * pad)
+                            lines = _fit_lines(clip.text, self.font, px, across * 0.9 - 2 * pad)
                             textfile.write_text(lines, encoding='utf-8', newline='\n')
+                            if whole:
+                                place = f':x=(w-text_w)/2:y=\'min(h*0.78,h-text_h-{pad}-h*0.04)\''
+                            else:  # centred on the picture, in its lower part, and never above the canvas
+                                place = (f':x=\'{left}+({across}-text_w)/2\''
+                                         f':y=\'max({pad},min({top + down * 0.78:.1f},{top + down * 0.96 - pad:.1f}-text_h))\'')
                             graph.append(f'{common}:fontfile={_escape_filter_path(self.font)}:fontcolor=white:fontsize={px}'
-                                         f':text_align=C:line_spacing=6'
-                                         f':x=(w-text_w)/2:y=\'min(h*0.78,h-text_h-{pad}-h*0.04)\''
+                                         f':text_align=C:line_spacing=6{place}'
                                          f':box=1:boxcolor=black@0.5:boxborderw={pad}:{visible}[base{layer}]')
                         base = f'base{layer}'
             graph.append(f'[{base}]eq=brightness={self.brightness/100:.3f}:contrast={1+self.contrast/100:.3f}:saturation={1+self.saturation/50:.3f}[graded]')
