@@ -2,6 +2,7 @@
 from PySide6.QtCore import Qt, Signal
 from akis.caption_service import snap_frame
 from akis.waveform_service import WaveformWorker, SAMPLE_RATE, WINDOW
+from akis.thumbnail_service import ThumbnailWorker
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QWidget
 
@@ -19,6 +20,8 @@ class MultitrackWidget(QWidget):
         self.model = model
         self.waveforms = {}
         self.waveform_worker = None
+        self.thumbnails = {}            # source -> thumbnail_service.Strip (None while made or when impossible)
+        self.thumbnail_worker = None
         self.waveform_executable = None
         self.zoom = 2.0
         self.offset = 0
@@ -40,6 +43,7 @@ class MultitrackWidget(QWidget):
         self.refresh_waveforms()
 
     def refresh_waveforms(self):
+        self.refresh_thumbnails()  # the film strips are made alongside, from the same calls
         if not self.waveform_executable or self.waveform_worker:
             return
         source = next((c.source for t in self.model.tracks if t.kind in ('audio', 'video')
@@ -56,6 +60,47 @@ class MultitrackWidget(QWidget):
             self.waveform_worker.finished.connect(self._waveform_finished)
             self.waveform_worker.start()
 
+    def refresh_thumbnails(self):
+        """Make the film strip of the next video on the timeline that has none yet, one at a time."""
+        if not self.waveform_executable or self.thumbnail_worker:
+            return
+        source = next((c.source for t in self.model.tracks if t.kind in ('video', 'overlay')
+                       for c in t.clips if c.source and c.source not in self.thumbnails), None)
+        if not source:
+            return
+        self.thumbnails[source] = None
+        try:
+            executable = self.waveform_executable() if callable(self.waveform_executable) else self.waveform_executable
+        except RuntimeError:
+            return
+        self.thumbnail_worker = ThumbnailWorker(executable, source)
+        self.thumbnail_worker.ready.connect(self._thumbnail_ready)
+        self.thumbnail_worker.finished.connect(self._thumbnail_finished)
+        self.thumbnail_worker.start()
+
+    def _thumbnail_ready(self, source, strip):
+        self.thumbnails[source] = strip
+        self.update()
+
+    def _thumbnail_finished(self):
+        self.thumbnail_worker = None
+        self.refresh_thumbnails()
+
+    def _draw_strip(self, painter, strip, clip, x, y, left, right, fps):
+        """The video's frames inside its clip box, each tile showing the moment under it."""
+        width = strip.tile_width
+        if width <= 0:
+            return
+        painter.save()
+        painter.setClipRect(left + 1, y + 4, max(0, right - left - 2), 32)
+        painter.setOpacity(0.55)
+        first = left - (left - x) % width
+        for px in range(first, right, width):
+            index = strip.tile_for((clip.source_in + (px - x) / self.zoom) / fps)
+            if index is not None:
+                painter.drawImage(px, y + 4, strip.image, index * width, 0, width, strip.image.height())
+        painter.restore()
+
     def _waveform_ready(self, source, peaks):
         self.waveforms[source] = peaks
         self.update()
@@ -69,6 +114,9 @@ class MultitrackWidget(QWidget):
         if self.waveform_worker:
             self.waveform_worker.wait()
             self.waveform_worker = None
+        if self.thumbnail_worker:
+            self.thumbnail_worker.wait()
+            self.thumbnail_worker = None
 
     def set_offset(self, pixels):
         self.offset = max(0, pixels)
@@ -115,6 +163,9 @@ class MultitrackWidget(QWidget):
                 p.setBrush(QColor(colors[track.kind]))
                 p.setPen(QPen(QColor('#ffffff' if self.selected == (ti, clip.id) else '#282a37'), 2))
                 p.drawRoundedRect(left, y + 3, max(2, right-left), 34, 5, 5)
+                strip = self.thumbnails.get(clip.source) if track.kind in ('video', 'overlay') else None
+                if strip is not None:
+                    self._draw_strip(p, strip, clip, x, y, left, right, fps)
                 peaks = self.waveforms.get(clip.source)
                 if peaks and track.kind in ('audio', 'video'):
                     p.setPen(QColor('#a4e3db'))
@@ -161,6 +212,7 @@ class MultitrackWidget(QWidget):
                                   else 'trim_start' if abs(x - self.x_for(clip.start)) < 9 else 'move')
                 self.drag_anchor = frame
                 self.original = (clip.start, clip.length)
+                self.original_track = ti
                 self.edit_started.emit()
             elif x >= 100:
                 self.playhead = frame
@@ -191,6 +243,19 @@ class MultitrackWidget(QWidget):
         track = self.model.tracks[ti]
         clip = track.find(clip_id)
         delta = self.frame_for(event.position().x()) - self.drag_anchor
+        if self.drag_mode == 'move':
+            # Dragged over another track of the same kind: the clip goes there when it has room.
+            over = int((event.position().y() - 30) // 43)
+            if 0 <= over < len(self.model.tracks) and over != ti and self.model.tracks[over].kind == track.kind:
+                track.clips.remove(clip)
+                try:
+                    self.model.tracks[over].add(clip)
+                except ValueError:
+                    track.clips.append(clip)        # no room there: it stays where it was
+                else:
+                    ti, track = over, self.model.tracks[over]
+                    self.selected, self.selected_track = (over, clip.id), over
+                    self.selection_changed.emit()
         try:
             if self.drag_mode == 'move':
                 target = max(0, self.original[0] + delta)
@@ -208,7 +273,7 @@ class MultitrackWidget(QWidget):
         if self.drag_mode in ('move', 'trim', 'trim_start') and self.original and self.selected:
             ti, clip_id = self.selected
             clip = next((c for c in self.model.tracks[ti].clips if c.id == clip_id), None)
-            if clip and (clip.start, clip.length) != self.original:
+            if clip and ((clip.start, clip.length) != self.original or ti != getattr(self, 'original_track', ti)):
                 self.changed.emit()
         self.original = None
         self.drag_mode = None
