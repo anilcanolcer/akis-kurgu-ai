@@ -24,8 +24,18 @@ param(
     [string]$WorkDir = '',
     [int]$TimeoutSeconds = 300,
     [string]$Repo = '',
-    [switch]$Keep
+    [switch]$Keep,
+    [switch]$AllowLocal
 )
+# These scenarios install, rename and relaunch a fake app (a renamed copy of cmd.exe) from a temp folder,
+# which is what malware does too: on a PC with behaviour-based protection (Bitdefender stopped them on a
+# developer PC, the session running them included) they are blocked mid-run. CI runs them; locally they
+# run only with -AllowLocal, and best on a machine without such protection.
+if ($env:GITHUB_ACTIONS -ne 'true' -and -not $AllowLocal) {
+    Write-Host 'These installer scenarios are meant for CI (GitHub Actions). Security software on this PC may stop'
+    Write-Host 'them and the program that started them. Pass -AllowLocal to run them here anyway.'
+    exit 3
+}
 $ErrorActionPreference = 'Stop'
 $repo = $Repo
 if (-not $repo) { $repo = Split-Path -Parent $PSScriptRoot }
