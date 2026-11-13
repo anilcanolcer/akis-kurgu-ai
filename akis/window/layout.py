@@ -388,6 +388,12 @@ class LayoutMixin:
                                  "Yerel konuşma tanımayla çalışır; internet gerekmez.")
         filler_button.clicked.connect(self.remove_fillers)
         v.addWidget(filler_button)
+        speaker_button = QPushButton("Konuşmacıları ayır")
+        speaker_button.setObjectName("secondary")
+        speaker_button.setToolTip("Kimin ne zaman konuştuğunu bulur: değişimleri işaretler ya da yalnızca bir "
+                                  "konuşmacıyı bırakır. Bilgisayarınızda çalışır; ilk kullanımda küçük bir ses modeli indirilir.")
+        speaker_button.clicked.connect(self.separate_speakers)
+        v.addWidget(speaker_button)
         sample_button = QPushButton("Örnek videonun stilini al…")
         sample_button.setObjectName("secondary")
         sample_button.setToolTip("Beğendiğiniz bir videonun oranını, kadrajını, ses düzeyini ve rengini okur; "

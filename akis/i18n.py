@@ -386,6 +386,21 @@ EN_UI = {
     '{count} kesim müziğin vuruşuna oturtuldu. Beğenmezseniz geri alabilirsiniz (Ctrl+Z).': '{count} cuts were put on the beat. You can undo it (Ctrl+Z).',
     # Retakes (akis.retakes).
     'Tekrar çekimleri temizle': 'Remove retakes',
+    'Konuşmacıları ayır': 'Separate speakers',
+    'Kimin ne zaman konuştuğunu bulur: değişimleri işaretler ya da yalnızca bir konuşmacıyı bırakır. Bilgisayarınızda çalışır; ilk kullanımda küçük bir ses modeli indirilir.':
+        'Finds who speaks when: marks the changes or keeps one speaker only. Runs on your computer; a small voice model is downloaded on first use.',
+    'Konuşmacılar ayırt ediliyor (ilk kullanımda {size} MB ses modeli indirilir)…': 'Telling the speakers apart (a {size} MB voice model is downloaded on first use)…',
+    'Tek konuşmacı bulundu.': 'One speaker was found.',
+    'Tek konuşmacı bulundu. (Ses modeli indirilemediği için sesler perdeden ayrıldı; iki erkek sesi gibi benzer sesler böyle ayırt edilemez.)':
+        'One speaker was found. (The voice model could not be downloaded, so voices were told apart by pitch; similar voices such as two men cannot be separated that way.)',
+    'Konuşmacılar ayırt ediliyor…': 'Telling the speakers apart…',
+    '{count} konuşmacı bulundu:': '{count} speakers found:',
+    'Konuşmacı {number}: {seconds} sn — “{sample}”': 'Speaker {number}: {seconds} s — “{sample}”',
+    'Değişimleri işaretle': 'Mark the changes',
+    'Yalnız Konuşmacı {number}': 'Speaker {number} only',
+    '{count} konuşmacı değişimi işaretlendi.': '{count} speaker changes were marked.',
+    'Kesilecek bir yer kalmadı.': 'There is nothing left to cut.',
+    'Yalnız Konuşmacı {number} kaldı. Beğenmezseniz geri alabilirsiniz (Ctrl+Z).': 'Only speaker {number} is left. You can undo this (Ctrl+Z).',
     'Örnek videonun stilini al…': 'Take the style of a sample video…',
     'Beğendiğiniz bir videonun oranını, kadrajını, ses düzeyini ve rengini okur; şablon olarak kaydedip bu projeye uygular. İnternet gerekmez.':
         'Reads the shape, framing, loudness and colour of a video you like; saves it as a template and applies it to this project. No internet needed.',

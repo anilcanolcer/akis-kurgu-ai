@@ -19,6 +19,12 @@ PyAV and its FFmpeg libraries (av, used by faster-whisper to read audio for loca
   Licence: PyAV is BSD-licensed; the FFmpeg libraries in its wheels are LGPL-licensed builds.
   Source:  https://github.com/PyAV-Org/PyAV
 
+WeSpeaker ResNet34 speaker model (voxceleb_resnet34_LM.onnx, downloaded on first use of "Konuşmacıları ayır")
+  Source:  https://huggingface.co/Wespeaker/wespeaker-voxceleb-resnet34-LM (WeSpeaker, https://github.com/wenet-e2e/wespeaker)
+  Licence: Creative Commons Attribution 4.0 International (CC BY 4.0), https://creativecommons.org/licenses/by/4.0/
+           The model was trained on the VoxCeleb dataset and follows its licence. It is used unchanged; the
+           file is checked against its SHA-256 before it is loaded.
+
 Other Python packages (PySide6/Qt, faster-whisper, CTranslate2, ONNX Runtime, tokenizers, huggingface_hub,
 OpenAI, Pillow, keyring, winrt and their dependencies) keep their own licences, which ship inside their
 folders in _internal. Qt is used under the LGPL version 3 (https://www.qt.io/licensing/).
