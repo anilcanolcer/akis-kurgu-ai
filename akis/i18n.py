@@ -29,6 +29,9 @@ EN_UI = {
     "↶  Son adımı geri al": "↶  Undo last step", "↶ Geri al": "↶ Undo", "↷ Yinele": "↷ Redo",
     "İptal": "Cancel",
     "KONUŞMA METNİ": "TRANSCRIPT",
+    "Bir fikirle başlayın": "Start from an idea", "Fikir listesi": "Idea list", "AÇILIŞ": "OPENING",
+    "ÇEKİM LİSTESİ": "SHOT LIST", "ÖNERİLEN KURGU İSTEĞİ": "SUGGESTED EDIT REQUEST", "UYGUN ŞABLON": "MATCHING TEMPLATE",
+    "Fikir, kurgu isteği kutusuna yazılır; videonuz değişmez.": "The idea goes into the edit request box; your video does not change.",
     "Örn. Sessizlikleri at, sahneler arasına geçiş koy, en komik ana ok ve daire ekle, başa dikkat çekici bir yazı yaz.":
         "E.g. cut the silences, put transitions between scenes, add an arrow and a circle at the funniest moment, write an eye-catching title at the start.",
     "{name} stili bu projeye uygulandı.": "The style {name} was applied to this project.",
