@@ -115,6 +115,32 @@ class WindowTests(unittest.TestCase):
         asked.assert_not_called()
         self.assertIn('Dolgu sözcüğü bulunamadı', told.call_args.args[2])
 
+    def test_a_larger_local_model_is_preferred_and_missing_ones_skipped(self):
+        self.assertEqual(fillers.models_to_try('tiny'), ['small', 'base', 'tiny'])
+        self.assertEqual(fillers.models_to_try('small'), ['small'])
+        self.assertEqual(fillers.models_to_try('base'), ['small', 'base'])
+        self.assertEqual(fillers.models_to_try('medium'), ['medium'])
+        w = self.window
+        w.local_model.setCurrentText('tiny')
+        tried = []
+
+        def listen(source, name, **kwargs):
+            tried.append((name, kwargs['download']))
+            if name != 'tiny':
+                raise RuntimeError('model yok')
+            return [{'start': 0, 'end': 20, 'text': 'x', 'words': SPOKEN}]
+        started = []
+        with patch('akis.ai_service.local_transcribe', side_effect=listen), \
+                patch('PySide6.QtWidgets.QMessageBox.question', return_value=QMessageBox.StandardButton.No) as asked, \
+                patch.object(w, 'start_worker', side_effect=lambda: started.append(w.worker)):
+            w.remove_fillers()
+            started[0].start()
+            self.assertTrue(started[0].wait(20000))
+            app.processEvents()
+        self.assertEqual([name for name, _ in tried], ['small', 'base', 'tiny'])
+        self.assertTrue(all(not download for name, download in tried if name != 'tiny'))   # never fetched unasked
+        self.assertIn('4 dolgu sözcüğü bulundu', asked.call_args.args[2])
+
     def test_button_is_in_the_edit_tab_and_translated(self):
         from PySide6.QtWidgets import QPushButton
         w = self.window

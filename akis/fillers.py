@@ -19,6 +19,18 @@ EDGE = 0.04            # cut a little around the filler, never into a neighbouri
 MIN_CUT = 0.12         # shorter cuts are not worth the jump
 
 
+# Whisper sizes good enough to write hesitations down, best first. "tiny" writes "ııı" as a "E" a few
+# hundredths of a second long, too short to cut; "small" hears it whole.
+MODELS = ('small', 'base')
+
+
+def models_to_try(chosen):
+    """Models to try for filler words: the better ones (if on this computer), then the one chosen."""
+    if chosen not in ('tiny', 'base'):
+        return [chosen]                  # already "small" or larger
+    return [name for name in MODELS if name != chosen] + [chosen]
+
+
 def normal(text):
     text = str(text).strip().replace('İ', 'i').replace('I', 'ı').lower()
     return re.sub(r'[^\wçğıöşü]', '', text)
