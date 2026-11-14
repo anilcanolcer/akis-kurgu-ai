@@ -291,11 +291,21 @@ class LayoutMixin:
         tools.setContentsMargins(0, 0, 0, 0)
         for label, action in [('＋ İz', self.add_track), ('− İz', self.remove_track),
                               ('＋ Medya', self.add_timeline_media), ('Böl', self.split_clip),
+                              ('◁ Kırp', self.trim_left), ('Kırp ▷', self.trim_right), ('Aralığı sil', self.delete_range),
                               ('Ripple sil', self.ripple_delete), ('Klip sesi', self.set_clip_volume), ('Klip hızı', self.set_clip_speed), ('Kadraj', self.set_clip_fit), ('Metni düzenle', self.edit_text_clip)]:
             button = QPushButton(label)
             button.clicked.connect(action)
             if label == 'Ripple sil':
                 button.setToolTip('Seçili klibi siler ve boşluğu kapatır. Delete tuşu klibi boşluk bırakarak siler.')
+            elif label == '◁ Kırp':
+                button.setToolTip('Seçili klibin oynatma çizgisinden önceki kısmını atar (Q).')
+            elif label == 'Kırp ▷':
+                button.setToolTip('Seçili klibin oynatma çizgisinden sonraki kısmını atar (W).')
+            elif label == 'Aralığı sil':
+                button.setToolTip('Zaman çizelgesinde boş bir yerden sürükleyerek (ya da cetvelde Shift ile) bir aralık seçin; '
+                                  'bu düğme o aralığı bütün izlerden çıkarır ve boşluğu kapatır (Delete).')
+                button.setEnabled(False)
+                self.range_button = button
             tools.addWidget(button)
         self.undo_button = QPushButton('↶ Geri al')
         self.undo_button.setToolTip('Son adımı geri al (Ctrl+Z)')
@@ -324,6 +334,7 @@ class LayoutMixin:
         self.multitrack_view.seek.connect(self.seek_timeline)
         self.multitrack_view.edit_started.connect(self.on_timeline_drag_started)
         self.multitrack_view.changed.connect(self.on_timeline_dragged)
+        self.multitrack_view.range_changed.connect(self.on_range_changed)
         self.multitrack_view.clip_activated.connect(self.edit_clip)
         self.track_scroll = QScrollArea()
         self.track_scroll.setWidgetResizable(True)

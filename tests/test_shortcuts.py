@@ -52,7 +52,7 @@ class TableTests(unittest.TestCase):
     def test_find_matches_key_and_modifiers_exactly(self):
         self.assertIsNotNone(shortcuts.find(Qt.Key.Key_S, NONE))
         self.assertIsNone(shortcuts.find(Qt.Key.Key_S, SHIFT))
-        self.assertIsNone(shortcuts.find(Qt.Key.Key_Q, NONE))
+        self.assertIsNone(shortcuts.find(Qt.Key.Key_X, NONE))
         keypad = Qt.KeyboardModifier.KeypadModifier
         self.assertIs(shortcuts.find(Qt.Key.Key_Left, keypad), shortcuts.find(Qt.Key.Key_Left, NONE))
 
@@ -157,7 +157,7 @@ class WindowTests(unittest.TestCase):
         self.assertIn(self.window, self.filter.windows)
 
     def test_other_keys_and_releases_pass_through(self):
-        self.assertFalse(self.send(Qt.Key.Key_Q))
+        self.assertFalse(self.send(Qt.Key.Key_X))
         self.assertFalse(self.send(Qt.Key.Key_Space))     # the window's own action plays; not this filter
         release = QKeyEvent(QEvent.Type.KeyRelease, Qt.Key.Key_Right, NONE)
         self.assertFalse(self.filter.eventFilter(self.window, release))

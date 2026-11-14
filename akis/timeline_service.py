@@ -17,6 +17,55 @@ def selected_clip(timeline, selection):
     return track, next ( (clip for clip in track.clips if clip.id == clip_id), None)
 
 
+def delete_range(timeline, start, end):
+    """Cut the frames [start, end) out of every track (CapCut/Resolve "ripple delete" of a range): clips
+    across an edge are split there, what lies inside goes, everything after moves left by the range's
+    length; markers inside go, later ones move. One step for the caller's undo. Returns the frames removed."""
+    from copy import deepcopy
+    start, end = max(0, int(start)), int(end)
+    if end <= start:
+        raise ValueError('Empty range')
+    length = end - start
+    saved = deepcopy((timeline.tracks, timeline.markers))
+    try:
+        _cut_range(timeline, start, end, length)
+    except Exception:
+        timeline.tracks, timeline.markers = saved      # all or nothing
+        raise
+    return length
+
+
+def _cut_range(timeline, start, end, length):
+    for track in timeline.tracks:
+        for edge in (start, end):
+            clip = next((c for c in track.clips if c.start < edge < c.end), None)
+            if clip is not None:
+                track.split(clip.id, edge)
+        track.clips = [c for c in track.clips if not (start <= c.start and c.end <= end)]
+        for clip in track.clips:
+            if clip.start >= end:
+                clip.start -= length
+        track.validate()
+    timeline.markers = [dict(m, frame=m['frame'] - length if m.get('frame', 0) >= end else m.get('frame', 0))
+                        for m in timeline.markers if not start <= m.get('frame', 0) < end]
+
+
+def trim_to_playhead(timeline, selection, frame, side):
+    """CapCut's "trim left/right": drop the part of the selected clip before (side 'left') or after
+    ('right') the playhead. Trimming the left keeps the clip's place, leaving a gap like dragging its
+    edge does. Raises ValueError when the playhead is not inside the clip."""
+    track, clip = selected_clip(timeline, selection)
+    if clip is None:
+        raise ValueError('Select a clip first')
+    if not clip.start < frame < clip.end:
+        raise ValueError('Playhead must be inside clip')
+    if side == 'left':
+        track.trim_start(clip.id, frame)
+    else:
+        track.trim_end(clip.id, frame)
+    return clip
+
+
 def split_selected(timeline, selection, frame):
     track, clip = selected_clip(timeline, selection)
     if clip is None:
