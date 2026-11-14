@@ -44,7 +44,7 @@ class PaletteTests(unittest.TestCase):
             for name in theme.PALETTES:
                 filled = theme.css(sheet, name)              # an unknown $role raises KeyError
                 self.assertNotIn('$', filled, key)
-        self.assertIn('#f3f4f7', theme.css(stylesheets()['main'], 'light'))
+        self.assertIn(theme.PALETTES['light']['bg'], theme.css(stylesheets()['main'], 'light'))
 
     def test_text_is_readable_on_every_background(self):
         for name in theme.PALETTES:
@@ -61,7 +61,7 @@ class PaletteTests(unittest.TestCase):
         self.assertEqual(theme.normalize(None), 'dark')
         try:
             self.assertEqual(theme.set_current('light'), 'light')
-            self.assertEqual(theme.color('surface').name(), '#ffffff')
+            self.assertEqual(theme.color('surface').name(), theme.PALETTES['light']['surface'])
         finally:
             theme.set_current('dark')
 
@@ -90,11 +90,11 @@ class WindowTests(unittest.TestCase):
         w.theme_box.setCurrentIndex(1)
         self.assertEqual(theme.current(), 'light')
         self.assertEqual(w.settings.value('theme'), 'light')
-        self.assertIn('background: #f3f4f7', app.styleSheet())
+        self.assertIn('background: ' + theme.PALETTES['light']['bg'], app.styleSheet())
         self.assertIn(theme.hex_('surface'), w.start_panel.styleSheet() + app.styleSheet())
         self.assertIn(theme.PALETTES['light']['accent_text'], w.brand.text())
         image = w.multitrack_view.grab().toImage()
-        self.assertEqual(image.pixelColor(image.width() - 3, image.height() - 3).name(), '#ffffff')
+        self.assertEqual(image.pixelColor(image.width() - 3, image.height() - 3).name(), theme.PALETTES['light']['surface'])
         w.theme_box.setCurrentIndex(0)
         self.assertEqual((theme.current(), w.settings.value('theme')), ('dark', 'dark'))
         self.assertIn(theme.PALETTES['dark']['accent_text'], w.brand.text())

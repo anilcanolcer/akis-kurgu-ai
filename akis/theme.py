@@ -13,14 +13,14 @@ LABELS = {'dark': 'Koyu tema', 'light': 'Açık tema'}
 
 #            role               dark       light
 _ROLES = (
-    ('bg',                '#0d0e12', '#f3f4f7'),   # the window
-    ('surface',           '#111218', '#ffffff'),   # sidebar, editor, tab pages, timeline
-    ('panel',             '#171921', '#f4f5f8'),   # cards inside a surface
-    ('field',             '#171920', '#ffffff'),   # text boxes, combo boxes, filter buttons
-    ('raised',            '#1d1f29', '#eceef3'),   # chips, secondary buttons, timeline track rows
-    ('button',            '#20222c', '#e7e9ef'),
-    ('button_hover',      '#292c38', '#dcdfe7'),
-    ('border',            '#252733', '#dddfe6'),
+    ('bg',                '#0d0e12', '#eceef2'),   # the window
+    ('surface',           '#111218', '#f6f7f9'),   # sidebar, editor, tab pages, timeline
+    ('panel',             '#171921', '#eef0f4'),   # cards inside a surface
+    ('field',             '#171920', '#fbfbfc'),   # text boxes, combo boxes, filter buttons
+    ('raised',            '#1d1f29', '#e5e8ee'),   # chips, secondary buttons, timeline track rows
+    ('button',            '#20222c', '#e3e6ed'),
+    ('button_hover',      '#292c38', '#d8dce5'),
+    ('border',            '#252733', '#d9dce4'),
     ('border_strong',     '#303340', '#c9ccd7'),
     ('border_hover',      '#3a3e4e', '#b2b6c4'),
     ('text',              '#f3f4f8', '#1b1d26'),
@@ -39,9 +39,9 @@ _ROLES = (
     ('notice_bg',         '#1f1b12', '#fff6df'),
     ('notice_border',     '#4a3c1c', '#ecd394'),
     ('notice_text',       '#f0cf8e', '#7a5810'),
-    ('tooltip',           '#232631', '#ffffff'),
-    ('video_bg',          '#08090c', '#1c1d24'),   # behind the picture: dark in both, videos read better
-    ('video_text',        '#9195a7', '#a3a7b8'),
+    ('tooltip',           '#232631', '#fbfbfc'),
+    ('video_bg',          '#08090c', '#d7dae1'),   # behind the picture: a soft grey stage in the light theme
+    ('video_text',        '#9195a7', '#5b6072'),
     ('video_caption',     '#e8e9f0', '#e8e9f0'),
     ('track_video',       '#5a49a8', '#7d6ad6'),
     ('track_audio',       '#257e77', '#3ea59c'),
@@ -95,3 +95,24 @@ def color(role, name=None) -> QColor:
 def css(template, name=None) -> str:
     """A stylesheet with its `$role` names filled in. Unknown names fail loudly instead of painting black."""
     return Template(template).substitute(palette(name))
+
+
+def qt_palette(name=None):
+    """Qt's own palette for the theme, for what the style draws itself (check boxes, spin-box arrows,
+    menus, the selection in lists), so those match the stylesheet instead of staying dark or light."""
+    from PySide6.QtGui import QPalette
+    p = palette(name)
+    q = QPalette()
+    roles = {QPalette.ColorRole.Window: 'bg', QPalette.ColorRole.WindowText: 'text', QPalette.ColorRole.Base: 'field',
+             QPalette.ColorRole.AlternateBase: 'panel', QPalette.ColorRole.Text: 'text', QPalette.ColorRole.Button: 'button',
+             QPalette.ColorRole.ButtonText: 'text', QPalette.ColorRole.ToolTipBase: 'tooltip',
+             QPalette.ColorRole.ToolTipText: 'text_strong', QPalette.ColorRole.Highlight: 'accent',
+             QPalette.ColorRole.PlaceholderText: 'faint', QPalette.ColorRole.Light: 'border_hover',
+             QPalette.ColorRole.Midlight: 'border_strong', QPalette.ColorRole.Mid: 'border',
+             QPalette.ColorRole.Dark: 'border_strong', QPalette.ColorRole.Shadow: 'border'}
+    for role, name_ in roles.items():
+        q.setColor(role, QColor(p[name_]))
+    q.setColor(QPalette.ColorRole.HighlightedText, QColor('#ffffff'))
+    for role in (QPalette.ColorRole.Text, QPalette.ColorRole.WindowText, QPalette.ColorRole.ButtonText):
+        q.setColor(QPalette.ColorGroup.Disabled, role, QColor(p['disabled_text']))
+    return q
