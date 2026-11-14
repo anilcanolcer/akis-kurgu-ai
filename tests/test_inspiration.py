@@ -82,6 +82,34 @@ class InspirationDialogTests(unittest.TestCase):
         d.random_button.click()
         self.assertIsNotNone(d.selection()[0])
 
+    def test_gallery_chips_cards_and_detail(self):
+        from PySide6.QtWidgets import QLabel
+        d = InspirationDialog()
+        self.assertEqual(len(d.filter_buttons), len(svc.categories()) + 1)
+        self.assertEqual(d.filter_buttons[0].text(), f'Tümü  {len(svc.IDEAS)}')
+        d.filter_buttons[2].click()                                   # a category chip filters like the combo
+        self.assertEqual(d.category.currentIndex(), 2)
+        self.assertEqual(d.list.count(), len(svc.ideas(svc.categories()[1])))
+        self.assertFalse(d.list.item(0).icon().isNull())             # every idea has its card picture
+        idea = d.current_idea()
+        rows = [w for w in d.findChildren(QLabel) if w.objectName() == 'ideaStep' and w.parent().parent() is not None]
+        self.assertEqual([r.text() for r in rows], list(idea.shots))
+        self.assertEqual(d.hook.text(), idea.hook)
+        self.assertEqual(d.prompt.text(), idea.prompt)
+        d.category.setCurrentIndex(0)
+        self.assertTrue(d.filter_buttons[0].isChecked())              # and the combo moves the chips
+        row = next(i for i, x in enumerate(svc.IDEAS) if not x.template)
+        d.list.setCurrentRow(row)
+        self.assertTrue(d.template_title.isHidden())
+        d.template_button.click()                                     # no template: nothing happens
+        self.assertIsNone(d.selection()[1])
+
+    def test_english_headings(self):
+        d = InspirationDialog(language='en')
+        self.assertEqual(d.windowTitle(), 'Inspiration')
+        self.assertEqual(d.template_button.text(), 'Write idea and apply its template')
+        self.assertEqual(d.findChild(type(d.hook), None) is not None, True)
+
     def test_template_dialog_title(self):
         self.assertEqual(TemplateDialog().windowTitle(), 'Şablonlar')
 
