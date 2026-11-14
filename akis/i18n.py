@@ -29,6 +29,22 @@ EN_UI = {
     "↶  Son adımı geri al": "↶  Undo last step", "↶ Geri al": "↶ Undo", "↷ Yinele": "↷ Redo",
     "İptal": "Cancel",
     "KONUŞMA METNİ": "TRANSCRIPT",
+    "⏺  Kayıt al": "⏺  Record", "Kameradan, ekrandan ya da mikrofondan kayıt alıp projeye ekler.": "Records from a camera, a screen or the microphone and adds it to the project.",
+    "Kayıt": "Recording", "Kaynak": "Source", "Mikrofon": "Microphone", "Mikrofon yok": "No microphone",
+    "Kamera: {name}": "Camera: {name}", "Ekran: {name}": "Screen: {name}", "Yalnız ses (mikrofon)": "Sound only (microphone)",
+    "Kameradan, ekrandan ya da yalnız mikrofondan kayıt alın; kayıt bitince projeye eklenir. Kayıt bilgisayarınızda kalır.":
+        "Record from a camera, a screen or the microphone alone; the recording is added to the project when it ends. It stays on your computer.",
+    "Yalnız ses kaydedilir. Kayıt, oynatma çizgisinin olduğu yere seslendirme olarak eklenir.":
+        "Sound only. The recording is added as a voiceover where the playhead is.",
+    "“{name}” ekranı kaydedilecek ({width}×{height}). Kaydı başlattıktan sonra bu pencereyi küçültüp ekranda göstermek istediğinizi yapabilirsiniz.":
+        "The screen “{name}” will be recorded ({width}×{height}). After starting, you can minimise this window and do what you want to show.",
+    "Yalnız ses kaydı için bir mikrofon seçin; bu bilgisayarda mikrofon görünmüyor.": "Choose a microphone to record sound only; no microphone is visible on this computer.",
+    "Yalnız ses kaydı için bir mikrofon seçin.": "Choose a microphone to record sound only.",
+    "● Kaydı başlat": "● Start recording", "■ Durdur ve ekle": "■ Stop and add", "Kaydediliyor…": "Recording…",
+    "Kayıt kapatılıyor…": "Finishing the recording…", "Kayıt dosyası oluşmadı.": "No recording file was made.",
+    "Kayıt yapılamadı: {error}": "Could not record: {error}", "Kayıt projeye eklendi: {name}": "The recording was added to the project: {name}",
+    "Kayıt eklenemedi: {error}": "The recording could not be added: {error}",
+    "Ses kaydı oynatma çizgisine eklendi: {name}": "The sound recording was added at the playhead: {name}",
     "◁ Kırp": "◁ Trim", "Kırp ▷": "Trim ▷", "Aralığı sil": "Delete range",
     "Seçili klibin oynatma çizgisinden önceki kısmını atar (Q).": "Drops the selected clip's part before the playhead (Q).",
     "Seçili klibin oynatma çizgisinden sonraki kısmını atar (W).": "Drops the selected clip's part after the playhead (W).",
