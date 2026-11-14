@@ -99,7 +99,7 @@ class LayoutMixin:
         self.language = QComboBox()
         self.language.addItem("Türkçe", "tr")
         self.language.addItem("English", "en")
-        selected_language = self.settings.value("language", self.system_language_code())
+        selected_language = self.startup_language()
         self.language.setCurrentIndex(0 if selected_language == "tr" else 1)
         self.language.currentIndexChanged.connect(self.change_language)
         v.addWidget(self.language)

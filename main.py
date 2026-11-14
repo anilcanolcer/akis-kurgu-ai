@@ -237,7 +237,7 @@ class MainWindow(LayoutMixin, PlaybackMixin, TimelineEditMixin, ProjectMixin, As
         self._persist_ui = QApplication.platformName() not in ("offscreen", "minimal")
         if self._persist_ui:
             self.restore_ui_settings(self.settings)
-        self.apply_language(self.settings.value("language", self.system_language_code()))
+        self.apply_language(self.startup_language())
         self.autosave_timer = QTimer(self)
         self.autosave_timer.setInterval(30_000)
         self.autosave_timer.timeout.connect(self.autosave_project)
@@ -406,6 +406,15 @@ class MainWindow(LayoutMixin, PlaybackMixin, TimelineEditMixin, ProjectMixin, As
 
     MARK_COLOURS = {'Kırmızı': 'red', 'Sarı': 'yellow', 'Beyaz': 'white', 'Yeşil': 'green', 'Mavi': 'blue', 'Pembe': 'pink'}
 
+
+    def startup_language(self) -> str:
+        """AKIS_LANGUAGE ('tr' or 'en') when set: tests and scripted runs, so they never depend on the
+        computer's language or on a choice saved by an earlier run. Otherwise the saved choice, and on a
+        first start the system's language."""
+        forced = os.environ.get("AKIS_LANGUAGE", "").strip().lower()
+        if forced in ("tr", "en"):
+            return forced
+        return self.settings.value("language", self.system_language_code())
 
     def system_language_code(self) -> str:
         return "tr" if QLocale.system().language() == QLocale.Language.Turkish else "en"
