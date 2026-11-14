@@ -35,6 +35,36 @@ class ProjectMixin:
         if path:
             self.add_video(path)
 
+    def record_media(self) -> None:
+        """⏺ Kayıt al: record from a camera, a screen or the microphone (akis.record_dialog) and add it:
+        a video like "Video ekle" does, sound only at the playhead on a voiceover track (one undo step)."""
+        from akis.record_dialog import RecordDialog
+        try:
+            executable = app_support.ffmpeg_path()
+        except RuntimeError as exc:
+            QMessageBox.warning(self, APP_NAME, str(exc))
+            return
+        dialog = RecordDialog(self, language=self.ui_language(), executable=executable)
+        if not dialog.exec() or not dialog.path:
+            return
+        if dialog.kind == 'video':
+            self.add_video(dialog.path)
+            self.set_status(self.ui_text('Kayıt projeye eklendi: {name}', name=Path(dialog.path).name))
+            return
+        try:
+            seconds = MediaService(executable).duration(dialog.path)
+        except (ValueError, RuntimeError, OSError) as exc:
+            QMessageBox.warning(self, APP_NAME, self.ui_text('Kayıt eklenemedi: {error}', error=exc))
+            return
+        with self.history_step():
+            self.place_voiceover(dialog.path, self.multitrack_view.playhead, seconds)
+        self.media_bin.add(dialog.path)
+        self.refresh_media_bin()
+        self.refresh_timeline_view()
+        self.multitrack_view.refresh_waveforms()
+        self.seek_timeline(self.timeline_frame)
+        self.set_status(self.ui_text('Ses kaydı oynatma çizgisine eklendi: {name}', name=Path(dialog.path).name))
+
     def add_video(self, path: str) -> None:
         if not self.state.source:
             self.load_video(path)
