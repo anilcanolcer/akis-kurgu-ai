@@ -200,7 +200,7 @@ class EnglishUiTests(WindowCase):
         self.assertEqual(dialog.windowTitle(), 'Inspiration')
         self.assertEqual(dialog.prompt_button.text(), 'Write idea into edit request')
         self.assertEqual(dialog.category.itemText(0), 'All')
-        self.assertIn('Shot list', dialog.details.toHtml())
+        self.assertIn('SHOT LIST', [label.text() for label in dialog.findChildren(type(dialog.hook))])
         self.assertEqual(InspirationDialog().prompt_button.text(), 'Fikri kurgu isteğine yaz')
         seen = []
         fake = type('FakeDialog', (), {'__init__': lambda self, *a, **k: seen.append(k), 'exec': lambda self: 0})
