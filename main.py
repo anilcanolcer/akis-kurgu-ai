@@ -432,6 +432,7 @@ class MainWindow(LayoutMixin, PlaybackMixin, TimelineEditMixin, ProjectMixin, As
     def apply_language(self, code: str) -> None:
         """Show the UI in `code` ('tr' or 'en'). User content and saved values are never changed."""
         self._ui_language = code if code in ("tr", "en") else "tr"
+        i18n.use_qt_language(self._ui_language)  # Qt's own buttons (Yes/No, Cancel, Save…) follow the UI
         for widget in self.findChildren(QWidget):
             if widget.property("i18n_skip"):
                 continue
