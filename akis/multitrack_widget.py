@@ -3,7 +3,7 @@ from PySide6.QtCore import Qt, Signal
 from akis.caption_service import snap_frame
 from akis.waveform_service import WaveformWorker, SAMPLE_RATE, WINDOW
 from akis.thumbnail_service import ThumbnailWorker
-from PySide6.QtGui import QPainter, QPen
+from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QWidget
 
 from akis.theme import color
@@ -15,6 +15,7 @@ class MultitrackWidget(QWidget):
     edit_started = Signal()  # a drag that may change a clip begins; the model is still unchanged
     selection_changed = Signal()
     clip_activated = Signal(int, str)
+    range_changed = Signal()  # a time range was selected (drag on an empty spot, or Shift + drag on the ruler) or cleared
     viewport_resized = Signal()
 
     def __init__(self, model, parent=None):
@@ -33,6 +34,7 @@ class MultitrackWidget(QWidget):
         self.drag_mode = None
         self.drag_anchor = 0
         self.original = None
+        self.range = None               # (first frame, end frame) chosen by hand, or None
         self.setMinimumHeight(210)
         self.setMouseTracking(True)
 
@@ -179,6 +181,17 @@ class MultitrackWidget(QWidget):
                 p.setPen(color('clip_text'))
                 tag = f'{clip.speed:g}× ' if clip.source and clip.speed != 1.0 else ''
                 p.drawText(left + 5, y + 25, tag + (clip.text or {'circle': '◯ daire', 'arrow': '➜ ok'}.get(clip.style.get('shape')) or clip.source.replace('\\', '/').split('/')[-1])[:max(0, (right-left) // 7)])
+                if self.selected == (ti, clip.id):
+                    # Trim handles on the chosen clip, as in CapCut: drag either one to trim.
+                    p.setPen(Qt.PenStyle.NoPen)
+                    p.setBrush(color('clip_selected'))
+                    for edge_x in (x, x + w - 7):
+                        if left - 7 <= edge_x <= right:
+                            p.drawRoundedRect(edge_x, y + 3, 7, 34, 3, 3)
+                    p.setBrush(color('track_' + track.kind))
+                    for edge_x in (x + 2, x + w - 5):
+                        if left - 7 <= edge_x <= right:
+                            p.drawRect(edge_x + 1, y + 14, 1, 12)
         p.setPen(QPen(color('marker'), 2))
         for marker in self.model.markers:
             x = int(self.x_for(marker.get('frame', 0)))
@@ -186,14 +199,49 @@ class MultitrackWidget(QWidget):
                 continue
             p.drawLine(x, 20, x, self.height())
             p.drawText(x + 3, 28, str(marker.get('label', ''))[:24])
+        if self.range:
+            # The chosen range: a band over every track, with its two edges drawn firmly.
+            left, right = int(self.x_for(self.range[0])), int(self.x_for(self.range[1]))
+            left, right = max(100, left), min(self.width(), right)
+            if right > left:
+                band = QColor(color('accent_line'))
+                band.setAlpha(60)
+                p.fillRect(left, 24, right - left, self.height() - 24, band)
+                p.setPen(QPen(color('accent_line'), 2))
+                p.drawLine(left, 24, left, self.height())
+                p.drawLine(right, 24, right, self.height())
         p.setPen(QPen(color('playhead'), 2))
         x = int(self.x_for(self.playhead))
         if 100 <= x <= self.width():
             p.drawLine(x, 20, x, self.height())
 
+    def set_range(self, value):
+        value = (min(value), max(value)) if value and value[1] != value[0] else None
+        if value != self.range:
+            self.range = value
+            self.range_changed.emit()
+            self.update()
+
+    def _edge_at(self, x, y):
+        """'start' or 'end' when (x, y) is on a clip's edge (where a drag trims), else None."""
+        ti = int((y - 30) // 43)
+        if x < 100 or not 0 <= ti < len(self.model.tracks):
+            return None
+        for clip in self.model.tracks[ti].clips:
+            if abs(x - self.x_for(clip.end)) < 9:
+                return 'end'
+            if abs(x - self.x_for(clip.start)) < 9:
+                return 'start'
+        return None
+
     def mousePressEvent(self, event):
         x, y = event.position().x(), event.position().y()
         frame = self.frame_for(x)
+        if y < 30 and x >= 100 and event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+            self.drag_mode = 'range'                  # Shift + drag on the ruler chooses a range
+            self.drag_anchor = frame
+            self.set_range(None)
+            return
         if y < 30 and x >= 100:
             self.drag_mode = 'scrub'
             frame = snap_frame(self.model, frame, max(1, round(8 / self.zoom)))
@@ -217,8 +265,12 @@ class MultitrackWidget(QWidget):
                 self.original_track = ti
                 self.edit_started.emit()
             elif x >= 100:
+                # An empty spot: a click moves the playhead, a drag from here chooses a range.
                 self.playhead = frame
                 self.seek.emit(frame)
+                self.drag_mode = 'range_maybe'
+                self.drag_anchor = frame
+                self.set_range(None)
             self.update()
 
     def mouseDoubleClickEvent(self, event):
@@ -234,6 +286,17 @@ class MultitrackWidget(QWidget):
                 self.clip_activated.emit(ti, clip.id)
 
     def mouseMoveEvent(self, event):
+        if not self.drag_mode:
+            edge = self._edge_at(event.position().x(), event.position().y())
+            self.setCursor(Qt.CursorShape.SizeHorCursor if edge else Qt.CursorShape.ArrowCursor)
+            return
+        if self.drag_mode in ('range', 'range_maybe'):
+            frame = max(0, self.frame_for(event.position().x()))
+            if self.drag_mode == 'range_maybe' and abs(frame - self.drag_anchor) * self.zoom < 4:
+                return
+            self.drag_mode = 'range'
+            self.set_range((self.drag_anchor, frame))
+            return
         if self.drag_mode == 'scrub':
             self.playhead = snap_frame(self.model, self.frame_for(event.position().x()), max(1, round(8 / self.zoom)))
             self.seek.emit(self.playhead)

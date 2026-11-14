@@ -31,6 +31,9 @@ def _second(window):
 # (key, modifiers, text shown in the help, what it does, action(window))
 SHORTCUTS = (
     (Qt.Key.Key_S, NONE, 'S', 'Seçili klibi oynatma çizgisinden böl', lambda w: w.split_clip()),
+    (Qt.Key.Key_Q, NONE, 'Q', 'Seçili klibin oynatma çizgisinden önceki kısmını at', lambda w: w.trim_left()),
+    (Qt.Key.Key_W, NONE, 'W', 'Seçili klibin oynatma çizgisinden sonraki kısmını at', lambda w: w.trim_right()),
+    (Qt.Key.Key_Escape, NONE, 'Esc', 'Seçili aralığı bırak', lambda w: w.multitrack_view.set_range(None)),
     (Qt.Key.Key_Left, NONE, '←', 'Bir kare geri', lambda w: _step(w, -1)),
     (Qt.Key.Key_Right, NONE, '→', 'Bir kare ileri', lambda w: _step(w, 1)),
     (Qt.Key.Key_Left, SHIFT, 'Shift + ←', 'Bir saniye geri', lambda w: _step(w, -_second(w))),
@@ -41,7 +44,7 @@ SHORTCUTS = (
     (Qt.Key.Key_F1, NONE, 'F1', 'Bu kısayol listesini göster', lambda w: show_help(w)),
 )
 # Handled by the window's own actions; listed so the help is complete.
-BUILT_IN = (('Boşluk', 'Oynat / duraklat'), ('Delete', 'Seçili klibi sil ve boşluğu kapat'),
+BUILT_IN = (('Boşluk', 'Oynat / duraklat'), ('Delete', 'Seçili aralığı ya da klibi sil'),
             ('Ctrl + Z', 'Son adımı geri al'), ('Ctrl + Y', 'Geri alınan adımı yinele'),
             ('Ctrl + O', 'Proje aç'), ('Ctrl + S', 'Projeyi kaydet'), ('Ctrl + E', 'Videoyu dışa aktar'))
 TITLE = 'Klavye kısayolları'

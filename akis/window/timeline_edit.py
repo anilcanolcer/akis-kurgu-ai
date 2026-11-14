@@ -21,7 +21,7 @@ from akis import beat_sync, emphasis, retakes, silence_cut
 from PySide6.QtWidgets import QFileDialog, QInputDialog, QMessageBox
 
 from akis import app_support
-from akis.app_support import APP_NAME, UNDO_LIMIT, log
+from akis.app_support import APP_NAME, UNDO_LIMIT, format_time, log
 
 
 class TimelineEditMixin:
@@ -323,6 +323,60 @@ class TimelineEditMixin:
             return
         self.multitrack_view.update()
         self.set_status(self.ui_text('Klip bölündü.'))
+
+    def trim_left(self):
+        self._trim_to_playhead('left')
+
+    def trim_right(self):
+        self._trim_to_playhead('right')
+
+    def _trim_to_playhead(self, side):
+        """CapCut's Q / W: drop the selected clip's part before or after the playhead, one undo step."""
+        track, clip = self.selected_clip()
+        if not clip:
+            self.set_status(self.ui_text('Önce kırpılacak klibi seçin.'))
+            return
+        try:
+            with self.history_step():
+                timeline_service.trim_to_playhead(self.multitrack, self.multitrack_view.selected,
+                                                  self.multitrack_view.playhead, side)
+        except ValueError:
+            self.set_status(self.ui_text('Kırpılamadı: oynatma çizgisini seçili klibin içine getirin.'))
+            return
+        self.update_timeline_scroll()
+        self.seek_timeline(self.timeline_frame)
+        self.set_status(self.ui_text('Klibin oynatma çizgisinden önceki kısmı atıldı.') if side == 'left'
+                        else self.ui_text('Klibin oynatma çizgisinden sonraki kısmı atıldı.'))
+
+    def on_range_changed(self):
+        chosen = self.multitrack_view.range
+        if hasattr(self, 'range_button'):
+            self.range_button.setEnabled(bool(chosen))
+        if chosen:
+            fps = self.multitrack.fps_num / self.multitrack.fps_den
+            self.set_status(self.ui_text('Seçili aralık: {start} – {end} ({length} sn). Silmek için Delete ya da “Aralığı sil”.',
+                                         start=format_time(chosen[0] / fps), end=format_time(chosen[1] / fps),
+                                         length=f'{(chosen[1] - chosen[0]) / fps:.1f}'.replace('.', ',')))
+
+    def delete_range(self):
+        """Cut the chosen time range out of every track and close the gap (one undo step)."""
+        chosen = self.multitrack_view.range
+        if not chosen:
+            self.set_status(self.ui_text('Önce zaman çizelgesinde boş bir yerden sürükleyerek bir aralık seçin.'))
+            return
+        try:
+            with self.history_step():
+                frames = timeline_service.delete_range(self.multitrack, *chosen)
+        except ValueError as exc:
+            self.set_status(self.ui_text('Aralık silinemedi: {error}', error=exc))
+            return
+        self.multitrack_view.selected = None
+        self.multitrack_view.set_range(None)
+        self.update_timeline_scroll()
+        self.seek_timeline(min(self.timeline_frame, chosen[0]))
+        fps = self.multitrack.fps_num / self.multitrack.fps_den
+        self.set_status(self.ui_text('{seconds} sn kesildi. Beğenmezseniz geri alabilirsiniz (Ctrl+Z).',
+                                     seconds=f'{frames / fps:.1f}'.replace('.', ',')))
 
     def delete_clip(self):
         """Delete key: remove the selected clip and leave its gap (Ripple sil closes the gap)."""

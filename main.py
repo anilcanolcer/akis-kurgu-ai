@@ -291,7 +291,11 @@ class MainWindow(LayoutMixin, PlaybackMixin, TimelineEditMixin, ProjectMixin, As
             self.toggle_play()
 
     def shortcut_delete(self) -> None:
-        if not self.text_has_focus():
+        if self.text_has_focus():
+            return
+        if self.multitrack_view.range:      # a chosen range goes before a selected clip
+            self.delete_range()
+        else:
             self.delete_clip()
 
 
