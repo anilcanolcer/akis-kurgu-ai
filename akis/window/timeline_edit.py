@@ -494,9 +494,19 @@ class TimelineEditMixin:
 
         def listen():
             from akis.ai_service import local_transcribe
-            return {source: fillers.find(fillers.words_of(
-                        local_transcribe(source, model, download=download, timed=True, vocabulary=vocabulary)))
-                    for source in sources}
+
+            def heard(source):
+                # The smallest model writes a hesitation as a too-short "E": use a larger one already on
+                # this computer when there is one (akis.fillers.MODELS), else the one chosen for captions.
+                for name in fillers.models_to_try(model):
+                    try:
+                        return local_transcribe(source, name, download=download and name == model, timed=True,
+                                                vocabulary=vocabulary)
+                    except RuntimeError:
+                        if name == model:
+                            raise
+                return []
+            return {source: fillers.find(fillers.words_of(heard(source))) for source in sources}
         self.run_analysis(self.ui_text('Dolgu sözcükleri aranıyor (yerel konuşma tanıma)…'), listen, self.finish_fillers)
 
     def separate_speakers(self) -> None:
