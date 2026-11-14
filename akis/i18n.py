@@ -624,3 +624,38 @@ def speed_key(value) -> float:
     """1.25, '1.25' or '1.25×' -> the nearest offered speed. Raises ValueError for anything not a number."""
     number = float(str(value).replace("×", "").replace("x", "").strip()) if isinstance(value, str) else float(value)
     return min(SPEEDS, key=lambda speed: abs(speed - number))
+
+
+_qt_translator = None
+
+
+def use_qt_language(code: str) -> bool:
+    """Show Qt's own texts (Yes/No, OK/Cancel, Save/Discard, file dialog buttons) in `code` too.
+
+    Qt is English by itself; for Turkish its qtbase_tr catalogue, shipped with PySide6, is installed on
+    the application. Returns True when the catalogue for `code` is in use.
+    """
+    global _qt_translator
+    from pathlib import Path
+    from PySide6.QtCore import QCoreApplication, QLibraryInfo, QTranslator
+    app = QCoreApplication.instance()
+    if app is None:
+        return False
+    if _qt_translator is not None:
+        app.removeTranslator(_qt_translator)
+        _qt_translator = None
+    if code == 'en':
+        return False
+    translator = QTranslator(app)
+    places = [QLibraryInfo.path(QLibraryInfo.LibraryPath.TranslationsPath)]
+    try:
+        import PySide6
+        places.append(str(Path(PySide6.__file__).parent / 'translations'))
+    except (ImportError, TypeError):
+        pass
+    for place in places:
+        if place and translator.load(f'qtbase_{code}', place):
+            app.installTranslator(translator)
+            _qt_translator = translator
+            return True
+    return False

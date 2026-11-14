@@ -231,3 +231,33 @@ class PromptEditTests(WindowCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class QtOwnTextsTests(unittest.TestCase):
+    """Qt's standard buttons (Yes/No, Cancel, Save/Discard) follow the UI language, not stay English."""
+
+    def tearDown(self):
+        i18n.use_qt_language('en')
+
+    def texts(self):
+        from PySide6.QtWidgets import QDialogButtonBox
+        B = QDialogButtonBox.StandardButton
+        box = QDialogButtonBox(B.Yes | B.No | B.Cancel | B.Save)
+        return {box.button(b).text().replace('&', '') for b in (B.Yes, B.No, B.Cancel, B.Save)}
+
+    def test_turkish_ui_shows_turkish_standard_buttons_and_english_switches_back(self):
+        self.assertTrue(i18n.use_qt_language('tr'))
+        self.assertEqual(self.texts(), {'Evet', 'Hayır', 'İptal', 'Kaydet'})
+        self.assertFalse(i18n.use_qt_language('en'))
+        self.assertEqual(self.texts(), {'Yes', 'No', 'Cancel', 'Save'})
+
+    def test_the_window_installs_it_with_its_language(self):
+        w = MainWindow()
+        try:
+            w.apply_language('tr')
+            self.assertIn('Evet', self.texts())
+            w.apply_language('en')
+            self.assertIn('Yes', self.texts())
+        finally:
+            w.close()
+            w.deleteLater()
