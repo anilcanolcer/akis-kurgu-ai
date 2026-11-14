@@ -215,3 +215,34 @@ class FcpxmlTests(unittest.TestCase):
         english = fcpxml_export.describe({'clips': 3, 'texts': 0, 'transitions': 0, 'speeds': 2},
                                          lambda t: i18n.translate(t, 'en'))
         self.assertIn('The speed of 2 clips was left out', english)
+
+
+class CaptionFollowTests(unittest.TestCase):
+    def timeline(self):
+        video = Track('video', 'V', [Clip('a.mp4', 0, 300), Clip('a.mp4', 300, 100, source_in=300)])
+        captions = Track('text', timeline_service.CAPTION_TRACK, [
+            Clip('', 30, 30, text='bir'),
+            Clip('', 150, 30, text='iki üç', style={'words': [[0, 10, 'iki'], [10, 30, 'üç']], 'look': 'vurgu'}),
+            Clip('', 320, 20, text='dört')])
+        title = Track('text', 'Yazı', [Clip('', 150, 30, text='Başlık')])
+        return Timeline(fps_num=30, tracks=[video, captions, title])
+
+    def test_captions_move_with_a_faster_clip_and_titles_stay(self):
+        timeline = self.timeline()
+        delta = timeline_service.set_clip_speed(timeline, (0, timeline.tracks[0].clips[0].id), 2.0)
+        self.assertEqual(delta, -150)
+        caps = timeline.tracks[1].clips
+        self.assertEqual([(c.start, c.length) for c in caps], [(15, 15), (75, 15), (170, 20)])
+        self.assertEqual(caps[1].style['words'], [[0, 5, 'iki'], [5, 15, 'üç']])
+        self.assertEqual(timeline.tracks[2].clips[0].start, 150)          # a title stays where it was put
+
+    def test_slower_clip_stretches_its_captions(self):
+        timeline = self.timeline()
+        timeline_service.set_clip_speed(timeline, (0, timeline.tracks[0].clips[0].id), 0.5)
+        self.assertEqual([(c.start, c.length) for c in timeline.tracks[1].clips], [(60, 60), (300, 60), (620, 20)])
+
+    def test_an_overlay_clip_does_not_move_the_captions(self):
+        timeline = self.timeline()
+        timeline.tracks.insert(1, Track('overlay', 'O', [Clip('b.mp4', 0, 100)]))
+        timeline_service.set_clip_speed(timeline, (1, timeline.tracks[1].clips[0].id), 2.0)
+        self.assertEqual([c.start for c in timeline.tracks[2].clips], [30, 150, 320])

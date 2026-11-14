@@ -145,6 +145,7 @@ class WindowTests(unittest.TestCase):
         self.assertEqual([item['name'] for item in saved], ['Örnek: ornek'])
         self.assertTrue(w.aspect.currentData().startswith('9:16'))
         self.assertEqual(w.multitrack.tracks[0].clips[0].style.get('fit'), saved[0]['framing'])
+        self.assertEqual(w.status_label.text(), 'Örnek: ornek stili bu projeye uygulandı.')
         w.undo()
         self.assertNotIn('fit', w.multitrack.tracks[0].clips[0].style)
 
