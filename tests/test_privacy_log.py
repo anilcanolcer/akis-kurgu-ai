@@ -104,6 +104,12 @@ class WindowTests(Clean):
         self.assertEqual(w.privacy_label.text(), "Sent in this session:\n• Gemini: the video's sound")
         w.apply_language('tr')
 
+    def test_long_media_names_are_shortened_not_scrolled(self):
+        from PySide6.QtCore import Qt
+        w = self.window
+        self.assertEqual(w.media_list.horizontalScrollBarPolicy(), Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.assertEqual(w.media_list.textElideMode(), Qt.TextElideMode.ElideMiddle)
+
 
 if __name__ == '__main__':
     unittest.main()
