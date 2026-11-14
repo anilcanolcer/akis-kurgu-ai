@@ -105,6 +105,9 @@ class LayoutMixin:
         self.media_list.setObjectName("mediaList")
         self.media_list.setMinimumHeight(72)        # gives way first when the window is short
         self.media_list.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Ignored)
+        # Long file names are shortened in the middle (the full path is the tooltip) instead of a scroll bar.
+        self.media_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.media_list.setTextElideMode(Qt.TextElideMode.ElideMiddle)
         v.addWidget(self.media_list, 1)
         add = QPushButton("＋  Video ekle")
         add.setObjectName("secondary")
