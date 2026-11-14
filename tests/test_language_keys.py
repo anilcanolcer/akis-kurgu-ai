@@ -261,3 +261,27 @@ class QtOwnTextsTests(unittest.TestCase):
         finally:
             w.close()
             w.deleteLater()
+
+
+class LateEnglishTests(unittest.TestCase):
+    def test_prompt_example_and_transcript_heading_are_translated(self):
+        import os
+        os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+        from PySide6.QtWidgets import QApplication
+        QApplication.instance() or QApplication([])
+        from unittest.mock import patch
+        import tempfile
+        from pathlib import Path
+        from main import MainWindow
+        with tempfile.TemporaryDirectory() as tmp, patch('akis.app_support.recovery_dir', return_value=Path(tmp)):
+            w = MainWindow()
+            try:
+                w.apply_language('en')
+                self.assertTrue(w.ai_prompt.placeholderText().startswith('E.g. cut the silences'))
+                w.on_transcript('Merhaba')
+                self.assertTrue(w.ai_result.toPlainText().startswith('TRANSCRIPT'))
+                w.apply_language('tr')
+                self.assertTrue(w.ai_prompt.placeholderText().startswith('Örn. Sessizlikleri at'))
+            finally:
+                w._close_confirmed = True
+                w.close()

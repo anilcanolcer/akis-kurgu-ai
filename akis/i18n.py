@@ -28,6 +28,10 @@ EN_UI = {
     "↶  AI kurgusunu geri al": "↶  Undo AI edit", "Öneri al": "Get suggestions",
     "↶  Son adımı geri al": "↶  Undo last step", "↶ Geri al": "↶ Undo", "↷ Yinele": "↷ Redo",
     "İptal": "Cancel",
+    "KONUŞMA METNİ": "TRANSCRIPT",
+    "Örn. Sessizlikleri at, sahneler arasına geçiş koy, en komik ana ok ve daire ekle, başa dikkat çekici bir yazı yaz.":
+        "E.g. cut the silences, put transitions between scenes, add an arrow and a circle at the funniest moment, write an eye-catching title at the start.",
+    "{name} stili bu projeye uygulandı.": "The style {name} was applied to this project.",
     "ÖNERİ MODU (KESMEDEN)": "SUGGESTION MODE (NO CUTS)", "KONUŞMA METNİ VE SESLENDİRME": "TRANSCRIPT & VOICEOVER",
     "Konuşmayı da çözümle (yerel Whisper, daha yavaş)": "Also analyse speech (local Whisper, slower)",
     "Yapılan kurgunun özeti burada görünecek.": "A summary of the edit will appear here.",

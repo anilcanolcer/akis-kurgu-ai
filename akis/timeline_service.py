@@ -166,10 +166,47 @@ def set_clip_volume(timeline, selection, volume):
     clip.volume = volume
 
 
+CAPTION_TRACK = 'Altyazı / Captions'   # the name caption_service.caption_track gives its track
+
+
+def _retime_captions(timeline, track, old_start, old_end, factor, delta):
+    """Move the captions of the speech in [old_start, old_end) with the clip that now plays it faster or
+    slower: captions over the clip are stretched by `factor`, later ones move by `delta` frames, and
+    word-by-word timings inside follow. Only when `track` is the main video track (its sound is the
+    speech) and only caption tracks: titles and marks stay where the user put them."""
+    if track is not next((t for t in timeline.tracks if t.kind == 'video'), None):
+        return []
+    def where(frame):
+        if frame <= old_start:
+            return frame
+        if frame <= old_end:
+            return old_start + (frame - old_start) * factor
+        return frame + delta
+    saved = []
+    for captions in (t for t in timeline.tracks if t.kind == 'text' and t.name == CAPTION_TRACK):
+        saved.append((captions, [(c, c.start, c.length, dict(c.style)) for c in captions.clips]))
+        last_end = 0
+        for caption in sorted(captions.clips, key=lambda c: c.start):
+            if caption.end <= old_start:
+                last_end = caption.end
+                continue
+            start = max(last_end, round(where(caption.start)))
+            end = max(start + 1, round(where(caption.end)))
+            words = caption.style.get('words')
+            if words:
+                caption.style = dict(caption.style, words=[
+                    [max(0, round(where(caption.start + a)) - start), max(1, round(where(caption.start + b)) - start), text]
+                    for a, b, text in words])
+            caption.start, caption.length = start, end - start
+            last_end = caption.end
+    return saved
+
+
 def set_clip_speed(timeline, selection, speed):
     """Play the selected media clip at `speed` (0.25-4). The clip keeps the same footage, so its length
-    changes; later clips on its track move with it (ripple). Keyframes are stretched along. Returns the
-    change in length, in frames. Rolls back and raises ValueError when the result would not fit."""
+    changes; later clips on its track move with it (ripple), and so do the captions of its speech
+    (stretched over the clip, moved after it). Keyframes are stretched along. Returns the change in
+    length, in frames. Rolls back and raises ValueError when the result would not fit."""
     track, clip = selected_clip(timeline, selection)
     if clip is None or not clip.source or track.kind not in ('video', 'overlay', 'audio'):
         raise ValueError('Select a video or audio clip')
@@ -180,6 +217,7 @@ def set_clip_speed(timeline, selection, speed):
     delta = length - clip.length
     later = [other for other in track.clips if other is not clip and other.start >= clip.end]
     saved = (clip.length, dict(clip.style), clip.keyframes, [other.start for other in later])
+    old_start, old_end = clip.start, clip.end
     style = {key: value for key, value in clip.style.items() if key != 'speed'}
     if speed != 1.0:
         style['speed'] = speed
@@ -189,12 +227,18 @@ def set_clip_speed(timeline, selection, speed):
                       for name, points in clip.keyframes.items()}
     for other in later:
         other.start += delta
+    captions = _retime_captions(timeline, track, old_start, old_end, length / max(1, old_end - old_start), delta)
     try:
         track.validate()
+        for caption_track, _ in captions:
+            caption_track.validate()
     except ValueError:
         clip.length, clip.style, clip.keyframes = saved[0], saved[1], saved[2]
         for other, start in zip(later, saved[3]):
             other.start = start
+        for _, kept in captions:
+            for caption, start, length_, style in kept:
+                caption.start, caption.length, caption.style = start, length_, style
         raise
     return delta
 

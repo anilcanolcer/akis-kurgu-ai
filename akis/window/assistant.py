@@ -154,6 +154,7 @@ class AssistantMixin:
             QMessageBox.warning(self, APP_NAME, str(exc))
             return
         self.apply_saved_template(user_templates._valid(item))
+        self.set_status(self.ui_text('{name} stili bu projeye uygulandı.', name=name))
 
     def capture_template(self, name):
         """The open project's structure and settings as a template of the user's own."""
@@ -547,7 +548,7 @@ class AssistantMixin:
     def on_transcript(self, text: str) -> None:
         if self._shutting_down:
             return
-        self.ai_result.setPlainText("KONUŞMA METNİ\n\n" + text)
+        self.ai_result.setPlainText(self.ui_text("KONUŞMA METNİ") + "\n\n" + text)
         if not self.publish_caption.toPlainText().strip():
             self.publish_caption.setPlainText(text)
         self.finish_work("Türkçe konuşma metni hazır.")
