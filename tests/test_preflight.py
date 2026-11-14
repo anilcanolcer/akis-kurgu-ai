@@ -79,6 +79,14 @@ class WindowTests(unittest.TestCase):
         self.assertTrue(self.window.load_video(str(video)))
 
     def close_window(self):
+        # A worker that has finished may not have told the window yet; a window that still
+        # counts it refuses to close and keeps its recovery lock (seen on a slow CI runner).
+        QApplication.processEvents()
+        for _ in range(500):
+            if not self.window._workers:
+                break
+            QApplication.processEvents()
+            __import__("time").sleep(0.01)
         self.window._close_confirmed = True
         self.window.close()
 
