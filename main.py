@@ -367,6 +367,12 @@ class MainWindow(LayoutMixin, PlaybackMixin, TimelineEditMixin, ProjectMixin, As
         text = privacy_log.summary(self.ui_template)
         if text != self.privacy_label.text():
             self.privacy_label.setText(text)
+            # A word-wrapped label tells a layout too little about its height; on a short window the card
+            # was squeezed until its lines overlapped. Reserve what the text really needs at the card's width.
+            width = 128   # the card's text width in the 190 px sidebar (margins and a scroll bar taken off)
+            needed = self.privacy_label.fontMetrics().boundingRect(
+                0, 0, width, 2000, int(Qt.TextFlag.TextWordWrap), text).height()
+            self.privacy_label.setMinimumHeight(needed + 2)
 
     def ui_template(self, template: str) -> str:
         """`template` in the current UI language, placeholders left for the caller to fill."""
@@ -487,6 +493,7 @@ class MainWindow(LayoutMixin, PlaybackMixin, TimelineEditMixin, ProjectMixin, As
         name = theme.set_current(name)
         app = QApplication.instance()
         if app is not None:
+            app.setPalette(theme.qt_palette())
             app.setStyleSheet(theme.css(STYLE))
         self.start_panel.restyle()
         self.paint_brand()
@@ -608,6 +615,7 @@ def main() -> int:
     app.setOrganizationName(ORG_NAME)
     app.setStyle("Fusion")
     theme.set_current(QSettings(ORG_NAME, APP_NAME).value("theme", theme.DEFAULT))
+    app.setPalette(theme.qt_palette())
     app.setStyleSheet(theme.css(STYLE))
     try:
         log_path = setup_logging(app_support.app_data_dir() / "logs")

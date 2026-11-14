@@ -38,6 +38,12 @@ QTabWidget::pane { background: $surface; border: 1px solid $border; border-radiu
 QTabBar::tab { background: transparent; color: $muted; padding: 10px 12px; }
 QTabBar::tab:selected { color: $text_strong; border-bottom: 2px solid $accent_line; }
 QScrollArea { background: transparent; border: 0; }
+QWidget#sidebarInner { background: $surface; }
+QComboBox QAbstractItemView { background: $field; color: $text; border: 1px solid $border_strong; selection-background-color: $accent_bg; selection-color: $text_strong; outline: 0; }
+QScrollBar:horizontal { background: transparent; height: 8px; }
+QScrollBar::handle:horizontal { background: $border_strong; border-radius: 4px; min-width: 28px; }
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0; }
+QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
 QScrollBar:vertical { background: transparent; width: 8px; }
 QScrollBar::handle:vertical { background: $border_strong; border-radius: 4px; min-height: 28px; }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
