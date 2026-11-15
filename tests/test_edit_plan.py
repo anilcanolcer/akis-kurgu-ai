@@ -526,7 +526,7 @@ class PreviewInteractionTests(unittest.TestCase):
                 window.edit_at(0.5, 0.6)
             self.assertEqual(window.multitrack.tracks[1].clips[0].text, 'Yeni')
             self.assertEqual(window.multitrack.tracks[2].clips[0].style['color'], 'yellow')
-            with patch('PySide6.QtWidgets.QInputDialog.getItem', return_value=('Sil / Delete', True)):
+            with patch('PySide6.QtWidgets.QInputDialog.getItem', return_value=('Sil', True)):
                 window.edit_clip(2, window.multitrack.tracks[2].clips[0].id)
             self.assertEqual(window.multitrack.tracks[2].clips, [])
         window.close()

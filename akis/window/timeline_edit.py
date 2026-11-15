@@ -7,7 +7,8 @@ import hashlib
 import json
 import math
 
-from akis.timeline_model import CLIP_SPEEDS, Track
+from akis.timeline_model import CLIP_SPEEDS, Clip, Track
+from akis.template_service import TITLE_SECONDS
 from akis.media_service import MediaService
 from akis import timeline_service
 from akis.shape_art import default_tail
@@ -21,6 +22,7 @@ from akis import beat_sync, emphasis, retakes, silence_cut
 from PySide6.QtWidgets import QFileDialog, QInputDialog, QMessageBox
 
 from akis import app_support
+from akis.i18n import decimal
 from akis.app_support import APP_NAME, UNDO_LIMIT, format_time, log
 
 
@@ -143,8 +145,56 @@ class TimelineEditMixin:
         payload = json.dumps(self.multitrack.to_dict(), sort_keys=True, ensure_ascii=False, default=str)
         return hashlib.sha1(payload.encode()).hexdigest()
 
+    def title_layer(self):
+        """(track, clip) of the title made with the Edit tab's title field, or None."""
+        for track in self.multitrack.tracks:
+            for clip in track.clips:
+                if track.kind == 'text' and clip.style.get('title_layer'):
+                    return track, clip
+        return None
+
+    def sync_title_field(self) -> None:
+        found = self.title_layer()
+        text = found[1].text if found else ''
+        if self.overlay.text() != text:
+            self.overlay.setText(text)
+
+    def set_title_layer(self) -> None:
+        """Add, change or remove the title at the start of the video (a text clip; undo takes it back)."""
+        text = self.overlay.text().strip()
+        found = self.title_layer()
+        if (found[1].text if found else '') == text:
+            return
+        if not any(clip.source for track in self.multitrack.tracks for clip in track.clips):
+            self.overlay.clear()
+            self.set_status(self.ui_text('Önce bir video ekleyin ve yüklenmesini bekleyin.'))
+            return
+        fps = self.multitrack.fps_num / self.multitrack.fps_den
+        length = max(1, round(TITLE_SECONDS * fps))
+        with self.history_step():
+            if found and text:
+                found[1].text = text
+                message = 'Başlık güncellendi.'
+            elif found:
+                found[0].clips.remove(found[1])
+                message = 'Başlık kaldırıldı.'
+            else:
+                # The first text track that is free at the start (not the captions); otherwise a new one.
+                track = next((t for t in self.multitrack.tracks if t.kind == 'text' and t.name != edit_plan.CAPTION_TRACK
+                              and all(c.start >= length for c in t.clips)), None)
+                if track is None:
+                    track = Track('text', 'Text')
+                    self.multitrack.tracks.append(track)
+                track.add(Clip('', 0, length, text=text, style={'title_layer': True}))
+                message = 'Başlık videonun başına eklendi.'
+        self.refresh_timeline_view()
+        self.multitrack_view.update()
+        self.seek_timeline(self.timeline_frame)
+        self.set_status(self.ui_text(message))
+
     def refresh_timeline_view(self) -> None:
         """Size the track view and its scroll area for the current number of tracks."""
+        self.sync_title_field()
         tracks = len(self.multitrack.tracks)
         self.multitrack_view.setMinimumHeight(max(210, 40 + 43 * tracks))
         self.track_scroll.setMinimumHeight(max(160, min(360, 46 + 43 * tracks)))
@@ -167,7 +217,7 @@ class TimelineEditMixin:
         return timeline_service.selected_clip(self.multitrack, self.multitrack_view.selected)
 
     def add_track(self):
-        kind, ok = QInputDialog.getItem(self, 'İz ekle / Add track', 'Tür / Type', ['video', 'audio', 'text', 'overlay'], 0, False)
+        kind, ok = QInputDialog.getItem(self, self.ui_text('İz ekle'), self.ui_text('Tür'), ['video', 'audio', 'text', 'overlay'], 0, False)
         if ok:
             with self.history_step():
                 self.multitrack.tracks.append(Track(kind, f'{kind.title()} {len(self.multitrack.tracks)+1}'))
@@ -211,19 +261,21 @@ class TimelineEditMixin:
         self.stop_proxy_playback(refresh=False)
         self.multitrack_view.selected, self.multitrack_view.selected_track = (track_index, clip.id), track_index
         if clip.style.get('shape'):
-            names = list(self.MARK_COLOURS) + ['Sil / Delete']
+            keys = list(self.MARK_COLOURS) + ['Sil']
+            names = [self.ui_text(name) for name in keys]
             current = next((i for i, n in enumerate(self.MARK_COLOURS) if self.MARK_COLOURS[n] == clip.style.get('color')), 0)
-            choice, ok = QInputDialog.getItem(self, 'İşareti düzenle', 'Renk seçin veya işareti silin', names, current, False)
+            choice, ok = QInputDialog.getItem(self, self.ui_text('İşareti düzenle'), self.ui_text('Renk seçin veya işareti silin'), names, current, False)
             if not ok:
                 return
             with self.history_step():
+                choice = keys[names.index(choice)]
                 if choice in self.MARK_COLOURS:
                     clip.style['color'] = self.MARK_COLOURS[choice]
                 else:
                     track.clips.remove(clip)
                     self.multitrack_view.selected = None
         else:
-            value, ok = QInputDialog.getMultiLineText(self, 'Metni düzenle', 'Başlık / altyazı', clip.text)
+            value, ok = QInputDialog.getMultiLineText(self, self.ui_text('Metni düzenle'), self.ui_text('Başlık / altyazı'), clip.text)
             if not ok:
                 return
             with self.history_step():
@@ -356,7 +408,7 @@ class TimelineEditMixin:
             fps = self.multitrack.fps_num / self.multitrack.fps_den
             self.set_status(self.ui_text('Seçili aralık: {start} – {end} ({length} sn). Silmek için Delete ya da “Aralığı sil”.',
                                          start=format_time(chosen[0] / fps), end=format_time(chosen[1] / fps),
-                                         length=f'{(chosen[1] - chosen[0]) / fps:.1f}'.replace('.', ',')))
+                                         length=decimal(f'{(chosen[1] - chosen[0]) / fps:.1f}', self.ui_text)))
 
     def delete_range(self):
         """Cut the chosen time range out of every track and close the gap (one undo step)."""
@@ -376,7 +428,7 @@ class TimelineEditMixin:
         self.seek_timeline(min(self.timeline_frame, chosen[0]))
         fps = self.multitrack.fps_num / self.multitrack.fps_den
         self.set_status(self.ui_text('{seconds} sn kesildi. Beğenmezseniz geri alabilirsiniz (Ctrl+Z).',
-                                     seconds=f'{frames / fps:.1f}'.replace('.', ',')))
+                                     seconds=decimal(f'{frames / fps:.1f}', self.ui_text)))
 
     def delete_clip(self):
         """Delete key: remove the selected clip and leave its gap (Ripple sil closes the gap)."""
@@ -414,7 +466,7 @@ class TimelineEditMixin:
         if not clip or track.kind not in ('audio', 'video'):
             self.set_status(self.ui_text('Bir ses veya video klibi seçin.'))
             return
-        value, ok = QInputDialog.getInt(self, 'Klip sesi / Clip volume', 'Ses / Volume (%)', round(clip.volume * 100), 0, 100)
+        value, ok = QInputDialog.getInt(self, self.ui_text('Klip sesi'), self.ui_text('Ses düzeyi (%)'), round(clip.volume * 100), 0, 100)
         if ok:
             with self.history_step():
                 timeline_service.set_clip_volume(self.multitrack, self.multitrack_view.selected, value / 100)
@@ -591,7 +643,7 @@ class TimelineEditMixin:
             return source, found, embedder is not None
         text = 'Konuşmacılar ayırt ediliyor…' if speaker_model.available(folder) else \
             'Konuşmacılar ayırt ediliyor (ilk kullanımda {size} MB ses modeli indirilir)…'
-        self.run_analysis(self.ui_text(text, size=str(speaker_model.SIZE_MB).replace('.', ',')), listen, self.finish_speakers)
+        self.run_analysis(self.ui_text(text, size=decimal(str(speaker_model.SIZE_MB), self.ui_text)), listen, self.finish_speakers)
 
     def finish_speakers(self, result) -> None:
         source, found, with_model = result

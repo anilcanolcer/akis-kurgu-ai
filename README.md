@@ -67,6 +67,7 @@ Talking-head videos, tutorials, vlogs and Shorts take hours of repetitive work: 
 - Multi-track timeline with video, audio, text and caption tracks; clips snap to nearby edges and can be dragged between tracks.
 - **CapCut-style trimming:** trim handles on the selected clip, trim to the playhead (**Q** / **W**), and select any range by dragging on an empty spot to delete it from every track at once.
 - Split, ripple delete, per-clip volume and **clip speed** (captions follow the new speed), framing (fit, fill, blurred background).
+- An opening **title** typed in the Edit tab becomes a 3-second text clip at the start of the video.
 - Waveforms and video thumbnails on clips; frame-accurate seeking; unlimited undo / redo.
 
 ### Captions, audio and voice-over
@@ -96,7 +97,7 @@ Talking-head videos, tutorials, vlogs and Shorts take hours of repetitive work: 
 
 ### Comfort and safety
 
-- Dark and light themes; Turkish and English interface.
+- Dark and light themes; a complete Turkish and English interface (Inspiration ideas included).
 - Autosave and crash recovery, project snapshots.
 - In-app updates that verify the installer's SHA-256 checksum and restore the previous version if anything fails.
 - Proxy files in the background for smooth playback, chunked preview rendering for long edits, HDR (PQ/HLG) sources tone-mapped to SDR.
@@ -108,10 +109,10 @@ Talking-head videos, tutorials, vlogs and Shorts take hours of repetitive work: 
 | ![Editor in the light theme](docs/screenshots/editor-light-en.png) | ![A three-second range selected on the timeline, ready to delete from every track](docs/screenshots/trim-en.png) |
 | **Templates** | **Record** |
 | ![Template gallery with the details of the Reels / TikTok template](docs/screenshots/templates-en.png) | ![Recording dialog with a screen source selected](docs/screenshots/record-en.png) |
-| **Split into Shorts** | **Inspiration** (idea texts are in Turkish) |
-| ![Shorts dialog splitting a 41-second video into three parts with titles](docs/screenshots/shorts-en.png) | ![Inspiration gallery with an idea, its shot list and matching template](docs/screenshots/inspiration-tr.png) |
+| **Split into Shorts** | **Inspiration** |
+| ![Shorts dialog splitting a 41-second video into three parts with titles](docs/screenshots/shorts-en.png) | ![Inspiration gallery with an idea, its shot list and matching template](docs/screenshots/inspiration-en.png) |
 
-*Screenshots are taken from the real application (version 0.6.1). The sample clips are colour gradients generated with FFmpeg and the speech is a Windows text-to-speech voice.*
+*Screenshots are taken from the real application (version 0.6.2). The sample clips are colour gradients generated with FFmpeg and the speech is a Windows text-to-speech voice.*
 
 ## Installation
 
@@ -177,7 +178,6 @@ AI features are optional. Choose a provider in the AI tab and enter **your own A
 - Smooth playback starts once the background proxy is ready; until then the preview steps frame by frame.
 - A local Whisper transcription or Windows voice-over cannot be cancelled once started.
 - No keyframe editor, export queue or advanced colour grading yet.
-- The interface is translated into English, but the texts of the Inspiration ideas are Turkish only.
 - No account sync or direct publishing to social platforms.
 
 ## Building from source

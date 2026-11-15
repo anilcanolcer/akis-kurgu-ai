@@ -25,6 +25,7 @@ from akis.media_bin import MediaBin
 from akis import ai_providers, update_service
 from akis import i18n
 from akis import shortcuts
+from akis import speech_settings
 from akis import privacy_log
 from akis import theme
 from akis import app_support
@@ -479,6 +480,19 @@ class MainWindow(LayoutMixin, PlaybackMixin, TimelineEditMixin, ProjectMixin, As
                 version=update_service.VERSION))
         self.version_button.setAccessibleName(self.version_button.toolTip())
         self.play_button.setToolTip(i18n.translate("Oynat / duraklat (Boşluk)", code))  # the button is i18n_skip
+        # Combos skipped above (language and voice names stay as they are): only their own words follow.
+        for combo, words in ((self.speech_language, "Otomatik algıla"), (self.tts_voice, "Konuşma diline uygun ses")):
+            index = combo.findData(speech_settings.AUTO) if combo is self.speech_language else 0
+            if index >= 0:
+                combo.setItemText(index, i18n.translate(words, code))
+        self.speech_language.setToolTip(i18n.translate("Altyazı ve konuşma metni bu dilde çözümlenir.", code))
+        self.tts_voice.setToolTip(i18n.translate("Seslendirmeyi okuyacak Windows sesi. Yeni ses dili Windows Ayarları › "
+                                                 "Zaman ve dil › Konuşma bölümünden eklenir.", code))
+        self.refresh_privacy()  # otherwise it changes language only on the next tick
+        self.multitrack_view.language = self._ui_language
+        self.multitrack_view.update()
+        self.video.placeholder = i18n.translate("Video ekleyin", code)
+        self.video.update()
         if not self.state.source:  # the header shows placeholders until a video is loaded
             self.project_title.setText(i18n.translate("Yeni proje", code))
             self.project_subtitle.setText(i18n.translate("Video ekleyerek başlayın", code))

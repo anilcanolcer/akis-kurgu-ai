@@ -98,7 +98,7 @@ class LayoutMixin:
         label.setObjectName("sectionLabel")
         v.addWidget(label)
         self.media_search = QLineEdit()
-        self.media_search.setPlaceholderText("Medya ara / Search media")
+        self.media_search.setPlaceholderText("Medya ara")
         self.media_search.textChanged.connect(self.refresh_media_bin)
         v.addWidget(self.media_search)
         self.media_list = QListWidget()
@@ -242,7 +242,7 @@ class LayoutMixin:
         v.setContentsMargins(14, 14, 14, 14)
         v.setSpacing(12)
 
-        self.video = PreviewView('Video ekleyin / Add a video')
+        self.video = PreviewView('Video ekleyin')
         self.video.setObjectName("video")
         self.video.setMinimumSize(320, 200)
         self.video.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
@@ -465,7 +465,7 @@ class LayoutMixin:
         self.review_plan.setChecked(self.settings.value("ai/review_plan", True) not in (False, 'false', '0', 0))
         self.review_plan.toggled.connect(lambda on: self.settings.setValue("ai/review_plan", bool(on)))
         v.addWidget(self.review_plan)
-        v.addWidget(self.section("AI SAĞLAYICI / PROVIDER"))
+        v.addWidget(self.section("AI SAĞLAYICI"))
         self.provider = QComboBox()
         self.provider.addItems(ai_providers.PROVIDERS)
         v.addWidget(self.provider)
@@ -487,7 +487,7 @@ class LayoutMixin:
         self.model.setEditable(True)
         self.model.addItems(ai_providers.PROVIDERS["OpenAI"])
         v.addWidget(self.model)
-        save_key = QPushButton("Anahtarı güvenli kaydet / Save key")
+        save_key = QPushButton("Anahtarı güvenli kaydet")
         save_key.clicked.connect(lambda: self.save_key(self.api_key.text().strip()))
         v.addWidget(save_key)
 
@@ -499,7 +499,7 @@ class LayoutMixin:
         self.ai_tempo = self.keyed_combo(['Slow', 'Medium', 'Fast', 'Dynamic'])
         self.ai_style = self.keyed_combo(['Cinematic', 'Energetic', 'Minimal', 'Educational', 'Storytelling'])
         self.ai_focus = self.keyed_combo(['Hook first', 'Highlights', 'Full story', 'Product', 'Tutorial'])
-        for label, widget in [('Platform', self.ai_platform), ('Tempo', self.ai_tempo), ('Stil / Style', self.ai_style), ('Odak / Focus', self.ai_focus)]:
+        for label, widget in [('Platform', self.ai_platform), ('Tempo', self.ai_tempo), ('Stil', self.ai_style), ('Odak', self.ai_focus)]:
             options.addRow(label, widget)
         v.addLayout(options)
 
@@ -511,7 +511,7 @@ class LayoutMixin:
         self.ai_choice = QComboBox()
         self.ai_choice.currentIndexChanged.connect(self.show_ai_suggestion)
         v.addWidget(self.ai_choice)
-        apply_plan = QPushButton('Seçili öneriyi işaretlere uygula / Apply markers')
+        apply_plan = QPushButton('Seçili öneriyi işaretlere uygula')
         apply_plan.clicked.connect(self.apply_ai_suggestion)
         v.addWidget(apply_plan)
         v.addWidget(self.section("KONUŞMA METNİ VE SESLENDİRME"))
@@ -530,7 +530,9 @@ class LayoutMixin:
         self.speech_language.activated.connect(lambda _index: self.save_speech_settings())
         self.speech_vocabulary.editingFinished.connect(self.save_speech_settings)
         self.caption_backend = QComboBox()
-        self.caption_backend.addItems(['OpenAI', 'Yerel / Local Whisper', 'xAI', 'Gemini'])
+        self.caption_backend.setProperty("i18n_keyed", True)  # item 1 is the local engine; the others are provider names
+        for name in ('OpenAI', 'Yerel Whisper', 'xAI', 'Gemini'):
+            self.caption_backend.addItem(name, name)
         v.addWidget(self.caption_backend)
         v.addWidget(QLabel('API transkripsiyon modeli'))
         self.transcript_model = QComboBox(); self.transcript_model.setEditable(True)
@@ -539,9 +541,9 @@ class LayoutMixin:
         self.caption_backend.currentTextChanged.connect(self.change_transcript_provider)
         self.local_model = QComboBox(); self.local_model.addItems(['tiny', 'base', 'small'])
         v.addWidget(self.local_model)
-        self.download_model = QCheckBox('Modeli indir / Download model (internet)')
+        self.download_model = QCheckBox('Modeli indir (internet)')
         v.addWidget(self.download_model)
-        note = QLabel('Yerel model ilk kullanımda indirilmeli; indirme kapalıyken yalnızca önbellek kullanılır. / Download once for offline use.')
+        note = QLabel('Yerel model ilk kullanımda indirilmeli; indirme kapalıyken yalnızca önbellek kullanılır.')
         note.setWordWrap(True); v.addWidget(note)
         transcript = QPushButton("Konuşmayı Türkçe metne çevir")
         transcript.setObjectName("secondary")
@@ -561,13 +563,13 @@ class LayoutMixin:
         self.caption_look.currentIndexChanged.connect(
             lambda index: self.settings.setValue("captions/look", word_captions.CHOICES[max(0, index)]))
         v.addWidget(self.caption_look)
-        self.apply_captions_button = QPushButton('Yerel altyazıyı timeline’a ekle / Add local captions')
+        self.apply_captions_button = QPushButton('Yerel altyazıyı zaman çizelgesine ekle')
         self.apply_captions_button.setEnabled(False)
         self.apply_captions_button.clicked.connect(self.apply_local_captions)
         v.addWidget(self.apply_captions_button)
 
         self.tts_input = QPlainTextEdit()
-        self.tts_input.setPlaceholderText('Seslendirme metni / Voiceover text')
+        self.tts_input.setPlaceholderText('Seslendirme metni')
         self.tts_input.setFixedHeight(75)
         v.addWidget(self.tts_input)
         self.tts_voice = QComboBox()
@@ -580,7 +582,7 @@ class LayoutMixin:
         self.tts_to_timeline = QCheckBox('Oynatma çizgisinden zaman çizelgesine ekle')
         self.tts_to_timeline.setChecked(True)
         v.addWidget(self.tts_to_timeline)
-        tts_button = QPushButton('Windows sesiyle WAV oluştur / Create voiceover')
+        tts_button = QPushButton('Windows sesiyle WAV oluştur')
         tts_button.clicked.connect(self.create_voiceover)
         v.addWidget(tts_button)
         tts_hint = QLabel('Çevrimdışı Windows sistem sesi kullanılır; dil ve ses işletim sisteminde yüklü seslere bağlıdır.')
@@ -663,24 +665,21 @@ class LayoutMixin:
         self.aspect.currentIndexChanged.connect(lambda _index: self.change_aspect(self.aspect.currentData()))
         v.addWidget(self.aspect)
 
-        v.addWidget(self.section("HIZ VE GEÇİŞ"))
+        v.addWidget(self.section("OYNATMA HIZI"))
         self.speed = QComboBox()
         for value in i18n.SPEEDS:
             self.speed.addItem(f"{value:.2f}×", value)
         self.select_speed(1.0)
         self.speed.currentIndexChanged.connect(lambda _index: self.change_speed(self.speed.currentData()))
         v.addWidget(self.speed)
-        # Not supported by the shared timeline renderer yet: shown disabled, not saved in projects.
-        self.fade = QCheckBox("Yumuşak giriş ve çıkış geçişi (henüz yok)")
+        # A whole-video fade and look effects are not in the shared timeline renderer: the controls exist
+        # (older code and projects refer to them) but are not shown, so nothing on screen does nothing.
+        self.fade = QCheckBox("Yumuşak giriş ve çıkış geçişi")
         self.fade.setEnabled(False)
-        self.fade.setToolTip("Ortak timeline render yolunda henüz desteklenmiyor.")
-        v.addWidget(self.fade)
-
-        v.addWidget(self.section("GÖRÜNÜM EFEKTİ"))
+        self.fade.hide()
         self.effect = self.keyed_combo(i18n.EFFECTS)
         self.effect.setEnabled(False)
-        self.effect.setToolTip("Ortak timeline render yolunda henüz desteklenmiyor.")
-        v.addWidget(self.effect)
+        self.effect.hide()
 
         v.addWidget(self.section("RENK VE IŞIK"))
         self.brightness = self.add_slider(v, "Parlaklık", -50, 50, lambda x: self.change_color("brightness", x))
@@ -698,12 +697,11 @@ class LayoutMixin:
 
         v.addWidget(self.section("BAŞLIK KATMANI"))
         self.overlay = QLineEdit()
-        self.overlay.setPlaceholderText("Videoda görünecek kısa başlık (henüz yok)")
-        self.overlay.setEnabled(False)
-        self.overlay.setToolTip("Bu kontrol ortak timeline render yolunda henüz desteklenmiyor.")
+        self.overlay.setPlaceholderText("Videonun başında görünecek kısa başlık")
+        self.overlay.setToolTip("Enter'a basınca uygulanır; yazıyı silip Enter'a basınca başlık kalkar.")
+        self.overlay.editingFinished.connect(self.set_title_layer)
         v.addWidget(self.overlay)
-        # The overlay field is disabled and not exported; say so instead of describing how it would export.
-        hint = QLabel("Başlık katmanı henüz yok. Videoya yazıyı AI kurgusu, şablonlar veya altyazılar ekler.")
+        hint = QLabel("Başlık, videonun başına 3 saniyelik bir yazı klibi olarak eklenir; zaman çizelgesinde taşıyıp uzatabilirsiniz.")
         hint.setWordWrap(True)
         hint.setObjectName("mutedSmall")
         v.addWidget(hint)

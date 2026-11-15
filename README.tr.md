@@ -67,6 +67,7 @@ Konuşma videoları, eğitimler, vloglar ve Shorts saatlerce tekrar eden iş ist
 - Video, ses, yazı ve altyazı izli çok izli zaman çizelgesi; klipler yakın kenarlara yapışır ve izler arasında sürüklenebilir.
 - **CapCut tarzı kırpma:** seçili klipte kırpma tutamaçları, oynatma çizgisine göre kırpma (**Q** / **W**) ve boş bir yerden sürükleyerek aralık seçip tüm izlerden tek seferde silme.
 - Bölme, ripple silme, klip sesi ve **klip hızı** (altyazılar yeni hıza uyar), kadraj (sığdır, doldur, bulanık arka plan).
+- Düzenle sekmesine yazılan **başlık**, videonun başına 3 saniyelik bir yazı klibi olarak eklenir.
 - Kliplerde dalga biçimi ve kareler; kare hassasiyetinde konumlama; sınırsız geri al / yinele.
 
 ### Altyazı, ses ve seslendirme
@@ -96,7 +97,7 @@ Konuşma videoları, eğitimler, vloglar ve Shorts saatlerce tekrar eden iş ist
 
 ### Rahatlık ve güvenlik
 
-- Koyu ve açık tema; Türkçe ve İngilizce arayüz.
+- Koyu ve açık tema; İlham fikirleri dahil eksiksiz Türkçe ve İngilizce arayüz.
 - Otomatik kayıt, çökme sonrası kurtarma ve proje sürümleri.
 - Uygulama içinden güncelleme: kurucunun SHA-256 özeti doğrulanır, bir sorun olursa eski sürüm geri yüklenir.
 - Akıcı oynatma için arka planda proxy, uzun kurgularda parçalı önizleme, HDR (PQ/HLG) kaynaklarda SDR'ye ton eşleme.
@@ -111,7 +112,7 @@ Konuşma videoları, eğitimler, vloglar ve Shorts saatlerce tekrar eden iş ist
 | **Kayıt al** | **Shorts'a böl** |
 | ![Ekran kaynağı seçili kayıt penceresi](docs/screenshots/record-tr.png) | ![41 saniyelik videoyu başlıklı üç parçaya bölen Shorts penceresi](docs/screenshots/shorts-tr.png) |
 
-*Görüntüler uygulamanın gerçek arayüzünden alınmıştır (sürüm 0.6.1). Örnek klipler FFmpeg ile üretilmiş renk geçişleridir; konuşma Windows'un metinden seslendirme sesidir.*
+*Görüntüler uygulamanın gerçek arayüzünden alınmıştır (sürüm 0.6.2). Örnek klipler FFmpeg ile üretilmiş renk geçişleridir; konuşma Windows'un metinden seslendirme sesidir.*
 
 ## Kurulum
 
@@ -177,7 +178,6 @@ AI özellikleri isteğe bağlıdır. AI sekmesinde sağlayıcıyı seçip **kend
 - Akıcı oynatma, arka plandaki proxy hazır olunca başlar; o zamana kadar önizleme kare kare ilerler.
 - Yerel Whisper dökümü ve Windows seslendirmesi başladıktan sonra iptal edilemez.
 - Henüz keyframe düzenleyici, dışa aktarma kuyruğu ve gelişmiş renk araçları yoktur.
-- Arayüz İngilizceye çevrilmiştir, ancak İlham fikirlerinin metinleri yalnızca Türkçedir.
 - Hesap eşitleme ya da sosyal platformlara doğrudan yayınlama yoktur.
 
 ## Kaynak koddan derleme

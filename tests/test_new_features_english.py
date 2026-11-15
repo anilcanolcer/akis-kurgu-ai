@@ -29,7 +29,7 @@ class TemplateTests(unittest.TestCase):
     def test_silence_summary(self):
         before = [{'source': 0, 'start': 0, 'end': 100}]
         after, cuts = silence_cut.keep_segments(before, {0: [(10, 40)]}, margin=0)
-        self.assertEqual(silence_cut.summary(before, after, cuts, EN), '1 silent parts will be cut · 1:40 → 1:10 (30.0 s shorter)')
+        self.assertEqual(silence_cut.summary(before, after, cuts, EN), '1 silent part will be cut · 1:40 → 1:10 (30.0 s shorter)')
         self.assertEqual(silence_cut.summary(before, before, [], EN), 'No silence to cut with these settings.')
 
     def test_export_status_and_space_warning(self):
@@ -46,9 +46,9 @@ class TemplateTests(unittest.TestCase):
                                            Track('audio', 'Müzik', [Clip('C:/v/gone.mp4', 0, 150)])])
         found = preflight.check(cut, exists=lambda path: False, say=EN)
         self.assertEqual(len(found), 3)
-        self.assertIn('1 source files cannot be found (gone.mp4)', found[0])
-        self.assertIn('no picture in 1 places (1,0 s in total', found[1])
-        self.assertIn('runs on for 2,0 s after the picture ends', found[2])
+        self.assertIn('1 source file cannot be found (gone.mp4)', found[0])
+        self.assertIn('no picture in 1 place (1.0 s in total', found[1])
+        self.assertIn('runs on for 2.0 s after the picture ends', found[2])
         question = preflight.question(found, EN)
         self.assertTrue(question.startswith('Before you export:'))
         self.assertTrue(question.endswith('Export anyway?'))

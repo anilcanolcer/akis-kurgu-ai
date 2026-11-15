@@ -110,6 +110,37 @@ class InspirationDialogTests(unittest.TestCase):
         self.assertEqual(d.template_button.text(), 'Write idea and apply its template')
         self.assertEqual(d.findChild(type(d.hook), None) is not None, True)
 
+    def test_english_ideas_cards_chips_search_and_choice(self):
+        import re
+        from akis import inspiration_en
+        turkish = re.compile('[ğüşıöçĞÜŞİÖÇ]')
+        self.assertEqual(set(inspiration_en.IDEAS), {i.key for i in svc.IDEAS})        # every idea is translated
+        self.assertEqual(set(inspiration_en.CATEGORIES), set(svc.categories()))
+        for idea in svc.IDEAS:
+            english = svc.localized(idea, 'en')
+            self.assertEqual(len(english.shots), len(idea.shots), idea.key)              # one step for each step
+            self.assertEqual((english.key, english.category, english.template), (idea.key, idea.category, idea.template))
+            words = ' '.join((english.title, english.hook, english.description, english.prompt, *english.shots))
+            self.assertIsNone(turkish.search(words), idea.key)
+        self.assertIs(svc.localized(svc.IDEAS[0], 'tr'), svc.IDEAS[0])
+        self.assertTrue(any(i.key == 'yagmur-sehir' for i in svc.ideas(query='rainy')))    # English words find it
+        self.assertTrue(any(i.key == 'yagmur-sehir' for i in svc.ideas(query='yağmurlu', language='en')))
+        d = InspirationDialog(language='en')
+        self.assertEqual([b.text().rsplit('  ', 1)[0] for b in d.filter_buttons][:2], ['All', 'Storytelling'])
+        d.filter_buttons[2].click()                                                       # "Product / promo"
+        self.assertEqual(d.list.count(), len(svc.ideas(svc.categories()[1])))
+        self.assertEqual(d.category_chip.text(), 'Product / promo')
+        self.assertIsNone(turkish.search(d.list.item(0).text()))
+        idea = d.current_idea()
+        d.prompt_button.click()
+        chosen, action = d.selection()
+        self.assertEqual((chosen.key, action), (idea.key, 'prompt'))
+        self.assertEqual(chosen.prompt, inspiration_en.IDEAS[idea.key][4])               # the English request is written
+        d.search.setText('rainy')
+        self.assertEqual([d.list.item(i).text().split('\n')[0] for i in range(d.list.count())], [])  # other category
+        d.filter_buttons[0].click()
+        self.assertEqual(d.list.item(0).text().split('\n')[0], 'Rainy city')
+
     def test_template_dialog_title(self):
         self.assertEqual(TemplateDialog().windowTitle(), 'Şablonlar')
 

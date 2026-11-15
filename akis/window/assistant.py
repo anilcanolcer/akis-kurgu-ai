@@ -400,7 +400,7 @@ class AssistantMixin:
             return
         self.ai_suggestions = plans
         self.ai_choice.clear()
-        self.ai_choice.addItems([str(p.get('title') or f'Öneri / Suggestion {i+1}') for i, p in enumerate(plans)])
+        self.ai_choice.addItems([str(p.get('title') or self.ui_text('Öneri {number}', number=i + 1)) for i, p in enumerate(plans)])
         self.show_ai_suggestion(self.ai_choice.currentIndex())
         self.finish_work('Öneriler hazır; birini seçip işaret olarak uygulayabilirsiniz.')
 

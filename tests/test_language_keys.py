@@ -36,6 +36,30 @@ class I18nTests(unittest.TestCase):
         self.assertEqual(i18n.source_of('Audio'), 'Ses')
         self.assertEqual(i18n.source_of('Audio kaydı'), 'Audio kaydı')
 
+    def test_decimal_separator_follows_the_language(self):
+        from akis import preflight
+        english = lambda text: i18n.translate(text, 'en')
+        self.assertEqual((i18n.decimal('1.5'), i18n.decimal('1.5', english)), ('1,5', '1.5'))
+        timeline = Timeline(fps_num=10, tracks=[Track('video', 'V', [Clip('a.mp4', 0, 10), Clip('a.mp4', 30, 10)])])
+        found = preflight.check(timeline, exists=lambda path: True, say=english)
+        self.assertIn('(2.0 s in total, 0:01.0)', found[0])
+        self.assertIn('(toplam 2,0 sn, 0:01,0)', preflight.check(timeline, exists=lambda path: True)[0])
+
+    def test_english_counts_of_one_are_singular(self):
+        import string
+        fields = lambda text: sorted(name for _, name, _, _ in string.Formatter().parse(text) if name)
+        for plural, singular in i18n._EN_SINGULAR.items():
+            self.assertIn(plural, i18n.TR_UI)                       # a real translation, not a stale entry
+            self.assertEqual(fields(plural), fields(singular), plural)
+        shorts = i18n.translate('{total} sürelik video {count} parçaya bölünecek.', 'en')
+        self.assertEqual(shorts.format(total='0:41', count=1), 'The 0:41 video will stay in 1 part.')
+        self.assertEqual(shorts.format(total='0:41', count=3), 'The 0:41 video will be split into 3 parts.')
+        captions = i18n.translate('{count} altyazı klibi eklendi.', 'en')
+        self.assertEqual((captions.format(count=1), captions.format(count=7)),
+                         ('1 caption clip was added.', '7 caption clips were added.'))
+        turkish = i18n.translate('{count} altyazı klibi eklendi.', 'tr')
+        self.assertEqual(turkish.format(count=1), '1 altyazı klibi eklendi.')
+
 
 class WindowCase(unittest.TestCase):
     def setUp(self):
@@ -83,7 +107,7 @@ class LanguageTests(WindowCase):
         subtitle = w.project_subtitle.text()
         w.apply_language('en')
         self.assertEqual(w.project_title.text(), 'Ses kaydı 1')
-        self.assertEqual(w.tts_input.placeholderText(), 'Seslendirme metni / Voiceover text')
+        self.assertEqual(w.tts_input.placeholderText(), 'Voice-over text')
         texts = [label.text() for label in w.findChildren(type(w.project_title))]
         self.assertIn('Audio', texts)  # the volume label: exactly "Ses"
         self.assertNotIn('Audio kaydı 1', texts)
@@ -96,6 +120,39 @@ class LanguageTests(WindowCase):
         self.assertIn('Ses', [label.text() for label in w.findChildren(type(w.project_title))])
         self.assertEqual(w.tabs.tabText(0), '✦ AI Kurgu')
 
+    def test_english_window_shows_no_turkish_words(self):
+        """Every label, button, placeholder, tab, combo item and tooltip is English (no "TR / EN" pairs left)."""
+        import re
+        from PySide6.QtWidgets import (QCheckBox, QComboBox, QLabel, QLineEdit, QPlainTextEdit, QPushButton,
+                                       QTabWidget, QToolButton, QWidget)
+        w = self.window
+        w.apply_language('en')
+        # Names, not words: the brand, language and voice names, and the examples of Turkish names and fillers.
+        allowed = re.compile(r'AKIŞ|Akış|Türkçe|Français|Anılcan|şey, yani')
+        turkish = re.compile('[ğüşıöçĞÜŞİÖÇ]')
+        left = set()
+        for widget in w.findChildren(QWidget):
+            texts = [widget.toolTip()]
+            if isinstance(widget, (QLabel, QPushButton, QCheckBox, QToolButton)):
+                texts.append(widget.text())
+            if isinstance(widget, (QLineEdit, QPlainTextEdit)):
+                texts.append(widget.placeholderText())
+            if isinstance(widget, QComboBox):
+                texts += [widget.itemText(i) for i in range(widget.count())]
+            if isinstance(widget, QTabWidget):
+                texts += [widget.tabText(i) for i in range(widget.count())]
+            left |= {t for t in texts if t and turkish.search(allowed.sub('', t))}
+        left.discard(w.status_label.text())        # a message written before the switch
+        self.assertEqual(left, set())
+        self.assertEqual(w.video.placeholder, 'Add a video to begin')
+        self.assertEqual(w.multitrack_view.language, 'en')
+        self.assertEqual(i18n.track_label('Altyazı / Captions', 'en'), 'Captions')
+        self.assertEqual(i18n.track_label('Audio', 'tr'), 'Ses')
+        self.assertEqual(i18n.track_label('Röportaj', 'en'), 'Röportaj')   # the user's own name stays
+        w.apply_language('tr')
+        self.assertEqual(w.speech_language.itemText(w.speech_language.findData('auto')), 'Otomatik algıla')
+        self.assertEqual(w.media_search.placeholderText(), 'Medya ara')
+
     def test_placeholder_header_follows_language_until_a_video_is_loaded(self):
         w = self.window
         w.apply_language('en')
@@ -106,11 +163,11 @@ class LanguageTests(WindowCase):
     def test_text_set_by_code_after_a_switch_is_translated_whole(self):
         w = self.window
         w.apply_language('en')
-        w.fade.setText('Ses')  # code replaces a translated text: it becomes the new source
+        w.tts_to_timeline.setText('Ses')  # code replaces a translated text: it becomes the new source
         w.apply_language('tr')
-        self.assertEqual(w.fade.text(), 'Ses')
+        self.assertEqual(w.tts_to_timeline.text(), 'Ses')
         w.apply_language('en')
-        self.assertEqual(w.fade.text(), 'Audio')
+        self.assertEqual(w.tts_to_timeline.text(), 'Audio')
 
     def test_project_saved_in_english_reopens_in_turkish(self):
         w = self.window
@@ -121,7 +178,9 @@ class LanguageTests(WindowCase):
         w.speed.setCurrentIndex(w.speed.findData(1.5))
         self.assertEqual(w.aspect.currentText(), '1:1 · Square')
         project = self.root / 'english.akis.json'
+        self.assertEqual(w.project_title.text(), self.video().stem)          # before saving: the video's name
         self.save_as(w, project)
+        self.assertEqual(w.project_title.text(), 'english')                    # saved: the project's name
         state = json.loads(project.read_text(encoding='utf-8'))['state']
         self.assertEqual((state['aspect'], state['export_profile'], state['speed']), ('1:1 · Kare', '4K UHD · 3840×2160', 1.5))
 
@@ -132,6 +191,7 @@ class LanguageTests(WindowCase):
         self.assertEqual(other.speed.currentText(), '1.50×')
         self.assertEqual(other.export_profile.currentData(), '4K UHD · 3840×2160')
         self.assertEqual(other.export_canvas_size(), (2160, 2160))
+        self.assertEqual(other.project_title.text(), 'english')
         self.assertFalse(other.has_unsaved_changes())
 
     def test_old_project_with_display_text_and_dropped_fields_still_loads(self):

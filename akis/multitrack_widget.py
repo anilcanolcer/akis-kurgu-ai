@@ -7,6 +7,7 @@ from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QWidget
 
 from akis.theme import color
+from akis import i18n
 
 
 class MultitrackWidget(QWidget):
@@ -21,6 +22,7 @@ class MultitrackWidget(QWidget):
     def __init__(self, model, parent=None):
         super().__init__(parent)
         self.model = model
+        self.language = 'tr'          # the UI language: the header and built-in track names follow it
         self.waveforms = {}
         self.waveform_worker = None
         self.thumbnails = {}            # source -> thumbnail_service.Strip (None while made or when impossible)
@@ -140,7 +142,7 @@ class MultitrackWidget(QWidget):
         p = QPainter(self)
         p.fillRect(self.rect(), color('surface'))
         p.setPen(color('muted'))
-        p.drawText(8, 20, 'TRACK / İZ')
+        p.drawText(8, 20, 'TRACK' if self.language == 'en' else 'İZ')
         fps = self.model.fps_num / self.model.fps_den
         step = max(1, round(fps * max(1, 80 / (fps * self.zoom))))
         first_frame = (self.frame_for(100) // step) * step
@@ -156,7 +158,7 @@ class MultitrackWidget(QWidget):
             y = 30 + ti * 43
             p.fillRect(0, y, self.width(), 40, color('raised'))
             p.setPen(color('text'))
-            p.drawText(6, y + 25, track.name[:14])
+            p.drawText(6, y + 25, i18n.track_label(track.name, self.language)[:14])
             for clip in track.clips:
                 x, w = int(self.x_for(clip.start)), max(2, int(clip.length * self.zoom))
                 if x + w <= 100 or x >= self.width():

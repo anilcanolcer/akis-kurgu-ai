@@ -119,7 +119,8 @@ class InspirationDialog(QDialog):
         # The category combo is the source of truth (and what scripts use); the chips drive it.
         self.category = QComboBox()
         self.category.addItem(t('Tümü'))  # index 0 means every category, whatever it shows
-        self.category.addItems(service.categories())
+        for category in service.categories():   # shown in the UI language, the Turkish name kept as the key
+            self.category.addItem(service.category_label(category, language), category)
         self.category.hide()
         filters = QHBoxLayout()
         filters.setSpacing(8)
@@ -127,7 +128,7 @@ class InspirationDialog(QDialog):
         self.filter_group.setExclusive(True)
         self.filter_buttons = []
         for index in range(self.category.count()):
-            category = None if index == 0 else self.category.itemText(index)
+            category = None if index == 0 else self.category.itemData(index)
             count = len(service.ideas(category))
             button = QPushButton(f'{self.category.itemText(index)}  {count}')
             button.setObjectName('tplFilter')
@@ -255,9 +256,11 @@ class InspirationDialog(QDialog):
             button.setChecked(True)
         self.refresh()
 
+    def chosen_category(self):
+        return None if self.category.currentIndex() <= 0 else self.category.currentData()
+
     def refresh(self, *_):
-        category = None if self.category.currentIndex() <= 0 else self.category.currentText()
-        self._shown = service.ideas(category, self.search.text())
+        self._shown = service.ideas(self.chosen_category(), self.search.text(), self.language)
         self.list.clear()
         for idea in self._shown:
             item = QListWidgetItem(QIcon(card_picture(idea)), f'{idea.title}\n{idea.platform}')
@@ -299,7 +302,7 @@ class InspirationDialog(QDialog):
         colour = CATEGORY_LOOK.get(idea.category, ('#8f78ff', '✦'))[0]
         self.name.setText(idea.title)
         self.summary.setText(idea.description)
-        self.category_chip.setText(idea.category)
+        self.category_chip.setText(service.category_label(idea.category, self.language))
         self.category_chip.setStyleSheet(f'border: 1px solid {colour};')
         self.platform_chip.setText(idea.platform)
         self.category_chip.show()
@@ -332,13 +335,13 @@ class InspirationDialog(QDialog):
             self.template_name.clear()
 
     def pick_random(self):
-        category = None if self.category.currentIndex() <= 0 else self.category.currentText()
-        idea = service.random_idea(category)
+        idea = service.random_idea(self.chosen_category(), language=self.language)
         if idea is None:
             return
         self.search.clear()
-        if idea in self._shown:
-            self.list.setCurrentRow(self._shown.index(idea))
+        keys = [shown.key for shown in self._shown]
+        if idea.key in keys:
+            self.list.setCurrentRow(keys.index(idea.key))
             self.list.scrollToItem(self.list.currentItem())
 
     def finish(self, action):

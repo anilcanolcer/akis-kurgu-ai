@@ -10,6 +10,8 @@ Hesitations are always fillers. "şey", "yani", "işte", "hani" are ordinary wor
 """
 import re
 
+from akis.i18n import decimal
+
 PROMPT = 'Iıı, eee, şey, hmm. Yani, ıı, işte, eee, şey…'
 HESITATION = re.compile(r'^(?:ı+|i{2,}|e+h?|a{2,}h?|o{2,}|ö+|u{2,}|ü{2,}|e?h+m+|h[ıiu]m+|m{2,}|ı+h|ee+m|\w?m{3,})$')   # 'tmmm': Whisper's spelling of a long hmm
 SPOKEN = {'şey', 'yani', 'işte', 'hani'}
@@ -96,5 +98,5 @@ def summary(cuts, say=str):
     seconds = sum(b - a for a, b, _ in cuts)
     listed = ', '.join(f'{word} ×{count}' for word, count in sorted(counts.items(), key=lambda kv: -kv[1]))
     return '\n'.join([say('{count} dolgu sözcüğü bulundu (toplam {seconds} sn):').format(
-                          count=len(cuts), seconds=f'{seconds:.1f}'.replace('.', ',')),
+                          count=len(cuts), seconds=decimal(f'{seconds:.1f}', say)),
                       listed, '', say('Kesilsin mi? Beğenmezseniz tek adımda geri alabilirsiniz.')])

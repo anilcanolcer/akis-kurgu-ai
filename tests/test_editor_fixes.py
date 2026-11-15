@@ -208,18 +208,62 @@ class EnglishUiTests(WindowCase):
             self.window.show_inspiration()
         self.assertEqual(seen, [{'language': 'tr'}])
 
-    def test_disabled_controls_say_not_available(self):
+    def test_no_control_says_not_available(self):
+        from PySide6.QtWidgets import QWidget
         w = self.window
-        # Noise reduction and loudness now work (akis.audio_polish); the fade control is still a placeholder.
-        self.assertFalse(w.fade.isEnabled())
-        self.assertIn('(henüz yok)', w.fade.text())
-        self.assertIn('(henüz yok)', w.overlay.placeholderText())
+        w.show()
+        # The whole-video fade and look effects are not rendered: their controls are not shown at all.
+        self.assertTrue(w.fade.isHidden() and w.effect.isHidden())
+        self.assertTrue(w.overlay.isEnabled())
         self.assertTrue(w.noise_reduction.isEnabled())
-        self.assertNotIn('(henüz yok)', w.noise_reduction.text())
-        w.apply_language('en')
-        self.assertIn('(not available yet)', w.fade.text())
+        for code, words in (('tr', 'henüz yok'), ('en', 'not available yet')):
+            w.apply_language(code)
+            shown = [x for x in w.findChildren(QWidget) if x.isVisibleTo(w)]
+            texts = [getattr(x, 'text', lambda: '')() for x in shown if isinstance(getattr(x, 'text', None), type(w.close))]
+            texts += [x.placeholderText() for x in shown if hasattr(x, 'placeholderText')] + [x.toolTip() for x in shown]
+            self.assertFalse([t for t in texts if isinstance(t, str) and words in t], code)
         self.assertEqual(w.noise_reduction.text(), 'Basic noise reduction')
         w.apply_language('tr')
+        w.hide()
+
+    def test_title_field_adds_changes_and_removes_the_opening_title(self):
+        w = self.window
+        w.show_timeline(Timeline(fps_num=30, tracks=[Track('video', 'Video', [Clip('a.mp4', 0, 300)]),
+                                                     Track('text', 'Altyazı / Captions', [Clip('', 0, 60, text='merhaba')])]))
+        w.overlay.setText('  Hafta sonu vlogu ')
+        w.set_title_layer()
+        track, clip = w.title_layer()
+        self.assertEqual((track.name, clip.start, clip.length, clip.text), ('Text', 0, 90, 'Hafta sonu vlogu'))
+        self.assertEqual(len(w.multitrack.tracks), 3)                     # not on the caption track
+        self.assertIn('Başlık videonun başına eklendi', w.status_label.text())
+        w.overlay.setText('Yeni başlık')
+        w.set_title_layer()
+        self.assertEqual(w.title_layer()[1].text, 'Yeni başlık')
+        self.assertEqual(len(track.clips), 1)
+        w.undo()
+        self.assertEqual(w.overlay.text(), 'Hafta sonu vlogu')           # the field follows undo
+        w.overlay.clear()
+        w.set_title_layer()
+        self.assertIsNone(w.title_layer())
+        w.undo()
+        self.assertEqual(w.title_layer()[1].text, 'Hafta sonu vlogu')
+        w.overlay.setText('Hafta sonu vlogu')
+        w.set_title_layer()                                                # unchanged: no extra undo step
+        self.assertEqual(w.title_layer()[1].text, 'Hafta sonu vlogu')
+        # A free text track is reused; the title is kept in a saved project.
+        w.show_timeline(Timeline(fps_num=25, tracks=[Track('video', 'Video', [Clip('a.mp4', 0, 300)]), Track('text', 'Yazı')]))
+        self.assertEqual(w.overlay.text(), '')
+        w.overlay.setText('Başlık')
+        w.set_title_layer()
+        self.assertEqual((len(w.multitrack.tracks), w.title_layer()[0].name, w.title_layer()[1].length), (2, 'Yazı', 75))
+        restored = Timeline.from_dict(w.multitrack.to_dict())
+        self.assertTrue(restored.tracks[1].clips[0].style.get('title_layer'))
+        # Without a video there is nothing to put a title on.
+        w.show_timeline(Timeline(fps_num=30, tracks=[Track('video', 'Video')]))
+        w.overlay.setText('Boş')
+        w.set_title_layer()
+        self.assertIsNone(w.title_layer())
+        self.assertEqual(w.overlay.text(), '')
 
     def test_en_ui_stays_one_to_one(self):
         values = list(i18n.EN_UI.values())

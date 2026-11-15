@@ -5,17 +5,19 @@ sentence; none of them blocks the export (the user may want exactly that), they 
 """
 from pathlib import Path
 
+from akis.i18n import decimal
+
 MIN_GAP_SECONDS = 0.1     # shorter holes are rounding at cut points, not something a viewer notices
 MAX_LISTED = 3
 
 
-def _seconds(frames, fps):
-    return f'{frames / fps:.1f}'.replace('.', ',')
+def _seconds(frames, fps, say=str):
+    return decimal(f'{frames / fps:.1f}', say)
 
 
-def _clock(frames, fps):
+def _clock(frames, fps, say=str):
     total = frames / fps
-    return f'{int(total // 60)}:{total % 60:04.1f}'.replace('.', ',')
+    return decimal(f'{int(total // 60)}:{total % 60:04.1f}', say)
 
 
 def missing_files(timeline, exists=None):
@@ -55,14 +57,14 @@ def check(timeline, *, exists=None, say=str):
     gaps, picture_end = picture_gaps(timeline)
     gaps = [(a, b) for a, b in gaps if (b - a) / fps >= MIN_GAP_SECONDS]
     if gaps and picture_end:
-        places = ', '.join(_clock(a, fps) for a, _ in gaps[:MAX_LISTED]) + (' …' if len(gaps) > MAX_LISTED else '')
+        places = ', '.join(_clock(a, fps, say) for a, _ in gaps[:MAX_LISTED]) + (' …' if len(gaps) > MAX_LISTED else '')
         total = sum(b - a for a, b in gaps)
         findings.append(say('Videoda {count} yerde görüntü yok (toplam {seconds} sn, {places}); buralar siyah görünecek.')
-                        .format(count=len(gaps), seconds=_seconds(total, fps), places=places))
+                        .format(count=len(gaps), seconds=_seconds(total, fps, say), places=places))
     whole = max((clip.end for track in timeline.tracks if not track.muted for clip in track.clips), default=0)
     if picture_end and whole - picture_end >= MIN_GAP_SECONDS * fps:
         findings.append(say('Görüntü bittikten sonra {seconds} sn daha yazı ya da ses sürüyor; '
-                            'bu bölüm siyah ekranla dışa aktarılır.').format(seconds=_seconds(whole - picture_end, fps)))
+                            'bu bölüm siyah ekranla dışa aktarılır.').format(seconds=_seconds(whole - picture_end, fps, say)))
     return findings
 
 

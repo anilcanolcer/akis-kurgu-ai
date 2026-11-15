@@ -1,7 +1,8 @@
 """Creative video ideas (pure Python): hook, shot list and a ready prompt for the prompt-driven editor."""
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
+from akis import inspiration_en
 from akis.template_service import TEMPLATES
 
 _HIK, _URUN, _EGT, _VLOG, _TREND, _SIN = 'Hikâye anlatımı', 'Ürün / tanıtım', 'Eğitim', 'Vlog / günlük', 'Trend / eğlence', 'Sinematik'
@@ -180,15 +181,31 @@ def _fold(text):
     return (text or '').replace('İ', 'i').replace('I', 'ı').lower().replace('ı', 'i')
 
 
-def ideas(category=None, query=''):
+def localized(idea, language='tr'):
+    """The idea with its words in `language` ('tr' or 'en'); key, category, platform and template stay keys."""
+    if idea is None or language != 'en' or idea.key not in inspiration_en.IDEAS:
+        return idea
+    title, hook, description, shots, prompt = inspiration_en.IDEAS[idea.key]
+    return replace(idea, title=title, hook=hook, description=description, shots=tuple(shots), prompt=prompt)
+
+
+def category_label(category, language='tr'):
+    return inspiration_en.CATEGORIES.get(category, category) if language == 'en' else category
+
+
+def ideas(category=None, query='', language='tr'):
+    """Ideas of a category matching `query` (in either language), with their words in `language`."""
     needle = _fold(query).strip()
-    return [idea for idea in IDEAS
-            if (not category or idea.category == category)
-            and (not needle or needle in _fold(f'{idea.title} {idea.hook} {idea.description}'))]
+
+    def words(idea):
+        english = localized(idea, 'en')
+        return _fold(f'{idea.title} {idea.hook} {idea.description} {english.title} {english.hook} {english.description}')
+    return [localized(idea, language) for idea in IDEAS
+            if (not category or idea.category == category) and (not needle or needle in words(idea))]
 
 
-def random_idea(category=None, rng=None):
-    pool = ideas(category)
+def random_idea(category=None, rng=None, language='tr'):
+    pool = ideas(category, language=language)
     return (rng or random).choice(pool) if pool else None
 
 

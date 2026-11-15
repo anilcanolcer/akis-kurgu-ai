@@ -16,6 +16,7 @@ import re
 import subprocess
 
 from akis import clip_fit
+from akis.i18n import decimal
 
 RATIOS = {'9:16': 9 / 16, '16:9': 16 / 9, '1:1': 1.0, '4:5': 4 / 5}
 SAMPLES = 6            # frames looked at
@@ -152,7 +153,7 @@ def describe(found, item, say=str):
         lines.append(say('Ses: yok'))
     else:
         lines.append(say('Ses düzeyi: {lufs} LUFS{levelled}').format(
-            lufs=f"{found['lufs']:.1f}".replace('.', ','),
+            lufs=decimal(f"{found['lufs']:.1f}", say),
             levelled=say(' (eşitlenmiş: ses eşitleme açılacak)') if 'level' in item['audio'] else ''))
     if any(item['color']):
         b, c, s = item['color']
@@ -165,7 +166,7 @@ def describe(found, item, say=str):
     if pace > 0:
         shot = 60 / pace
         lines.append(say('Tempo: dakikada {cuts} kesim (ortalama çekim {shot} sn)').format(
-            cuts=round(pace), shot=f'{shot:.1f}'.replace('.', ',')))
+            cuts=round(pace), shot=decimal(f'{shot:.1f}', say)))
         if shot < 4:
             lines.append(say('Hızlı bir kurgu: “Sessizlikleri çıkar” ve “Dolgu sözcüklerini kes” temposuna yaklaştırır.'))
     else:

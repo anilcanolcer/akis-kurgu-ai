@@ -2,7 +2,7 @@ name: Windows build and tests
 
 on:
   push:
-    branches: ['main', 'experimental/nsis-installer']
+    branches: ['main']
   workflow_dispatch:
 
 permissions:

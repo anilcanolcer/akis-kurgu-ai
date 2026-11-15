@@ -20,6 +20,11 @@ from akis import app_support
 from akis.app_support import APP_NAME, EditState, RECOVERY_DETAIL, RECOVERY_QUESTION, VIDEO_EXTS, log, safe_filename
 
 
+
+def project_name(path) -> str:
+    """'Hafta sonu.akis.json' -> 'Hafta sonu' ('' for no path)."""
+    return Path(path).name.removesuffix('.akis.json').removesuffix('.json') if path else ''
+
 class ProjectMixin:
     """Media and projects: adding videos, saving, opening, autosave and recovery."""
 
@@ -202,6 +207,7 @@ class ProjectMixin:
             QMessageBox.critical(self, APP_NAME, f'Proje kaydedilemedi: {exc}')
             return
         self.project_path = path
+        self.project_title.setText(project_name(path))
         self.mark_saved()
         self.discard_autosave()  # the project file now holds everything the autosave did
         self.set_status(self.ui_text("Proje ve sürüm anlık görüntüsü kaydedildi."))
@@ -298,6 +304,7 @@ class ProjectMixin:
         # The previous project was saved or discarded in confirm_close; never delete the file just recovered.
         self.discard_autosave(keep=load_from if recovered else None)
         self.project_path = project_path
+        self.project_title.setText(project_name(project_path))  # the project's own name, not its video's
         if recovered:
             self._saved_signature = None  # recovered work is not in any saved file yet
             self.set_status(self.ui_text('Kurtarılan çalışma açıldı; kalıcı olması için projeyi kaydedin.'))
@@ -322,8 +329,7 @@ class ProjectMixin:
         self._template_before_video = False
         self.state = EditState()
         self.media_bin.clear()
-        name = Path(project_path).name.removesuffix('.akis.json').removesuffix('.json') if project_path else ''
-        self.project_title.setText(name or self.ui_text('Yeni proje'))
+        self.project_title.setText(project_name(project_path) or self.ui_text('Yeni proje'))
         self.project_subtitle.setText(self.ui_text('Video ekleyerek başlayın'))
         self.timeline_frame = 0
         self.apply_project_state(document)

@@ -615,6 +615,25 @@ EN_UI = {
     "Bu aramaya uygun fikir bulunamadı.": "No ideas match this search.", "Açılış:": "Opening:",
     "Çekim listesi": "Shot list", "Önerilen kurgu isteği": "Suggested edit request", "Uygun şablon:": "Matching template:",
     "Koyu tema": "Dark theme", "Açık tema": "Light theme", "Tema": "Theme", "Görünüm değiştirildi.": "Appearance changed.",
+    # Labels that used to show both languages at once.
+    "Medya ara": "Search media", "Anahtarı güvenli kaydet": "Save key securely", "Stil": "Style", "Odak": "Focus",
+    "Seçili öneriyi işaretlere uygula": "Apply the selected suggestion as markers", "Yerel Whisper": "Local Whisper",
+    "Modeli indir (internet)": "Download the model (internet)",
+    "Yerel model ilk kullanımda indirilmeli; indirme kapalıyken yalnızca önbellek kullanılır.":
+        "The local model has to be downloaded on first use; with downloading off, only the cached model is used.",
+    "Yerel altyazıyı zaman çizelgesine ekle": "Add local captions to the timeline", "Seslendirme metni": "Voice-over text",
+    "Windows sesiyle WAV oluştur": "Create a voice-over with a Windows voice", "Video ekleyin": "Add a video to begin",
+    "Öneri {number}": "Suggestion {number}", "İz ekle": "Add track", "Tür": "Type", "Ses düzeyi (%)": "Volume (%)",
+    "İşareti düzenle": "Edit marker", "Renk seçin veya işareti silin": "Choose a colour or delete the marker",
+    "Otomatik algıla": "Detect automatically", "AI SAĞLAYICI": "AI PROVIDER",
+    "Videonun başında görünecek kısa başlık": "A short title shown at the start of the video",
+    "Enter'a basınca uygulanır; yazıyı silip Enter'a basınca başlık kalkar.": "Applied when you press Enter; clear the text and press Enter to remove the title.",
+    "Başlık, videonun başına 3 saniyelik bir yazı klibi olarak eklenir; zaman çizelgesinde taşıyıp uzatabilirsiniz.":
+        "The title is added as a 3-second text clip at the start of the video; you can move or lengthen it on the timeline.",
+    "Başlık güncellendi.": "Title updated.", "Başlık kaldırıldı.": "Title removed.",
+    "Başlık videonun başına eklendi.": "Title added at the start of the video.",
+    "OYNATMA HIZI": "PLAYBACK SPEED", "ondalık ayırıcı: ,": "decimal separator: .",
+    "Kırmızı": "Red", "Sarı": "Yellow", "Beyaz": "White", "Yeşil": "Green", "Mavi": "Blue", "Pembe": "Pink",
 }
 TR_UI = {english: turkish for turkish, english in EN_UI.items()}
 
@@ -628,9 +647,84 @@ DEFAULT_ASPECT = ASPECTS[0]
 DEFAULT_EXPORT_PROFILE = EXPORT_PROFILES[0]
 
 
+# English texts whose noun and verb change when {count} is 1 (Turkish keeps the noun singular after a number).
+_EN_SINGULAR = {
+    "{count} silent parts will be cut · {before} → {after} ({saved} s shorter)":
+        "{count} silent part will be cut · {before} → {after} ({saved} s shorter)",
+    "{count} silent parts were cut. You can undo it (Ctrl+Z).": "{count} silent part was cut. You can undo it (Ctrl+Z).",
+    "{count} source files cannot be found ({names}); the export will stop because of this.":
+        "{count} source file cannot be found ({names}); the export will stop because of this.",
+    "The video has no picture in {count} places ({seconds} s in total, {places}); these will be black.":
+        "The video has no picture in {count} place ({seconds} s in total, {places}); it will be black.",
+    "{count} clips written.": "{count} clip written.",
+    "{count} text and caption clips were left out.": "{count} text or caption clip was left out.",
+    "{count} transitions were left out.": "{count} transition was left out.",
+    "The speed of {count} clips was left out; they play at normal speed.":
+        "The speed of {count} clip was left out; it plays at normal speed.",
+    "The {total} video will be split into {count} parts: {lengths}": "The {total} video will stay in {count} part: {lengths}",
+    "The {total} video will be split into {count} parts.": "The {total} video will stay in {count} part.",
+    "{count} moments where the voice rises": "{count} moment where the voice rises",
+    "New cut: {count} pieces, about {seconds} s": "New cut: {count} piece, about {seconds} s",
+    "{count} transitions: {names}": "{count} transition: {names}",
+    "{count} on-screen texts: {texts}": "{count} on-screen text: {texts}",
+    "{count} marks (arrow / circle)": "{count} mark (arrow / circle)",
+    "{count} punch-in zooms were removed.": "{count} punch-in zoom was removed.",
+    "{count} punch-in zooms were added. You can undo it (Ctrl+Z).": "{count} punch-in zoom was added. You can undo it (Ctrl+Z).",
+    "{count} cuts were put on the beat. You can undo it (Ctrl+Z).": "{count} cut was put on the beat. You can undo it (Ctrl+Z).",
+    "{count} speakers found:": "{count} speaker found:",
+    "{count} speaker changes were marked.": "{count} speaker change was marked.",
+    "{count} filler words were cut. You can undo this (Ctrl+Z).": "{count} filler word was cut. You can undo this (Ctrl+Z).",
+    "{count} filler words found ({seconds} s in all):": "{count} filler word found ({seconds} s in all):",
+    "{count} retakes were cut. You can undo it (Ctrl+Z).": "{count} retake was cut. You can undo it (Ctrl+Z).",
+    "{count} retakes found; only the last try of each will stay:": "{count} retake found; only its last try will stay:",
+    "{count} caption clips were added.": "{count} caption clip was added.",
+}
+
+
+# Decimal separator: comma in Turkish ("1,5 sn"), point in English ("1.5 s"). Modules that only get a
+# `say` function find it with decimal(value, say).
+DECIMAL_KEY = "ondalık ayırıcı: ,"
+
+
+def decimal(text: str, say=str) -> str:
+    """A number already written with a point ('1.5', '0:03.5'), with the separator of `say`'s language."""
+    return str(text).replace(".", say(DECIMAL_KEY)[-1])
+
+
+class _Counted(str):
+    """An English text that formats with its singular form when count=1 (callers just call .format)."""
+    singular = ""
+
+    def format(self, *args, **values):
+        if values.get("count") == 1:
+            return self.singular.format(*args, **values)
+        return str.format(self, *args, **values)
+
+
 def translate(source: str, code: str) -> str:
     """The text to show for a Turkish source string in language `code` ('tr' or 'en'); whole strings only."""
-    return EN_UI.get(source, source) if code == "en" else source
+    if code != "en":
+        return source
+    text = EN_UI.get(source, source)
+    if text in _EN_SINGULAR:
+        text = _Counted(text)
+        text.singular = _EN_SINGULAR[str(text)]
+    return text
+
+
+# Track names the program itself gives (stored in projects as they are) and how each language shows them.
+TRACK_NAMES = {
+    "Video": ("Video", "Video"), "Audio": ("Ses", "Audio"), "Ses": ("Ses", "Audio"),
+    "Text": ("Yazı", "Text"), "Yazı": ("Yazı", "Text"), "Overlay": ("Katman", "Overlay"),
+    "Altyazı / Captions": ("Altyazı", "Captions"), "Müzik": ("Müzik", "Music"),
+}
+
+
+def track_label(name: str, code: str) -> str:
+    """The name shown on the timeline for a track: built-in names follow the language, the user's own stay."""
+    if name in TRACK_NAMES:
+        return TRACK_NAMES[name][1 if code == "en" else 0]
+    return translate(name, code)
 
 
 def source_of(text: str) -> str:
