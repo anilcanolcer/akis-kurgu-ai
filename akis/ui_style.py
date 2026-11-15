@@ -13,8 +13,8 @@ QLabel#mutedSmall { font-size: 11px; }
 QLabel#sectionLabel { color: $muted; font-size: 10px; font-weight: 700; letter-spacing: 1px; margin-top: 7px; }
 QLabel#mono { font-family: 'Cascadia Mono'; color: $text_soft; }
 QLabel#statusPill { background: $panel; color: $text_soft; border: 1px solid $border; border-radius: 14px; padding: 6px 11px; max-width: 360px; }
-QPushButton { border: 0; border-radius: 9px; padding: 9px 12px; background: $button; text-align: left; }
-QPushButton:hover { background: $button_hover; }
+QPushButton { border: 1px solid $button_border; border-radius: 9px; padding: 8px 12px; background: $button; text-align: left; }
+QPushButton:hover { background: $button_hover; border-color: $border_hover; }
 QPushButton[nav='true'] { background: transparent; color: $text_soft; padding: 10px 12px; }
 QPushButton[nav='true']:hover, QPushButton[active='true'] { background: $accent_bg; color: $text_strong; }
 QPushButton#primary, QPushButton#primaryLarge { background: $accent; color: white; font-weight: 700; text-align: center; }
@@ -23,15 +23,49 @@ QPushButton#primaryLarge { padding: 13px; }
 QPushButton#secondary { border: 1px solid $border_strong; background: $raised; text-align: center; }
 QPushButton#ghost { background: transparent; color: $text_soft; text-align: center; }
 QPushButton#roundButton { border-radius: 20px; background: $accent; text-align: center; padding: 0; }
+QPushButton[nav='true'], QPushButton[nav='true']:hover, QPushButton#ghost, QPushButton#versionTag, QPushButton#primary,
+QPushButton#primary:hover, QPushButton#primaryLarge, QPushButton#primaryLarge:hover, QPushButton#roundButton { border: 0; }
+QPushButton#secondary:hover { border-color: $border_hover; }
+QFrame#segment { background: $raised; border: 1px solid $border; border-radius: 9px; }
+QPushButton#segmentButton { background: transparent; border: 0; border-radius: 7px; padding: 6px 4px; color: $muted; text-align: center; font-weight: 600; }
+QPushButton#segmentButton:hover { color: $text; background: $button_hover; }
+QPushButton#segmentButton:checked { background: $accent_bg; color: $accent_text; }
+QWidget#inspectorPage { background: $surface; }
 QFrame#editor { background: $surface; border: 1px solid $border; border-radius: 14px; }
 QFrame#privacyCard { background: $panel; border: 1px solid $border; border-radius: 10px; }
 QLabel#localTitle { color: $success; font-weight: 600; }
 QPushButton#versionTag { background: transparent; color: $faint; font-size: 11px; padding: 4px 2px; text-align: left; }
 QPushButton#versionTag:hover { color: $accent_text; text-decoration: underline; }
 QVideoWidget#video { background: $video_bg; border-radius: 10px; }
-QLineEdit, QPlainTextEdit, QComboBox, QDoubleSpinBox { background: $field; border: 1px solid $border_strong; border-radius: 8px; padding: 8px; selection-background-color: $accent; }
-QLineEdit:focus, QPlainTextEdit:focus, QComboBox:focus, QDoubleSpinBox:focus { border: 1px solid $accent_line; }
+QLineEdit, QPlainTextEdit, QComboBox, QAbstractSpinBox { background: $field; border: 1px solid $border_strong; border-radius: 8px; padding: 8px; selection-background-color: $accent; }
+QLineEdit:focus, QPlainTextEdit:focus, QComboBox:focus, QAbstractSpinBox:focus { border: 1px solid $accent_line; }
+QComboBox { padding-right: 28px; }
+QComboBox::drop-down { subcontrol-origin: padding; subcontrol-position: center right; width: 26px; border: 0; background: transparent; }
+QComboBox::down-arrow { image: url($down_mark); width: 11px; height: 11px; }
+QAbstractSpinBox { padding-right: 24px; }
+QAbstractSpinBox::up-button, QAbstractSpinBox::down-button { subcontrol-origin: border; width: 22px; border: 0; background: transparent; }
+QAbstractSpinBox::up-button { subcontrol-position: top right; }
+QAbstractSpinBox::down-button { subcontrol-position: bottom right; }
+QAbstractSpinBox::up-button:hover, QAbstractSpinBox::down-button:hover { background: $button_hover; border-radius: 6px; }
+QAbstractSpinBox::up-arrow { image: url($up_mark); width: 9px; height: 9px; }
+QAbstractSpinBox::down-arrow { image: url($down_mark); width: 9px; height: 9px; }
+QCheckBox, QRadioButton { spacing: 9px; }
+QCheckBox::indicator { width: 16px; height: 16px; }
+QRadioButton::indicator { width: 14px; height: 14px; }
+QCheckBox::indicator { border: 1px solid $border_hover; border-radius: 5px; background: $field; }
+QCheckBox::indicator:hover, QRadioButton::indicator:hover { border-color: $accent_line; }
+QCheckBox::indicator:checked { background: $accent; border-color: $accent; image: url($check_mark); }
+QCheckBox::indicator:disabled, QRadioButton::indicator:disabled { background: $disabled; border-color: $border; }
+QCheckBox::indicator:checked:disabled { background: $disabled_text; border-color: $disabled_text; }
+QRadioButton::indicator { border: 1px solid $border_hover; border-radius: 8px; background: $field; }
+QRadioButton::indicator:checked { border-color: $accent; background: qradialgradient(cx: 0.5, cy: 0.5, radius: 0.5, fx: 0.5, fy: 0.5, stop: 0 white, stop: 0.38 white, stop: 0.44 $accent, stop: 1 $accent); }
 QPlainTextEdit { line-height: 1.35; }
+QDialog { background: $surface; }
+QListWidget, QTableWidget, QTreeWidget { background: $field; border: 1px solid $border_strong; border-radius: 8px; outline: 0; }
+QListWidget::item, QTableWidget::item { padding: 4px; }
+QListWidget::item:selected, QTableWidget::item:selected { background: $accent_bg; color: $text_strong; }
+QHeaderView::section { background: $raised; color: $muted; border: 0; border-bottom: 1px solid $border; padding: 6px 8px; font-weight: 600; }
+QTableCornerButton::section { background: $raised; border: 0; }
 QListWidget#mediaList { background: transparent; border: 0; outline: 0; }
 QListWidget#mediaList::item { background: $panel; border-radius: 8px; padding: 9px; margin-bottom: 5px; }
 QTabWidget::pane { background: $surface; border: 1px solid $border; border-radius: 12px; top: -1px; }

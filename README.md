@@ -97,7 +97,7 @@ Talking-head videos, tutorials, vlogs and Shorts take hours of repetitive work: 
 
 ### Comfort and safety
 
-- Dark and light themes; a complete Turkish and English interface (Inspiration ideas included).
+- Dark and light themes, switched from the sidebar; Turkish and English interface (Inspiration ideas included).
 - Autosave and crash recovery, project snapshots.
 - In-app updates that verify the installer's SHA-256 checksum and restore the previous version if anything fails.
 - Proxy files in the background for smooth playback, chunked preview rendering for long edits, HDR (PQ/HLG) sources tone-mapped to SDR.
@@ -112,7 +112,7 @@ Talking-head videos, tutorials, vlogs and Shorts take hours of repetitive work: 
 | **Split into Shorts** | **Inspiration** |
 | ![Shorts dialog splitting a 41-second video into three parts with titles](docs/screenshots/shorts-en.png) | ![Inspiration gallery with an idea, its shot list and matching template](docs/screenshots/inspiration-en.png) |
 
-*Screenshots are taken from the real application (version 0.6.2). The sample clips are colour gradients generated with FFmpeg and the speech is a Windows text-to-speech voice.*
+*Screenshots are taken from the real application (version 0.6.3). The sample clips are colour gradients generated with FFmpeg and the speech is a Windows text-to-speech voice.*
 
 ## Installation
 
@@ -179,6 +179,7 @@ AI features are optional. Choose a provider in the AI tab and enter **your own A
 - A local Whisper transcription or Windows voice-over cannot be cancelled once started.
 - No keyframe editor, export queue or advanced colour grading yet.
 - No account sync or direct publishing to social platforms.
+- Story Studio is in Turkish only for now; the rest of the interface is translated into English.
 
 ## Building from source
 

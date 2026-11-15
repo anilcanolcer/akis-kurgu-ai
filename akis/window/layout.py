@@ -13,6 +13,7 @@ from akis import word_captions
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QCheckBox,
     QComboBox,
     QFormLayout,
@@ -113,17 +114,21 @@ class LayoutMixin:
         add.setObjectName("secondary")
         add.clicked.connect(self.choose_video)
         v.addWidget(add)
-        record = QPushButton("⏺  Kayıt al")
+        record = QPushButton("  Kayıt al")
+        self.record_button = record
         record.setObjectName("secondary")
         record.setToolTip("Kameradan, ekrandan ya da mikrofondan kayıt alıp projeye ekler.")
         record.clicked.connect(self.record_media)
         v.addWidget(record)
+        # Language and theme are two segmented switches. The combos behind them stay the source of truth
+        # (settings, translation and scripts use them) but are not shown.
         self.language = QComboBox()
         self.language.addItem("Türkçe", "tr")
         self.language.addItem("English", "en")
         selected_language = self.startup_language()
         self.language.setCurrentIndex(0 if selected_language == "tr" else 1)
         self.language.currentIndexChanged.connect(self.change_language)
+        self.language.hide()
         v.addWidget(self.language)
         self.theme_box = QComboBox()
         self.theme_box.setProperty("i18n_keyed", True)
@@ -132,7 +137,14 @@ class LayoutMixin:
         self.theme_box.setCurrentIndex(list(theme.LABELS).index(theme.current()))
         self.theme_box.setAccessibleName("Tema")
         self.theme_box.currentIndexChanged.connect(self.change_theme)
+        self.theme_box.hide()
         v.addWidget(self.theme_box)
+        v.addSpacing(4)
+        self.language_switch = self.segmented(self.language, ["Türkçe", "English"], "Arayüz dili", translate=False)
+        v.addWidget(self.language_switch)
+        self.theme_switch = self.segmented(self.theme_box, ["Koyu", "Açık"], "Görünüm")
+        v.addWidget(self.theme_switch)
+        self.paint_switch_icons()
         v.addSpacing(6)
 
         local = QFrame()
@@ -372,7 +384,43 @@ class LayoutMixin:
         layout.addWidget(self.tabs)
         return wrapper
 
+    def segmented(self, combo: QComboBox, labels, name: str, translate: bool = True) -> QFrame:
+        """A row of exclusive buttons driving `combo` (one per item) and following it when code changes it."""
+        frame = QFrame()
+        frame.setObjectName("segment")
+        frame.setAccessibleName(name)
+        frame.setToolTip(name)
+        row = QHBoxLayout(frame)
+        row.setContentsMargins(3, 3, 3, 3)
+        row.setSpacing(3)
+        group = QButtonGroup(frame)
+        group.setExclusive(True)
+        for index, label in enumerate(labels):
+            button = QPushButton(label)
+            button.setObjectName("segmentButton")
+            button.setCheckable(True)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            if not translate:
+                button.setProperty("i18n_skip", True)   # language names are written in their own language
+            group.addButton(button, index)
+            row.addWidget(button, 1)
+        group.button(max(0, combo.currentIndex())).setChecked(True)
+        group.idClicked.connect(combo.setCurrentIndex)
+        combo.currentIndexChanged.connect(lambda index: group.button(index) and group.button(index).setChecked(True))
+        frame.group = group
+        combo.setProperty("switch_group", group)
+        return frame
+
+    def paint_switch_icons(self) -> None:
+        """Moon and sun on the theme switch, in the theme's own colours (painted again on a theme change)."""
+        from akis import switch_icons
+        self.record_button.setIcon(switch_icons.dot(theme.hex_('cut')))
+        dark, light = self.theme_switch.group.buttons()
+        dark.setIcon(switch_icons.moon(theme.hex_('accent_text' if dark.isChecked() else 'muted')))
+        light.setIcon(switch_icons.sun(theme.hex_('accent_text' if light.isChecked() else 'muted')))
+
     def scroll_page(self, content: QWidget) -> QScrollArea:
+        content.setObjectName("inspectorPage")
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -393,7 +441,7 @@ class LayoutMixin:
         desc.setObjectName("muted")
         v.addWidget(desc)
 
-        v.addWidget(self.section("İSTEĞİNİZ / PROMPT"))
+        v.addWidget(self.section("İSTEĞİNİZ"))
         self.ai_prompt = QPlainTextEdit()
         self.ai_prompt.setPlaceholderText("Örn. Sessizlikleri at, sahneler arasına geçiş koy, en komik ana ok ve daire ekle, başa dikkat çekici bir yazı yaz.")
         self.ai_prompt.setFixedHeight(112)

@@ -13,49 +13,50 @@ LABELS = {'dark': 'Koyu tema', 'light': 'Açık tema'}
 
 #            role               dark       light
 _ROLES = (
-    ('bg',                '#0d0e12', '#eceef2'),   # the window
-    ('surface',           '#111218', '#f6f7f9'),   # sidebar, editor, tab pages, timeline
-    ('panel',             '#171921', '#eef0f4'),   # cards inside a surface
-    ('field',             '#171920', '#fbfbfc'),   # text boxes, combo boxes, filter buttons
-    ('raised',            '#1d1f29', '#e5e8ee'),   # chips, secondary buttons, timeline track rows
-    ('button',            '#20222c', '#e3e6ed'),
-    ('button_hover',      '#292c38', '#d8dce5'),
-    ('border',            '#252733', '#d9dce4'),
-    ('border_strong',     '#303340', '#c9ccd7'),
-    ('border_hover',      '#3a3e4e', '#b2b6c4'),
-    ('text',              '#f3f4f8', '#1b1d26'),
-    ('text_strong',       '#ffffff', '#0d0e12'),   # selected tab, active nav item
-    ('text_soft',         '#b8bbca', '#454959'),
-    ('muted',             '#9195a7', '#626678'),
-    ('faint',             '#7d8194', '#8a8ea0'),
-    ('accent',            '#7357f5', '#7357f5'),   # primary buttons: white text in both themes
-    ('accent_hover',      '#876eff', '#6447ea'),
+    ('bg',                '#0d0e12', '#e4e6ea'),   # the window
+    ('surface',           '#111218', '#f7f8fa'),   # sidebar, editor, tab pages, timeline
+    ('panel',             '#171921', '#eef0f3'),   # cards inside a surface
+    ('field',             '#171920', '#fcfcfd'),   # text boxes, combo boxes, filter buttons
+    ('raised',            '#1d1f29', '#eceef2'),   # chips, secondary buttons, timeline track rows
+    ('button',            '#20222c', '#fcfcfd'),
+    ('button_border',     '#20222c', '#cbcfd7'),   # plain buttons: invisible in dark, a frame in light
+    ('button_hover',      '#292c38', '#f1f3f6'),
+    ('border',            '#252733', '#dcdfe5'),
+    ('border_strong',     '#303340', '#cbcfd7'),
+    ('border_hover',      '#3a3e4e', '#a9afbc'),
+    ('text',              '#f3f4f8', '#252830'),
+    ('text_strong',       '#ffffff', '#111318'),   # selected tab, active nav item
+    ('text_soft',         '#b8bbca', '#434856'),
+    ('muted',             '#9195a7', '#626875'),
+    ('faint',             '#7d8194', '#878c98'),
+    ('accent',            '#7357f5', '#6a4ff0'),   # primary buttons: white text in both themes
+    ('accent_hover',      '#876eff', '#5a3fe2'),
     ('accent_line',       '#8f78ff', '#6a4ff0'),   # selection borders, slider, progress
-    ('accent_text',       '#b4a6ff', '#5b3fe0'),   # accent coloured text and focus rings
-    ('accent_bg',         '#241f3d', '#e9e4ff'),   # selected list item, checked filter, active nav
-    ('disabled',          '#2a2c38', '#e3e5eb'),
-    ('disabled_text',     '#777b8c', '#9a9eae'),
+    ('accent_text',       '#b4a6ff', '#4e33d0'),   # accent coloured text and focus rings
+    ('accent_bg',         '#241f3d', '#e9e5fc'),   # selected list item, checked filter, active nav
+    ('disabled',          '#2a2c38', '#eceef1'),
+    ('disabled_text',     '#777b8c', '#9da2ad'),
     ('success',           '#74d9ac', '#1d8a5b'),
     ('notice_bg',         '#1f1b12', '#fff6df'),
     ('notice_border',     '#4a3c1c', '#ecd394'),
     ('notice_text',       '#f0cf8e', '#7a5810'),
-    ('tooltip',           '#232631', '#fbfbfc'),
-    ('video_bg',          '#08090c', '#d7dae1'),   # behind the picture: a soft grey stage in the light theme
-    ('video_text',        '#9195a7', '#5b6072'),
+    ('tooltip',           '#232631', '#fcfcfd'),
+    ('video_bg',          '#08090c', '#1f2127'),   # behind the picture: dark in both, as in video editors
+    ('video_text',        '#9195a7', '#b5b9c5'),
     ('video_caption',     '#e8e9f0', '#e8e9f0'),
-    ('track_video',       '#5a49a8', '#7d6ad6'),
-    ('track_audio',       '#257e77', '#3ea59c'),
-    ('track_text',        '#a55a83', '#c2709d'),
-    ('track_overlay',     '#9c703c', '#c08d4f'),
+    ('track_video',       '#5a49a8', '#7462cc'),
+    ('track_audio',       '#257e77', '#33958c'),
+    ('track_text',        '#a55a83', '#b56891'),
+    ('track_overlay',     '#9c703c', '#b18143'),
     ('clip_text',         '#ffffff', '#ffffff'),
-    ('clip_edge',         '#282a37', '#9ea2b3'),
+    ('clip_edge',         '#282a37', '#f7f8fa'),
     ('clip_selected',     '#ffffff', '#1b1d26'),
-    ('waveform',          '#a4e3db', '#e6fbf8'),
+    ('waveform',          '#a4e3db', '#e6f9f6'),
     ('marker',            '#ffcd5a', '#d99a00'),
     ('playhead',          '#ff4fa3', '#e8247f'),
     ('kept',              '#2f9e6e', '#2f9e6e'),
     ('cut',               '#d6453d', '#d6453d'),
-    ('empty',             '#2a2f37', '#d6d9e1'),
+    ('empty',             '#2a2f37', '#e0e3e8'),
     ('kind_video',        '#8f78ff', '#6a4ff0'),
     ('kind_audio',        '#4fc79a', '#1f9a6c'),
     ('kind_text',         '#f0b657', '#b77c12'),
@@ -92,9 +93,42 @@ def color(role, name=None) -> QColor:
     return QColor(hex_(role, name))
 
 
+def _mark(kind, colour) -> str:
+    """Path of a small PNG drawn for stylesheets: 'check', 'down' or 'up' in `colour` (made once, then reused).
+
+    Check boxes, combo arrows and spin buttons are drawn from these instead of the style's own, which a
+    stylesheet leaves without a frame or an arrow."""
+    import tempfile
+    from pathlib import Path
+    from PySide6.QtCore import QPointF, Qt
+    from PySide6.QtGui import QImage, QPainter, QPen
+    folder = Path(tempfile.gettempdir()) / 'akis-ui-marks'
+    path = folder / f'{kind}-{colour.lstrip("#")}.png'
+    if not path.exists():
+        folder.mkdir(parents=True, exist_ok=True)
+        image = QImage(32, 32, QImage.Format.Format_ARGB32)
+        image.fill(Qt.GlobalColor.transparent)
+        p = QPainter(image)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        pen = QPen(QColor(colour), 4.2 if kind == 'check' else 3.6)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        p.setPen(pen)
+        points = {'check': ((7, 16.5), (13.5, 23), (25, 9.5)), 'down': ((9, 12), (16, 20), (23, 12)),
+                  'up': ((9, 20), (16, 12), (23, 20))}[kind]
+        p.drawPolyline([QPointF(x, y) for x, y in points])
+        p.end()
+        image.save(str(path))
+    return path.as_posix()
+
+
 def css(template, name=None) -> str:
-    """A stylesheet with its `$role` names filled in. Unknown names fail loudly instead of painting black."""
-    return Template(template).substitute(palette(name))
+    """A stylesheet with its `$role` names filled in. Unknown names fail loudly instead of painting black.
+
+    Besides the colour roles, $check_mark, $down_mark and $up_mark name the drawn marks (see _mark)."""
+    colours = palette(name)
+    return Template(template).substitute(colours, check_mark=_mark('check', '#ffffff'),
+                                         down_mark=_mark('down', colours['muted']), up_mark=_mark('up', colours['muted']))
 
 
 def qt_palette(name=None):

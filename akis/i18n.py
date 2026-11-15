@@ -24,12 +24,12 @@ EN_UI = {
     "Ne istediğini yaz.\nAkış kurgulasın.": "Say what you want.\nAkış edits it.",
     "Videoyu keser, yeniden dizer; geçiş, ok ve daire, yazı, renk ve hız ekler. Beğenmezseniz tek tıkla geri alın.":
         "Cuts and reorders the video; adds transitions, arrows and circles, text, colour and speed. Undo in one click.",
-    "İSTEĞİNİZ / PROMPT": "YOUR PROMPT", "✦  Prompt ile kurgula": "✦  Edit from prompt",
+    "İSTEĞİNİZ": "YOUR PROMPT", "✦  Prompt ile kurgula": "✦  Edit from prompt",
     "↶  AI kurgusunu geri al": "↶  Undo AI edit", "Öneri al": "Get suggestions",
     "↶  Son adımı geri al": "↶  Undo last step", "↶ Geri al": "↶ Undo", "↷ Yinele": "↷ Redo",
     "İptal": "Cancel",
     "KONUŞMA METNİ": "TRANSCRIPT",
-    "⏺  Kayıt al": "⏺  Record", "Kameradan, ekrandan ya da mikrofondan kayıt alıp projeye ekler.": "Records from a camera, a screen or the microphone and adds it to the project.",
+    "  Kayıt al": "  Record", "Kameradan, ekrandan ya da mikrofondan kayıt alıp projeye ekler.": "Records from a camera, a screen or the microphone and adds it to the project.",
     "Kayıt": "Recording", "Kaynak": "Source", "Mikrofon": "Microphone", "Mikrofon yok": "No microphone",
     "Kamera: {name}": "Camera: {name}", "Ekran: {name}": "Screen: {name}", "Yalnız ses (mikrofon)": "Sound only (microphone)",
     "Kameradan, ekrandan ya da yalnız mikrofondan kayıt alın; kayıt bitince projeye eklenir. Kayıt bilgisayarınızda kalır.":
@@ -632,6 +632,7 @@ EN_UI = {
         "The title is added as a 3-second text clip at the start of the video; you can move or lengthen it on the timeline.",
     "Başlık güncellendi.": "Title updated.", "Başlık kaldırıldı.": "Title removed.",
     "Başlık videonun başına eklendi.": "Title added at the start of the video.",
+    "Koyu": "Dark", "Açık": "Light", "Arayüz dili": "Interface language", "Görünüm": "Appearance",
     "OYNATMA HIZI": "PLAYBACK SPEED", "ondalık ayırıcı: ,": "decimal separator: .",
     "Kırmızı": "Red", "Sarı": "Yellow", "Beyaz": "White", "Yeşil": "Green", "Mavi": "Blue", "Pembe": "Pink",
 }

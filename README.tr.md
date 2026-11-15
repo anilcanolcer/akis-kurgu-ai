@@ -97,7 +97,7 @@ Konuşma videoları, eğitimler, vloglar ve Shorts saatlerce tekrar eden iş ist
 
 ### Rahatlık ve güvenlik
 
-- Koyu ve açık tema; İlham fikirleri dahil eksiksiz Türkçe ve İngilizce arayüz.
+- Kenar çubuğundan seçilen koyu ve açık tema; İlham fikirleri dahil Türkçe ve İngilizce arayüz.
 - Otomatik kayıt, çökme sonrası kurtarma ve proje sürümleri.
 - Uygulama içinden güncelleme: kurucunun SHA-256 özeti doğrulanır, bir sorun olursa eski sürüm geri yüklenir.
 - Akıcı oynatma için arka planda proxy, uzun kurgularda parçalı önizleme, HDR (PQ/HLG) kaynaklarda SDR'ye ton eşleme.
@@ -112,7 +112,7 @@ Konuşma videoları, eğitimler, vloglar ve Shorts saatlerce tekrar eden iş ist
 | **Kayıt al** | **Shorts'a böl** |
 | ![Ekran kaynağı seçili kayıt penceresi](docs/screenshots/record-tr.png) | ![41 saniyelik videoyu başlıklı üç parçaya bölen Shorts penceresi](docs/screenshots/shorts-tr.png) |
 
-*Görüntüler uygulamanın gerçek arayüzünden alınmıştır (sürüm 0.6.2). Örnek klipler FFmpeg ile üretilmiş renk geçişleridir; konuşma Windows'un metinden seslendirme sesidir.*
+*Görüntüler uygulamanın gerçek arayüzünden alınmıştır (sürüm 0.6.3). Örnek klipler FFmpeg ile üretilmiş renk geçişleridir; konuşma Windows'un metinden seslendirme sesidir.*
 
 ## Kurulum
 
@@ -179,6 +179,7 @@ AI özellikleri isteğe bağlıdır. AI sekmesinde sağlayıcıyı seçip **kend
 - Yerel Whisper dökümü ve Windows seslendirmesi başladıktan sonra iptal edilemez.
 - Henüz keyframe düzenleyici, dışa aktarma kuyruğu ve gelişmiş renk araçları yoktur.
 - Hesap eşitleme ya da sosyal platformlara doğrudan yayınlama yoktur.
+- Hikâye Stüdyosu şimdilik yalnızca Türkçedir; arayüzün geri kalanı İngilizceye çevrilmiştir.
 
 ## Kaynak koddan derleme
 

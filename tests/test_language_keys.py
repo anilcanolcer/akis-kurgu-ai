@@ -152,6 +152,8 @@ class LanguageTests(WindowCase):
         w.apply_language('tr')
         self.assertEqual(w.speech_language.itemText(w.speech_language.findData('auto')), 'Otomatik algıla')
         self.assertEqual(w.media_search.placeholderText(), 'Medya ara')
+        from PySide6.QtWidgets import QLabel
+        self.assertIn('İSTEĞİNİZ', [label.text() for label in w.findChildren(QLabel)])   # Turkish only, no '/ PROMPT'
 
     def test_placeholder_header_follows_language_until_a_video_is_loaded(self):
         w = self.window

@@ -170,7 +170,7 @@ class MainWindow(LayoutMixin, PlaybackMixin, TimelineEditMixin, ProjectMixin, As
         self.proxy_timer.setSingleShot(True)
         self.proxy_timer.setInterval(900)
         self.proxy_timer.timeout.connect(self.prepare_proxy)
-        self.settings = QSettings(ORG_NAME, APP_NAME)
+        self.settings = user_settings()
         self.project_path = ""
         self._saved_signature = None  # project contents as last saved or opened
         self._close_confirmed = False
@@ -449,9 +449,22 @@ class MainWindow(LayoutMixin, PlaybackMixin, TimelineEditMixin, ProjectMixin, As
         """The language the UI is shown in: the one apply_language last used, which messages and dialogs follow."""
         return getattr(self, "_ui_language", None) or self.language.currentData() or "tr"
 
+    @staticmethod
+    def show_choice(combo, index) -> None:
+        """Point a sidebar switch's combo at `index` without acting on it (the caller applies the choice)."""
+        if index < 0 or combo.currentIndex() == index:
+            return
+        blocked = combo.blockSignals(True)
+        combo.setCurrentIndex(index)
+        combo.blockSignals(blocked)
+        switch = combo.property("switch_group")
+        if switch is not None and switch.button(index) is not None:
+            switch.button(index).setChecked(True)
+
     def apply_language(self, code: str) -> None:
         """Show the UI in `code` ('tr' or 'en'). User content and saved values are never changed."""
         self._ui_language = code if code in ("tr", "en") else "tr"
+        self.show_choice(self.language, self.language.findData(self._ui_language))
         i18n.use_qt_language(self._ui_language)  # Qt's own buttons (Yes/No, Cancel, Save…) follow the UI
         for widget in self.findChildren(QWidget):
             if widget.property("i18n_skip"):
@@ -489,6 +502,10 @@ class MainWindow(LayoutMixin, PlaybackMixin, TimelineEditMixin, ProjectMixin, As
         self.tts_voice.setToolTip(i18n.translate("Seslendirmeyi okuyacak Windows sesi. Yeni ses dili Windows Ayarları › "
                                                  "Zaman ve dil › Konuşma bölümünden eklenir.", code))
         self.refresh_privacy()  # otherwise it changes language only on the next tick
+        # A status message written before the switch follows it when it is a fixed, known sentence.
+        source = i18n.source_of(self.status_label.text())
+        if source in i18n.EN_UI:
+            self.set_status(i18n.translate(source, code))
         self.multitrack_view.language = self._ui_language
         self.multitrack_view.update()
         self.video.placeholder = i18n.translate("Video ekleyin", code)
@@ -509,12 +526,14 @@ class MainWindow(LayoutMixin, PlaybackMixin, TimelineEditMixin, ProjectMixin, As
     def apply_theme(self, name) -> None:
         """Dark or light: the stylesheets are set again from akis.theme and the painted widgets repaint."""
         name = theme.set_current(name)
+        self.show_choice(self.theme_box, list(theme.LABELS).index(name))
         app = QApplication.instance()
         if app is not None:
             app.setPalette(theme.qt_palette())
             app.setStyleSheet(theme.css(STYLE))
         self.start_panel.restyle()
         self.paint_brand()
+        self.paint_switch_icons()
         for widget in self.findChildren(QWidget):
             QWidget.update(widget)  # some subclasses (QListWidget) overload update()
 
@@ -626,13 +645,20 @@ def startup_file(argv) -> str:
     return ''
 
 
+def user_settings() -> QSettings:
+    """The user's saved choices (language, theme, window size…). AKIS_SETTINGS_FILE points tests and scripted
+    runs at a scratch INI file, so they never read or overwrite the choices of the person using the computer."""
+    scratch = os.environ.get("AKIS_SETTINGS_FILE")
+    return QSettings(scratch, QSettings.Format.IniFormat) if scratch else QSettings(ORG_NAME, APP_NAME)
+
+
 def main() -> int:
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     app.setOrganizationName(ORG_NAME)
     app.setStyle("Fusion")
-    theme.set_current(QSettings(ORG_NAME, APP_NAME).value("theme", theme.DEFAULT))
+    theme.set_current(user_settings().value("theme", theme.DEFAULT))
     app.setPalette(theme.qt_palette())
     app.setStyleSheet(theme.css(STYLE))
     try:

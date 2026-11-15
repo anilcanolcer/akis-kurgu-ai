@@ -41,7 +41,7 @@ class ProjectMixin:
             self.add_video(path)
 
     def record_media(self) -> None:
-        """⏺ Kayıt al: record from a camera, a screen or the microphone (akis.record_dialog) and add it:
+        """Kayıt al: record from a camera, a screen or the microphone (akis.record_dialog) and add it:
         a video like "Video ekle" does, sound only at the playhead on a voiceover track (one undo step)."""
         from akis.record_dialog import RecordDialog
         try:

@@ -201,9 +201,10 @@ class WindowTests(unittest.TestCase):
     def test_button_in_the_sidebar(self):
         from PySide6.QtWidgets import QPushButton
         w = self.window
-        self.assertIn('⏺  Kayıt al', [b.text() for b in w.findChildren(QPushButton)])
+        self.assertIn('  Kayıt al', [b.text() for b in w.findChildren(QPushButton)])
+        self.assertFalse(w.record_button.icon().isNull())             # a painted mark, not an emoji
         w.apply_language('en')
-        self.assertIn('⏺  Record', [b.text() for b in w.findChildren(QPushButton)])
+        self.assertIn('  Record', [b.text() for b in w.findChildren(QPushButton)])
 
 
 if __name__ == '__main__':

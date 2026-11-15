@@ -107,6 +107,34 @@ class WindowTests(unittest.TestCase):
         w.apply_language('tr')
         self.assertEqual(w.theme_box.itemText(1), 'Açık tema')
 
+    def test_sidebar_switches_choose_theme_and_language_and_follow_code(self):
+        w = self.window
+        # Clicking below saves choices: they must land in the tests' scratch file, not the user's settings.
+        self.assertEqual(Path(w.settings.fileName()), Path(os.environ['AKIS_SETTINGS_FILE']))
+        self.assertTrue(w.theme_box.isHidden() and w.language.isHidden())           # the switches replace the combos
+        dark, light = w.theme_switch.group.buttons()
+        turkish, english = w.language_switch.group.buttons()
+        self.assertEqual([b.text() for b in (dark, light)], ['Koyu', 'Açık'])
+        self.assertFalse(dark.icon().isNull() or light.icon().isNull())
+        light.click()
+        self.assertEqual((theme.current(), w.settings.value('theme'), w.theme_box.currentIndex()), ('light', 'light', 1))
+        self.assertTrue(light.isChecked() and not dark.isChecked())
+        w.apply_theme('dark')                                    # code changing the theme moves the switch too
+        self.assertTrue(dark.isChecked())
+        english.click()
+        self.assertEqual((w.ui_language(), w.language.currentData()), ('en', 'en'))
+        self.assertEqual([b.text() for b in (dark, light)], ['Dark', 'Light'])
+        self.assertEqual([b.text() for b in (turkish, english)], ['Türkçe', 'English'])   # names stay in their language
+        w.apply_language('tr')
+        self.assertTrue(turkish.isChecked())
+        w.set_status(w.ui_text('Görünüm değiştirildi.'))
+        w.apply_language('en')
+        self.assertEqual(w.status_label.text(), 'Appearance changed.')            # a fixed message follows the switch
+        w.apply_language('tr')
+        self.assertEqual(w.status_label.text(), 'Görünüm değiştirildi.')
+        self.assertEqual(w.language.currentData(), 'tr')
+        w.settings.remove('language')
+
 
 if __name__ == '__main__':
     unittest.main()
