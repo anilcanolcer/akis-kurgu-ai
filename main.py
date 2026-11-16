@@ -215,7 +215,8 @@ class MainWindow(LayoutMixin, PlaybackMixin, TimelineEditMixin, ProjectMixin, As
         self.redo_action.triggered.connect(self.redo)
         # Ctrl shortcuts work everywhere; Space and Delete stand back while a text field has focus.
         self.shortcut_actions = {}
-        for keys, slot in (("Ctrl+S", "save_project"), ("Ctrl+O", "open_project"),
+        for keys, slot in (("Ctrl+S", "save_project"), ("Ctrl+Shift+S", "save_project_as"),
+                           ("Ctrl+O", "open_project"),
                            ("Ctrl+E", "export_video"), ("Space", "shortcut_play"),
                            ("Delete", "shortcut_delete")):
             action = QAction(self)
@@ -397,7 +398,7 @@ class MainWindow(LayoutMixin, PlaybackMixin, TimelineEditMixin, ProjectMixin, As
         thread.requestInterruption()
         if not thread.wait(THREAD_STOP_WAIT_MS):
             log.info("Arka plan işi %s ms içinde durmadı; kapanışta beklenecek", THREAD_STOP_WAIT_MS)
-            _background_threads.append(thread)
+            app_support.retain_background_thread(thread)
 
     def stop_workers(self) -> None:
         """At close: cancel every editing worker (killing its FFmpeg) and wait a bounded time for each.
@@ -501,6 +502,8 @@ class MainWindow(LayoutMixin, PlaybackMixin, TimelineEditMixin, ProjectMixin, As
         self.speech_language.setToolTip(i18n.translate("Altyazı ve konuşma metni bu dilde çözümlenir.", code))
         self.tts_voice.setToolTip(i18n.translate("Seslendirmeyi okuyacak Windows sesi. Yeni ses dili Windows Ayarları › "
                                                  "Zaman ve dil › Konuşma bölümünden eklenir.", code))
+        if self.story_dialog is not None:
+            self.story_dialog.apply_language(self._ui_language)
         self.refresh_privacy()  # otherwise it changes language only on the next tick
         # A status message written before the switch follows it when it is a fixed, known sentence.
         source = i18n.source_of(self.status_label.text())
@@ -618,8 +621,7 @@ class MainWindow(LayoutMixin, PlaybackMixin, TimelineEditMixin, ProjectMixin, As
                 return False
             return bool(self.open_project_file(str(file)))
         if suffix in VIDEO_EXTS:
-            self.add_video(str(file))
-            return True
+            return bool(self.add_video(str(file)))
         self.set_status(self.ui_text('Bu dosya türü açılamıyor: {name}', name=file.name))
         return False
 

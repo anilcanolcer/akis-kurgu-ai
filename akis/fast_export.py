@@ -14,7 +14,7 @@ from PySide6.QtCore import QThread, Signal
 
 from akis.media_service import MediaService, RenderCancelled
 from akis.timeline_model import Timeline
-from akis.timeline_render import output_overwrites_source, partial_output_path
+from akis.timeline_render import export_failure, output_overwrites_source, partial_output_path
 
 COPYABLE = ('.mp4', '.mov', '.m4v')   # containers whose streams go into an .mp4 unchanged
 QUESTION = ('Bu kurgu yalnızca kesimlerden oluşuyor. Yeniden kodlamadan, hızlı dışa aktarılsın mı?\n\n'
@@ -97,10 +97,11 @@ class FastExportWorker(QThread):
     cancelled = Signal()
     progress = Signal(int)
 
-    def __init__(self, timeline, pieces, output, executable):
+    def __init__(self, timeline, pieces, output, executable, say=str):
         super().__init__()
         self.timeline = Timeline.from_dict(timeline.to_dict())
         self.pieces, self.output = list(pieces), output
+        self.say = say
         self.media = MediaService(executable)
 
     def cancel(self):
@@ -118,4 +119,4 @@ class FastExportWorker(QThread):
             if self.media.cancelled:
                 self.cancelled.emit()
             else:
-                self.failed.emit(str(exc))
+                self.failed.emit(export_failure(exc, self.output, self.say))

@@ -40,12 +40,13 @@ class TableTests(unittest.TestCase):
     def test_help_is_translated(self):
         text = shortcuts.help_text('en')
         for part in ('Space', 'Play / pause', 'Split the selected clip at the playhead', 'One frame back',
-                     'Show this list of shortcuts', 'Ctrl + Z'):
+                     'Show this list of shortcuts', 'Ctrl + Z', 'Ctrl + Shift + S', 'Save project as'):
             self.assertIn(part, text)
         self.assertNotIn('Boşluk', text)
 
     def test_keys_the_window_handles_itself_are_not_handled_twice(self):
         for key, modifiers in ((Qt.Key.Key_Space, NONE), (Qt.Key.Key_Delete, NONE), (Qt.Key.Key_S, CTRL),
+                               (Qt.Key.Key_S, CTRL | SHIFT),
                                (Qt.Key.Key_O, CTRL), (Qt.Key.Key_E, CTRL), (Qt.Key.Key_Z, CTRL)):
             self.assertIsNone(shortcuts.find(key, modifiers))
 

@@ -5,7 +5,8 @@ from PySide6.QtCore import QObject, Signal
 from PySide6.QtMultimedia import QMediaPlayer
 from akis.timeline_audio import TimelineAudio
 from akis.timeline_model import Clip, Timeline, Track
-from akis.timeline_service import PlaybackClock, audio_target, selected_clip, split_selected, validate_track_media
+from akis.timeline_service import (PlaybackClock, append_media_to_kind, audio_target, infer_media_kind,
+                                   media_track_index, selected_clip, split_selected, validate_track_media)
 
 
 class FakePlayer(QObject):
@@ -54,6 +55,25 @@ class TimelineServiceTests(unittest.TestCase):
             validate_track_media(media, 'audio', 'silent.mp4')
         media.has_audio.return_value = True
         validate_track_media(media, 'audio', 'audio.wav')
+
+    def test_media_import_routes_by_kind_and_creates_missing_tracks(self):
+        from unittest.mock import Mock
+        media = Mock()
+        media.dimensions.return_value = (640, 360)
+        self.assertEqual(infer_media_kind(media, 'clip.mp4'), 'video')
+        media.dimensions.side_effect = ValueError('no video')
+        media.has_audio.return_value = True
+        self.assertEqual(infer_media_kind(media, 'music.flac'), 'audio')
+        media.has_audio.return_value = False
+        with self.assertRaisesRegex(ValueError, 'görüntü veya ses'):
+            infer_media_kind(media, 'broken.dat')
+
+        timeline = Timeline(fps_num=30, tracks=[Track('video', 'Video')])
+        index, clip = append_media_to_kind(timeline, 'audio', 'music.flac', 2.0)
+        self.assertEqual((index, timeline.tracks[index].kind, clip.source, clip.length), (1, 'audio', 'music.flac', 60))
+        self.assertEqual(media_track_index(timeline, 'audio'), index)
+        other = Timeline(tracks=[Track('audio', 'Music 1'), Track('audio', 'Music 2')])
+        self.assertEqual(media_track_index(other, 'audio', preferred_track=1), 1)
 
     def test_selection_and_split(self):
         selection = (0, self.clip.id)

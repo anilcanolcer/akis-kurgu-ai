@@ -81,6 +81,16 @@ class WindowTests(unittest.TestCase):
         self.assertEqual(w.status_label.text(), 'Bu dosya türü açılamıyor: not.txt')
         self.assertEqual(w.state.source, '')
 
+    def test_unreadable_video_is_not_reported_as_opened(self):
+        w = self.window
+        video = self.video()
+        video.write_bytes(b'not an mp4')
+        with patch('akis.media_service.MediaService.duration', side_effect=ValueError('Medya süresi okunamadı.')), \
+             patch('main.QMessageBox.warning') as warning:
+            self.assertFalse(w.open_path(str(video)))
+        warning.assert_called_once()
+        self.assertEqual(w.state.source, '')
+
     def test_project_file_can_be_dropped_on_the_window(self):
         w = self.window
         project = self.root / 'kayit.akis.json'

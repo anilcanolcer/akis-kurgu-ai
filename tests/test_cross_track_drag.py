@@ -65,6 +65,23 @@ class DragTests(unittest.TestCase):
         self.assertEqual(widget.selected, (0, clip.id))
         self.assertEqual(self.changes, [])
 
+    def test_destination_checks_the_dragged_time_before_changing_tracks(self):
+        clip, other = Clip('a.mp4', 0, 20), Clip('b.mp4', 30, 20)
+        widget = self.widget(Track('video', 'Ana', [clip]), Track('video', 'B-roll', [other]))
+        self.drag(widget, (110, ROW(0)), (160, ROW(1)))
+        self.assertEqual(widget.model.tracks[0].clips, [clip])
+        self.assertEqual(widget.model.tracks[1].clips, [other])
+        self.assertEqual(widget.selected[0], 0)
+
+    def test_destination_free_at_dragged_time_accepts_transfer(self):
+        clip, other = Clip('a.mp4', 0, 20), Clip('b.mp4', 0, 20)
+        widget = self.widget(Track('video', 'Ana', [clip]), Track('video', 'B-roll', [other]))
+        self.drag(widget, (110, ROW(0)), (160, ROW(1)))
+        self.assertEqual(widget.model.tracks[0].clips, [])
+        self.assertEqual(widget.model.tracks[1].clips, [other, clip])
+        self.assertEqual(clip.start, 25)
+        self.assertEqual(widget.selected, (1, clip.id))
+
     def test_audio_clips_move_between_audio_tracks(self):
         clip = Clip('m.mp3', 0, 40)
         widget = self.widget(Track('audio', 'Müzik', [clip]), Track('audio', 'Efekt'))

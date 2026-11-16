@@ -215,6 +215,11 @@ class LayoutMixin:
         save_project.setToolTip("Projeyi kaydeder (Ctrl+S)")
         save_project.clicked.connect(self.save_project)
         header.addWidget(save_project)
+        self.save_as_button = QPushButton("Farklı kaydet")
+        self.save_as_button.setObjectName("secondary")
+        self.save_as_button.setToolTip("Projeyi başka bir konuma kaydeder (Ctrl+Shift+S)")
+        self.save_as_button.clicked.connect(self.save_project_as)
+        header.addWidget(self.save_as_button)
         export = QPushButton("Dışa aktar  ↗")
         export.setObjectName("primary")
         export.setToolTip("Videoyu MP4 olarak dışa aktarır (Ctrl+E)")
@@ -310,12 +315,18 @@ class LayoutMixin:
         tools = QHBoxLayout(tool_container)
         tools.setContentsMargins(0, 0, 0, 0)
         for label, action in [('＋ İz', self.add_track), ('− İz', self.remove_track),
-                              ('＋ Medya', self.add_timeline_media), ('Böl', self.split_clip),
+                              ('＋ Medya', self.add_timeline_media), ('＋ Müzik', self.add_timeline_music),
+                              ('Böl', self.split_clip),
                               ('◁ Kırp', self.trim_left), ('Kırp ▷', self.trim_right), ('Aralığı sil', self.delete_range),
                               ('Ripple sil', self.ripple_delete), ('Klip sesi', self.set_clip_volume), ('Klip hızı', self.set_clip_speed), ('Kadraj', self.set_clip_fit), ('Metni düzenle', self.edit_text_clip)]:
             button = QPushButton(label)
             button.clicked.connect(action)
-            if label == 'Ripple sil':
+            if label == '＋ Müzik':
+                button.setToolTip('Ses dosyası seçip zaman çizelgesinin ses izine ekler.')
+                self.music_button = button
+            elif label == 'Klip sesi':
+                button.setToolTip('Ses ya da video klibini seçin; düzeyi dışa aktarılan videoya da uygulanır.')
+            elif label == 'Ripple sil':
                 button.setToolTip('Seçili klibi siler ve boşluğu kapatır. Delete tuşu klibi boşluk bırakarak siler.')
             elif label == '◁ Kırp':
                 button.setToolTip('Seçili klibin oynatma çizgisinden önceki kısmını atar (Q).')
@@ -487,10 +498,10 @@ class LayoutMixin:
                                "Müziğe dokunmaz; internet gerekmez.")
         beat_button.clicked.connect(self.snap_cuts_to_beat)
         v.addWidget(beat_button)
-        punch_button = QPushButton("Vurgu anlarında yakınlaştır")
+        punch_button = QPushButton('Ses düzeyi artışlarında yakınlaştır')
         punch_button.setObjectName("secondary")
-        punch_button.setToolTip("Konuşmacının sesinin yükseldiği anlarda görüntü kısa bir süre hafifçe yakınlaşır. "
-                                "Yeniden basınca kaldırmayı sorar; internet gerekmez.")
+        punch_button.setToolTip('Kaynak sesindeki belirgin ses düzeyi artışlarında görüntü kısa süre yakınlaşır; '
+                                'müzik vuruşları da bunu tetikleyebilir. Yeniden basınca kaldırmayı sorar; internet gerekmez.')
         punch_button.clicked.connect(self.punch_in_on_emphasis)
         v.addWidget(punch_button)
         # Undoes the last step of the shared edit history; right after an AI edit that is the AI edit.

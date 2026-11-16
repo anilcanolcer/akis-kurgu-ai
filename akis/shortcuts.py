@@ -1,6 +1,6 @@
 """Timeline keys for the editor window, and the help text that lists every shortcut.
 
-The window's own actions handle Ctrl+Z/Y, Ctrl+S/O/E, Space and Delete. This module adds the keys that
+The window's own actions handle Ctrl+Z/Y, Ctrl+S/Shift+S/O/E, Space and Delete. This module adds the keys that
 move along the timeline and edit at the playhead, plus F1. Self-contained: install(window) is the only
 call the host makes. Plain keys are left to whatever input widget has the focus, so typing a caption or
 nudging a slider works as before; they act on the timeline everywhere else. Ctrl combinations always act.
@@ -46,7 +46,8 @@ SHORTCUTS = (
 # Handled by the window's own actions; listed so the help is complete.
 BUILT_IN = (('Boşluk', 'Oynat / duraklat'), ('Delete', 'Seçili aralığı ya da klibi sil'),
             ('Ctrl + Z', 'Son adımı geri al'), ('Ctrl + Y', 'Geri alınan adımı yinele'),
-            ('Ctrl + O', 'Proje aç'), ('Ctrl + S', 'Projeyi kaydet'), ('Ctrl + E', 'Videoyu dışa aktar'))
+            ('Ctrl + O', 'Proje aç'), ('Ctrl + S', 'Projeyi kaydet'),
+            ('Ctrl + Shift + S', 'Projeyi farklı kaydet'), ('Ctrl + E', 'Videoyu dışa aktar'))
 TITLE = 'Klavye kısayolları'
 NOTE = 'Yazı alanına yazarken tek tuşlu kısayollar çalışmaz; yazdığınız harf yazıya gider.'
 KEY_NAMES = ('Boşluk',)  # key names that are words and need translating; the rest are symbols or key caps

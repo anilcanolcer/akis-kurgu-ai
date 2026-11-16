@@ -57,8 +57,8 @@ Konuşma videoları, eğitimler, vloglar ve Shorts saatlerce tekrar eden iş ist
 | **Tekrar çekimleri temizle** | Aynı cümle birkaç kez söylendiyse yalnızca son deneme kalır. |
 | **Dolgu sözcüklerini kes** | "ııı", "eee", "hmm", "şey" gibi duraklama sözcüklerini bulup keser. |
 | **Konuşmacıları ayır** | Röportaj ve sohbetlerde konuşmacı değişimlerini işaretler ya da yalnızca bir konuşmacıyı bırakır. Programla gelen küçük bir ses modeli kullanır (WeSpeaker, CC BY 4.0). |
-| **Örnek videonun stilini al** | Beğendiğiniz bir videonun oranını, kadrajını, ses düzeyini, rengini ve temposunu ölçer; şablon olarak kaydedip projenize uygular. |
-| **Kesimleri ritme oturt / vurguda yakınlaştır** | Kesimleri müziğin vuruşlarına kaydırır; konuşmacının sesinin yükseldiği yerlerde görüntüyü yakınlaştırır. |
+| **Örnek videonun stilini al** | Beğendiğiniz videonun oranını, kadrajını, ses düzeyini, rengini ve temposunu ölçer. Görüntü ve ses ayarlarını şablon olarak kaydeder; tempoyu kurgu önerisi olarak gösterir. |
+| **Kesimleri ritme oturt / vurguda yakınlaştır** | Kesimleri müziğin vuruşlarına kaydırır; kaynak sesteki yüksek anlarda görüntüyü yakınlaştırır. Videoya gömülü arka plan müziği de bunu tetikleyebilir. |
 | **Öne çıkan anlar ve Shorts** | En canlı bölümleri ya da kurgunun tamamını; bulanık arka planlı, sıra numaralı ve başlık kartlı dikey Shorts videolarına böler. |
 | **Prompt ile kurgula** | Yazılı isteğe göre keser, yeniden dizer; geçiş, ok ve daire, yazı, renk ve hız ekler. İsterseniz plan bölüm bölüm gösterilir. |
 
@@ -68,7 +68,7 @@ Konuşma videoları, eğitimler, vloglar ve Shorts saatlerce tekrar eden iş ist
 - **CapCut tarzı kırpma:** seçili klipte kırpma tutamaçları, oynatma çizgisine göre kırpma (**Q** / **W**) ve boş bir yerden sürükleyerek aralık seçip tüm izlerden tek seferde silme.
 - Bölme, ripple silme, klip sesi ve **klip hızı** (altyazılar yeni hıza uyar), kadraj (sığdır, doldur, bulanık arka plan).
 - Düzenle sekmesine yazılan **başlık**, videonun başına 3 saniyelik bir yazı klibi olarak eklenir.
-- Kliplerde dalga biçimi ve kareler; kare hassasiyetinde konumlama; sınırsız geri al / yinele.
+- Kliplerde dalga biçimi ve kareler; kare hassasiyetinde konumlama; son 50 düzenleme için geri al / yinele.
 
 ### Altyazı, ses ve seslendirme
 

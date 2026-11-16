@@ -238,8 +238,12 @@ class RecordDialog(QDialog):
         self.folder.mkdir(parents=True, exist_ok=True)
         target = self.folder / file_name(self.kind)
         if kind == SCREEN:
+            microphone = self._dshow_name()
+            if self.microphone.currentData() is not None and microphone is None:
+                self._failed(None, self.tr_('Seçilen mikrofon ekran kaydı için bulunamadı; başka bir mikrofon seçin veya mikrofonsuz kaydedin.'))
+                return
             try:
-                self.screen_recorder.start(screen_area(device), target, self._dshow_name())
+                self.screen_recorder.start(screen_area(device), target, microphone)
             except (OSError, RuntimeError) as exc:
                 self._failed(None, str(exc))
                 return
@@ -312,8 +316,8 @@ class RecordDialog(QDialog):
     def _failed(self, error, message):
         self.ticker.stop()
         self._started = None
-        self.status.setText(self.tr_('Kayıt yapılamadı: {error}').format(error=message or str(error)))
         self._update_ready()
+        self.status.setText(self.tr_('Kayıt yapılamadı: {error}').format(error=message or str(error)))
 
     def done(self, result):
         """Stop the devices when the dialog closes, however it closes."""

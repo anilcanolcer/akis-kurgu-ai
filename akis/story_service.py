@@ -419,8 +419,8 @@ ROUTING_TABLE = (
     ('Son görsel', 'gemini-nano-banana-2.1', '2K', '≈0,050 $/görsel'),
     ('Hızlı küçük resim', 'gemini-3.1-flash-lite-image', '1K', 'En hızlı/ucuz; çoklu referansta zayıf'),
     ('Premium görsel', 'gemini-3-pro-image', '1K/2K', '≈0,134 $/görsel; yalnızca istenirse'),
-    ('Video önizleme', 'gemini-omni-1.2-flash', '720p, 5–8 sn', 'Fiyat belgelenmedi'),
-    ('Son video', 'gemini-omni-1.2-flash', '1080p', 'Fiyat belgelenmedi'),
+    ('Video önizleme', 'gemini-omni-1.2-flash', '720p, 5–8 sn', '≈0,070 $/sn çıktı + girdi; ücretli katman'),
+    ('Son video', 'gemini-omni-1.2-flash', '1080p', '≈0,104 $/sn çıktı + girdi; ücretli katman'),
 )
 
 
@@ -444,6 +444,11 @@ IMAGE_PRICES = {  # USD per output image by size
     'gemini-3-pro-image': {'1K': 0.134, '2K': 0.134},
 }
 VIDEO_PRICE_NOTE = 'fiyat belgelenmedi'
+# Standard video-output pricing, checked 2026-11-15:
+# https://aistudio.google.com/docs/pricing#gemini-omni-1.2-flash
+# $12 / 1M output tokens. Input ($1.50 / 1M tokens), text and thinking are additional.
+VIDEO_PRICES_CHECKED = date(2026, 11, 15)
+VIDEO_OUTPUT_TOKENS_PER_SECOND = {'360p': 1931, '720p': 5792, '1080p': 8688, '4k': 17376}
 
 
 def text_price(model, on=None):
@@ -479,7 +484,21 @@ def image_cost_line(model, size):
 
 
 def video_cost_line(model, resolution, seconds):
-    return f'Tahmini maliyet: {VIDEO_PRICE_NOTE} ({model}, {resolution}, {seconds} sn)'
+    cost = estimate_video_cost(model, resolution, seconds)
+    if cost is None:
+        return f'Tahmini maliyet: {VIDEO_PRICE_NOTE} ({model}, {resolution}, {seconds} sn)'
+    return (f'Tahmini video çıktı maliyeti: {format_usd(cost)} + girdi/metin/düşünme; ücretli katman '
+            f'({model}, {resolution}, {seconds} sn)')
+
+
+def estimate_video_cost(model, resolution, seconds):
+    """Standard video-output cost only; other billed tokens cannot be known before the call."""
+    if model != 'gemini-omni-1.2-flash':
+        return None
+    tokens = VIDEO_OUTPUT_TOKENS_PER_SECOND.get(str(resolution).lower())
+    if tokens is None:
+        return None
+    return tokens * max(0, seconds) * 12 / 1e6
 
 
 def usage_line(result, on=None):

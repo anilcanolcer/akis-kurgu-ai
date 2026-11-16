@@ -2,6 +2,7 @@
 import os
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -151,7 +152,10 @@ class WindowTests(unittest.TestCase):
             w.separate_speakers()
             started[0].start()
             self.assertTrue(started[0].wait(20000))
-            app.processEvents()
+            deadline = time.monotonic() + 2
+            while not shown and time.monotonic() < deadline:
+                app.processEvents()
+                time.sleep(0.01)
         return shown, told
 
     def test_changes_are_marked(self):

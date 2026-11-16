@@ -347,3 +347,23 @@ class LateEnglishTests(unittest.TestCase):
             finally:
                 w._close_confirmed = True
                 w.close()
+
+
+class StoryHostLanguageTests(unittest.TestCase):
+    def test_existing_story_dialog_follows_host_language_without_replacing_content(self):
+        window = MainWindow()
+        self.addCleanup(window.close)
+        window.apply_language('en')
+        window.show_story_studio()
+        dialog = window.story_dialog
+        self.assertEqual(dialog.windowTitle(), 'Story Studio')
+        dialog.premise.setPlainText('Görsel — user story')
+        dialog.set_status('Görsel kaydedildi: C:/Görsel.png')
+        window.apply_language('tr')
+        self.assertEqual(dialog.windowTitle(), 'Hikâye Stüdyosu')
+        self.assertEqual(dialog.status_label.text(), 'Görsel kaydedildi: C:/Görsel.png')
+        window.apply_language('en')
+        self.assertIs(window.story_dialog, dialog)
+        self.assertEqual(dialog.write_button.text(), 'Write scene')
+        self.assertEqual(dialog.premise.toPlainText(), 'Görsel — user story')
+        self.assertEqual(dialog.status_label.text(), 'Image saved: C:/Görsel.png')

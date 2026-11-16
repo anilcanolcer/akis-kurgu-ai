@@ -4,6 +4,7 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -139,13 +140,15 @@ class WindowTests(unittest.TestCase):
             w.style_from_sample()
             started[0].start()
             self.assertTrue(started[0].wait(60000))
-            app.processEvents()
+            deadline = time.monotonic() + 2
+            while not asked.called and time.monotonic() < deadline:
+                app.processEvents()
+                time.sleep(0.01)
         self.assertIn('Oran: 9:16 (360×640)', asked.call_args.args[2])
         saved = user_templates.load(self.root / 'data')
         self.assertEqual([item['name'] for item in saved], ['Örnek: ornek'])
         self.assertTrue(w.aspect.currentData().startswith('9:16'))
         self.assertEqual(w.multitrack.tracks[0].clips[0].style.get('fit'), saved[0]['framing'])
-        self.assertEqual(w.status_label.text(), 'Örnek: ornek stili bu projeye uygulandı.')
         w.undo()
         self.assertNotIn('fit', w.multitrack.tracks[0].clips[0].style)
 

@@ -83,6 +83,29 @@ def append_media(timeline, track_index, path, seconds):
     return clip
 
 
+_MEDIA_TRACK_NAMES = {'video': 'Video', 'audio': 'Audio', 'overlay': 'Overlay'}
+
+
+def media_track_index(timeline, kind, preferred_track=None):
+    """Return a compatible target track, creating the usual track when this timeline lacks one."""
+    if kind not in _MEDIA_TRACK_NAMES:
+        raise ValueError('This track cannot contain media')
+    if preferred_track is not None and 0 <= preferred_track < len(timeline.tracks):
+        if timeline.tracks[preferred_track].kind == kind:
+            return preferred_track
+    found = next((index for index, track in enumerate(timeline.tracks) if track.kind == kind), None)
+    if found is not None:
+        return found
+    timeline.tracks.append(Track(kind, _MEDIA_TRACK_NAMES[kind]))
+    return len(timeline.tracks) - 1
+
+
+def append_media_to_kind(timeline, kind, path, seconds, preferred_track=None):
+    """Append media to a compatible selected track, the first track of its kind, or a new track."""
+    index = media_track_index(timeline, kind, preferred_track)
+    return index, append_media(timeline, index, path, seconds)
+
+
 def validate_track_media(media, kind, path):
     """Prevent audio-only or silent sources from entering incompatible tracks."""
     if kind in ('video', 'overlay'):
@@ -92,6 +115,17 @@ def validate_track_media(media, kind, path):
             raise ValueError('Bu iz için görüntü içeren bir dosya seçin.') from exc
     elif kind == 'audio' and not media.has_audio(path):
         raise ValueError('Bu iz için ses içeren bir dosya seçin.')
+
+
+def infer_media_kind(media, path):
+    """Route video sources (including video with audio) to video; audio-only sources to audio."""
+    try:
+        media.dimensions(path)
+    except ValueError:
+        if media.has_audio(path):
+            return 'audio'
+        raise ValueError('Dosyada desteklenen görüntü veya ses akışı bulunamadı.')
+    return 'video'
 
 
 def append_video(timeline, path, seconds, preferred_track=None):

@@ -258,3 +258,86 @@ class DialogSmokeTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class StoryLanguageTests(unittest.TestCase):
+    def dialog(self, language='en'):
+        dialog = StoryDialog(api_key='', output_dir='', add_media=lambda _: True, language=language)
+        self.addCleanup(dialog.close)
+        return dialog
+
+    def test_english_static_ui_and_canonical_choices(self):
+        from akis import story_service as ss
+        dialog = self.dialog()
+        self.assertEqual(dialog.windowTitle(), 'Story Studio')
+        self.assertEqual(dialog.tabs.tabText(0), 'Idea and story bible')
+        self.assertEqual(dialog.write_button.text(), 'Write scene')
+        self.assertEqual(dialog.pov.currentText(), 'Third person limited')
+        self.assertEqual(dialog.pov.currentData(), ss.POV_CHOICES[0])
+        self.assertEqual(dialog.tense.currentData(), ss.TENSE_CHOICES[0])
+        self.assertEqual(dialog.duration.suffix(), ' s')
+        self.assertIn('Estimated cost:', dialog.cost_label.text())
+        self.assertNotIn('görsel', dialog.quality.toolTip())
+        dialog.read_idea_fields()
+        self.assertEqual(dialog.state.bible.pov, ss.POV_CHOICES[0])
+
+    def test_live_switch_preserves_dirty_content_and_retranslates_dynamic_status(self):
+        from akis import story_service as ss
+        dialog = self.dialog('tr')
+        dialog.state.scenes = [ss.Scene(title='Görsel', text='Türkçe user text', video_path='C:/Görsel.mp4')]
+        dialog.refresh_scene_list()
+        dialog.style_ref_label.setText('Görsel')
+        dialog.style_reference = 'C:/Görsel'
+        dialog.pov.setCurrentIndex(1)
+        dialog.read_idea_fields()
+        dialog.mark_clean()
+        snapshot = dialog._snapshot()
+        scene_id = dialog.current_id
+        dialog.set_status('Görsel kaydedildi: C:/Görsel.png')
+        dialog.set_busy(True)
+        for language in ('en', 'tr', 'en'):
+            dialog.apply_language(language)
+            self.assertEqual(dialog._snapshot(), snapshot)
+            self.assertFalse(dialog.is_dirty())
+            self.assertEqual(dialog.current_id, scene_id)
+            self.assertEqual(dialog.scene_title.text(), 'Görsel')
+            self.assertEqual(dialog.video_label.text(), 'C:/Görsel.mp4')
+            self.assertEqual(dialog.style_ref_label.text(), 'Görsel')
+            self.assertFalse(dialog.write_button.isEnabled())
+        self.assertEqual(dialog.status_label.text(), 'Image saved: C:/Görsel.png')
+        dialog.on_progress(5)
+        dialog.on_progress(10)
+        self.assertEqual(dialog.status_label.text(), 'Image saved: C:/Görsel.png — 10 s')
+
+    def test_validation_file_dialog_and_question_follow_language(self):
+        from unittest.mock import patch
+        from PySide6.QtWidgets import QMessageBox
+        dialog = self.dialog()
+        dialog.need_key()
+        self.assertTrue(dialog.status_label.text().startswith('No Gemini API key.'))
+        dialog.continue_scene()
+        self.assertEqual(dialog.status_label.text(), 'Scene not found.')
+        with patch('akis.story_dialog.QFileDialog.getOpenFileName', return_value=('', '')) as choose:
+            dialog.open_story()
+            self.assertEqual(choose.call_args.args[1], 'Open story')
+            self.assertEqual(choose.call_args.args[3], 'Story (*.hikaye.json *.json)')
+        with patch('akis.story_dialog.QMessageBox.question', return_value=QMessageBox.StandardButton.No) as ask:
+            dialog.ask('"Görsel" sahnesi silinsin mi? Bu işlem geri alınamaz.',
+                       QMessageBox.StandardButton.Yes, QMessageBox.StandardButton.No)
+            self.assertEqual(ask.call_args.args[2], 'Delete scene "Görsel"? This cannot be undone.')
+
+    def test_worker_status_cost_and_usage_retranslate(self):
+        from akis import gemini_api
+        dialog = self.dialog('tr')
+        result = gemini_api.TextResult('content', 'gemini-3.8-flash',
+                   {'prompt': 120, 'cached': 20, 'output': 30, 'thoughts': 5}, 'STOP',
+                   False, 'requested', 'provider reason')
+        dialog.show_usage(result)
+        dialog.set_status('Video üretiliyor (model, 720p, 6 sn); bu birkaç dakika sürebilir…')
+        dialog.apply_language('en')
+        self.assertIn('Generating video (model, 720p, 6 s)', dialog.status_label.text())
+        self.assertIn('Tokens: 120 input (20 cached)', dialog.usage_label.text())
+        self.assertIn('35 output (5 thinking)', dialog.usage_label.text())
+        self.assertIn('(fallback model; provider reason)', dialog.usage_label.text())
+        dialog.apply_language('tr')
+        self.assertIn('120 girdi', dialog.usage_label.text())

@@ -6,6 +6,10 @@ import copy
 import hashlib
 import json
 import math
+import os
+import tempfile
+import subprocess
+from pathlib import Path
 
 from akis.timeline_model import CLIP_SPEEDS, Clip, Track
 from akis.template_service import TITLE_SECONDS
@@ -20,10 +24,18 @@ from akis.call_worker import CallWorker
 from akis import beat_sync, emphasis, retakes, silence_cut
 
 from PySide6.QtWidgets import QFileDialog, QInputDialog, QMessageBox
+from PySide6.QtCore import QTimer
 
 from akis import app_support
 from akis.i18n import decimal
 from akis.app_support import APP_NAME, UNDO_LIMIT, format_time, log
+
+
+STILL_IMAGE_EXTS = {'.png', '.jpg', '.jpeg', '.webp'}
+MEDIA_FILE_FILTER = ('Medya dosyaları (*.mp4 *.mov *.mkv *.webm *.avi *.m4v *.png *.jpg *.jpeg *.webp '
+                     '*.mp3 *.wav *.m4a *.aac *.flac *.ogg *.opus *.wma);;Tüm dosyalar (*.*)')
+AUDIO_FILE_FILTER = ('Ses dosyaları (*.mp3 *.wav *.m4a *.aac *.flac *.ogg *.opus *.wma);;'
+                     'Tüm dosyalar (*.*)')
 
 
 class TimelineEditMixin:
@@ -330,34 +342,131 @@ class TimelineEditMixin:
         else:
             self.set_status(self.ui_text('Burada düzenlenecek bir yazı veya işaret yok. Çift tıklamayı bir yazının ya da işaretin üstünde deneyin.'))
 
-    def add_timeline_media(self):
-        index = self.multitrack_view.selected_track
-        track = self.multitrack.tracks[index] if index is not None and index < len(self.multitrack.tracks) else None
-        if track is None:
-            self.set_status(self.ui_text('Önce hedef izi seçin.'))
-            return
-        if track.kind not in ('video', 'audio', 'overlay'):
-            self.set_status(self.ui_text('Bu sürümde medya yalnızca video/ses izine eklenir.'))
-            return
-        path, _ = QFileDialog.getOpenFileName(self, 'Medya seç', '', 'Media (*.mp4 *.mov *.mkv *.webm *.avi *.m4v *.mp3 *.wav *.m4a)')
-        if not path:
-            return
-        # Probe without decoding the file or relying on an additional ffprobe binary.
+    @staticmethod
+    def _still_cache_path(source: Path) -> Path:
+        stat = source.stat()
+        identity = f'{source.resolve()}\0{stat.st_size}\0{stat.st_mtime_ns}'
+        digest = hashlib.sha256(identity.encode('utf-8')).hexdigest()[:16]
+        folder = Path(app_support.app_data_dir()) / 'stills'
+        # Leave ample room for the digest and extension on Windows, including emoji (two UTF-16 units).
+        return folder / f'{source.stem[:100]}-{digest}.mp4'
+
+    def convert_still_to_clip(self, media, path: str) -> str:
+        """Persist an image as a five-second video clip in app data so projects can reopen it."""
+        source = Path(path)
+        if not source.is_file():
+            raise ValueError('Görsel dosyası bulunamadı.')
+        folder = Path(app_support.app_data_dir()) / 'stills'
+        folder.mkdir(parents=True, exist_ok=True)
+        base = self._still_cache_path(source)
+
+        # A cached output is safe to reuse only when it still probes as a five-second video.
+        candidate, number = base, 2
+        while candidate.exists():
+            try:
+                duration = media.duration(str(candidate))
+                media.dimensions(str(candidate))
+                if abs(duration - app_support.STILL_CLIP_SECONDS) <= 1 / 30:
+                    return str(candidate)
+            except (ValueError, RuntimeError, OSError, subprocess.SubprocessError):
+                pass
+            candidate = base.with_name(f'{base.stem}-{number}.mp4')
+            number += 1
+
+        fd, partial_name = tempfile.mkstemp(prefix='akis_still_', suffix='.mp4', dir=str(folder))
+        os.close(fd)
+        partial = Path(partial_name)
+        try:
+            result = media.run(
+                ['-y', '-loop', '1', '-framerate', '30', '-i', str(source), '-t', str(app_support.STILL_CLIP_SECONDS),
+                 '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p', '-r', '30', '-c:v', 'libx264',
+                 '-pix_fmt', 'yuv420p', '-an', str(partial)], text=True)
+            if result.returncode != 0 or not partial.is_file() or partial.stat().st_size == 0:
+                detail = (getattr(result, 'stderr', '') or getattr(result, 'stdout', '') or '').strip()
+                raise RuntimeError(detail or 'FFmpeg could not create the clip.')
+            # Publish without replacing any pre-existing file, even if another process races this import.
+            while True:
+                try:
+                    os.link(partial, candidate)
+                    break
+                except FileExistsError:
+                    candidate = base.with_name(f'{base.stem}-{number}.mp4')
+                    number += 1
+            return str(candidate)
+        finally:
+            # The unique temporary path belongs only to this conversion; never clean a user's existing file.
+            partial.unlink(missing_ok=True)
+
+    def _import_media_path(self, path: str, *, selected_track=None, forced_kind=None):
+        original_path = str(path)
         try:
             media = MediaService(app_support.ffmpeg_path())
-            seconds = media.duration(path)
-            timeline_service.validate_track_media(media, track.kind, path)
-        except (ValueError, RuntimeError, OSError) as exc:
+        except (RuntimeError, OSError) as exc:
             QMessageBox.warning(self, APP_NAME, self.ui_text('Medya eklenemedi: {error}', error=exc))
-            return
-        with self.history_step():
-            timeline_service.append_media(self.multitrack, index, path, seconds)
+            return False
+        converted_still = Path(path).suffix.lower() in STILL_IMAGE_EXTS
+        if converted_still:
+            try:
+                path = self.convert_still_to_clip(media, path)
+            except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as exc:
+                QMessageBox.warning(self, APP_NAME, self.ui_text('Görsel klibe dönüştürülemedi: {error}', error=exc))
+                return False
+
+        try:
+            track = self.multitrack.tracks[selected_track] if selected_track is not None and \
+                0 <= selected_track < len(self.multitrack.tracks) else None
+            detected_kind = timeline_service.infer_media_kind(media, path)
+            kind = forced_kind or ('overlay' if detected_kind == 'video' and track is not None and track.kind == 'overlay'
+                                   else detected_kind)
+            compatible = ('video', 'overlay') if kind in ('video', 'overlay') else ('audio',)
+            preferred_track = selected_track if track is not None and track.kind in compatible else None
+            seconds = media.duration(path)
+            timeline_service.validate_track_media(media, kind, path)
+            with self.history_step():
+                track_index, clip = timeline_service.append_media_to_kind(
+                    self.multitrack, kind, path, seconds, preferred_track=preferred_track)
+        except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as exc:
+            QMessageBox.warning(self, APP_NAME, self.ui_text('Medya eklenemedi: {error}', error=exc))
+            return False
+
+        self.media_bin.add(original_path)
         self.media_bin.add(path)
         self.refresh_media_bin()
         self.multitrack_view.refresh_waveforms()
         self.update_timeline_scroll()
+        if kind == 'audio':
+            # Make the imported music clip ready for the Clip volume action and its tooltip guidance.
+            self.multitrack_view.selected = (track_index, clip.id)
+            self.multitrack_view.selected_track = track_index
+            self.multitrack_view.update()
         self.seek_timeline(self.timeline_frame)
-        self.set_status(self.ui_text('Medya zaman çizelgesine eklendi.'))
+        if kind == 'audio':
+            self.set_status(self.ui_text('Müzik zaman çizelgesine eklendi.'))
+        elif converted_still:
+            self.set_status(self.ui_text('Fotoğraf 5 saniyelik klip olarak eklendi.'))
+        else:
+            self.set_status(self.ui_text('Medya zaman çizelgesine eklendi.'))
+        return True
+
+    def add_timeline_media(self):
+        index = self.multitrack_view.selected_track
+        track = self.multitrack.tracks[index] if index is not None and 0 <= index < len(self.multitrack.tracks) else None
+        if track is not None and track.kind not in ('video', 'audio', 'overlay'):
+            self.set_status(self.ui_text('Bu sürümde medya yalnızca video/ses izine eklenir.'))
+            return
+        path, _ = QFileDialog.getOpenFileName(self, self.ui_text('Medya seç'), '', self.ui_text(MEDIA_FILE_FILTER))
+        if not path:
+            return
+        self._import_media_path(path, selected_track=index)
+
+    def add_timeline_music(self):
+        path, _ = QFileDialog.getOpenFileName(self, self.ui_text('Müzik seç'), '', self.ui_text(AUDIO_FILE_FILTER))
+        if not path:
+            return
+        selected = self.multitrack_view.selected_track
+        selected_track = selected if selected is not None and 0 <= selected < len(self.multitrack.tracks) and \
+            self.multitrack.tracks[selected].kind == 'audio' else None
+        self._import_media_path(path, selected_track=selected_track, forced_kind='audio')
 
     def split_clip(self):
         track, clip = self.selected_clip()
@@ -783,18 +892,18 @@ class TimelineEditMixin:
                                      count=moved))
 
     def punch_in_on_emphasis(self) -> None:
-        """Zoom in briefly where the speaker gets louder (akis.emphasis); asks to remove existing ones first."""
+        """Zoom in briefly at large source-audio loudness peaks; music peaks may also trigger it."""
         if not self.can_start_work() or not self.ensure_video():
             return
         if any('punch' in clip.style for track in self.multitrack.tracks for clip in track.clips):
-            answer = QMessageBox.question(self, APP_NAME, self.ui_text('Videoda vurgu yakınlaştırmaları var. Kaldırılsın mı?'),
+            answer = QMessageBox.question(self, APP_NAME, self.ui_text('Ses düzeyi artışlarında yakınlaştırmalar var. Kaldırılsın mı?'),
                                           QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                                           QMessageBox.StandardButton.Yes)
             if answer == QMessageBox.StandardButton.Yes:
                 with self.history_step():
                     count = emphasis.clear(self.multitrack)
                 self.seek_timeline(self.timeline_frame)
-                self.set_status(self.ui_text('{count} vurgu yakınlaştırması kaldırıldı.', count=count))
+                self.set_status(self.ui_text('{count} ses düzeyi artışı yakınlaştırması kaldırıldı.', count=count))
             return
         main = next((track for track in self.multitrack.tracks if track.kind == 'video'), None)
         sources = sorted({clip.source for clip in (main.clips if main else []) if clip.source})
@@ -802,7 +911,7 @@ class TimelineEditMixin:
             QMessageBox.information(self, APP_NAME, self.ui_text('Zaman çizelgesinde video yok.'))
             return
         executable = app_support.ffmpeg_path()
-        self.run_analysis(self.ui_text('Konuşmadaki vurgular aranıyor…'),
+        self.run_analysis(self.ui_text('Kaynak sesindeki ani ses düzeyi artışları aranıyor…'),
                           lambda: {source: emphasis.find_moments(silence_cut.measure(executable, source)) for source in sources},
                           self.finish_punch_in)
 
@@ -810,10 +919,10 @@ class TimelineEditMixin:
         with self.history_step():
             placed = emphasis.apply(self.multitrack, moments)
         if not placed:
-            QMessageBox.information(self, APP_NAME, self.ui_text('Belirgin bir vurgu anı bulunamadı.'))
+            QMessageBox.information(self, APP_NAME, self.ui_text('Belirgin ses düzeyi artışı bulunamadı.'))
             return
         self.seek_timeline(self.timeline_frame)
-        self.set_status(self.ui_text('{count} vurgu anında yakınlaştırma eklendi. Beğenmezseniz geri alabilirsiniz (Ctrl+Z).',
+        self.set_status(self.ui_text('{count} ses düzeyi artışı anında yakınlaştırma eklendi. Beğenmezseniz geri alabilirsiniz (Ctrl+Z).',
                                      count=placed))
 
     def run_analysis(self, text, function, done) -> None:
@@ -823,11 +932,32 @@ class TimelineEditMixin:
         self.worker = CallWorker(function)
         self.begin_work(text)
 
-        def finished(result):
+        result = {'value': None, 'received': False, 'error': None}
+
+        def completed(value):
+            result['value'], result['received'] = value, True
+
+        def failed(message):
+            result['error'] = message
+
+        def deliver_result():
             if self._shutting_down:
                 return
+            if result['error'] is not None:
+                self.on_worker_error(result['error'])
+                return
+            if not result['received']:
+                self.on_worker_error(self.ui_text('Analiz işlemi sonuç vermeden kapandı.'))
+                return
             self.finish_work('')
-            done(result)
-        self.worker.completed.connect(finished)
-        self.worker.failed.connect(self.on_worker_error)
+            done(result['value'])
+
+        def thread_finished():
+            # Result callbacks can open nested dialogs or start another QThread; wait until this one
+            # has actually exited, then run after MainWindow.worker_finished clears its reference.
+            QTimer.singleShot(0, deliver_result)
+
+        self.worker.completed.connect(completed)
+        self.worker.failed.connect(failed)
+        self.worker.finished.connect(thread_finished)
         self.start_worker()

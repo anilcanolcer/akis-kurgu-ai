@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 
 from akis.media_service import MediaService
-from akis.timeline_render import duration_frames
+from akis.timeline_render import duration_frames, export_failure
 from akis import timeline_service
 from akis.render_worker import TimelineRenderWorker
 from akis import export_progress
@@ -20,7 +20,7 @@ from akis import shorts_split
 from akis.shorts_dialog import ShortsDialog
 from akis import highlights
 from akis.highlights_dialog import HighlightsDialog
-from akis.batch_export import BatchExportWorker, output_for
+from akis.batch_export import BatchExportWorker, outputs_for
 from akis import silence_cut
 
 from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
@@ -77,9 +77,11 @@ class ExportMixin:
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.Yes) == QMessageBox.StandardButton.Yes
         if copying:
-            self.worker = fast_export.FastExportWorker(self.multitrack, pieces, path, app_support.ffmpeg_path())
+            self.worker = fast_export.FastExportWorker(self.multitrack, pieces, path, app_support.ffmpeg_path(),
+                                                       say=self.ui_template)
         else:
-            self.worker = TimelineRenderWorker(self.multitrack, path, canvas, app_support.ffmpeg_path(), adjustments=self.render_adjustments())
+            self.worker = TimelineRenderWorker(self.multitrack, path, canvas, app_support.ffmpeg_path(),
+                                               adjustments=self.render_adjustments(), say=self.ui_template)
         self.begin_work(self.ui_text("Dışa aktarma hazırlanıyor…"))
         self._export_estimator = export_progress.Estimator()
         self.worker.progress.connect(self.on_export_progress)
@@ -126,12 +128,16 @@ class ExportMixin:
         if not chosen:
             return
         path = Path(chosen) if Path(chosen).suffix.lower() == '.fcpxml' else Path(chosen + '.fcpxml')
+        if not self.confirm_overwrite(chosen, str(path)):
+            return
         try:
             text, report = fcpxml_export.build(self.multitrack, canvas, MediaService(app_support.ffmpeg_path()),
                                                name=self.project_title.text() or APP_NAME)
-            path.write_text(text, encoding='utf-8')
+            from akis.story_workers import write_atomic
+            write_atomic(path, text.encode('utf-8'))
         except (OSError, ValueError, RuntimeError) as exc:
-            QMessageBox.warning(self, APP_NAME, self.ui_text('Kurgu dosyası yazılamadı: {error}', error=exc))
+            details = export_failure(exc, path, self.ui_template)
+            QMessageBox.warning(self, APP_NAME, self.ui_text('Kurgu dosyası yazılamadı: {error}', error=details))
             return
         summary = fcpxml_export.describe(report, self.ui_template)
         self.set_status(self.ui_text('Kurgu dosyası kaydedildi: {name}', name=path.name))
@@ -147,7 +153,7 @@ class ExportMixin:
         if not dialog.exec():
             return
         videos, folder, cut_silences, template = dialog.selection()
-        existing = [Path(output_for(video, folder)).name for video in videos if Path(output_for(video, folder)).exists()]
+        existing = [Path(path).name for path in outputs_for(videos, folder) if Path(path).exists()]
         if existing and QMessageBox.question(
                 self, APP_NAME, self.ui_text('Şu dosyalar zaten var ve üzerine yazılacak:\n{names}\n\nDevam edilsin mi?',
                                              names='\n'.join(existing)),
@@ -216,7 +222,10 @@ class ExportMixin:
         if not dialog.exec():
             return
         parts, titles = dialog.selection()
-        folder = QFileDialog.getExistingDirectory(self, self.ui_text('Kaydedilecek klasör'), str(Path.home() / "Videos"))
+        # The native Windows picker has produced fatal COM errors on this path. Qt's
+        # own picker avoids that integration while keeping the same folder selection.
+        folder = QFileDialog.getExistingDirectory(self, self.ui_text('Kaydedilecek klasör'),
+                                                  str(Path.home() / "Videos"), QFileDialog.Option.DontUseNativeDialog)
         if not folder:
             return
         outputs = shorts_split.outputs_for(folder, titles, safe_filename(self.project_title.text()) + '-one-cikan')
@@ -247,7 +256,8 @@ class ExportMixin:
         if not dialog.exec():
             return
         parts, framing, card, titles = dialog.selection()
-        folder = QFileDialog.getExistingDirectory(self, self.ui_text('Kaydedilecek klasör'), str(Path.home() / "Videos"))
+        folder = QFileDialog.getExistingDirectory(self, self.ui_text('Kaydedilecek klasör'),
+                                                  str(Path.home() / "Videos"), QFileDialog.Option.DontUseNativeDialog)
         if not folder:
             return
         outputs = shorts_split.outputs_for(folder, titles, safe_filename(self.project_title.text()))
@@ -314,7 +324,7 @@ class ExportMixin:
             self.set_status(self.ui_text('Dışa aktarma başlatılmadı.'))
             return
         self.worker = multi_export.MultiExportWorker(self.multitrack, outputs, app_support.ffmpeg_path(),
-                                                     adjustments=self.render_adjustments())
+                                                     adjustments=self.render_adjustments(), say=self.ui_template)
         self.begin_work(self.ui_text("Dışa aktarma hazırlanıyor…"))
         self._export_estimator = export_progress.Estimator()
         self.worker.progress.connect(self.on_export_progress)

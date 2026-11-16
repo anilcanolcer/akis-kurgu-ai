@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QFileDialog, QForm
                                QPlainTextEdit, QProgressBar, QPushButton, QSpinBox, QSplitter, QTabWidget,
                                QVBoxLayout, QWidget)
 
-from akis import gemini_api, story_service as ss
+from akis import gemini_api, i18n, story_service as ss
 from akis.story_workers import CallWorker, ImageWorker, TextWorker, VideoWorker
 
 TITLE = 'Hikâye Stüdyosu'
@@ -42,8 +42,12 @@ def _aspect_part(value):
 
 class StoryDialog(QDialog):
     def __init__(self, parent=None, *, api_key, output_dir, add_media, default_aspect='16:9',
-                 transport=None, file_getter=None):
+                 transport=None, file_getter=None, language='tr'):
         super().__init__(parent)
+        self.language = language if language in ('tr', 'en') else 'tr'
+        self._status_source = 'Hazır.'
+        self._progress_seconds = None
+        self._last_usage_result = None
         self.setWindowTitle(TITLE)
         self.setModal(False)
         self.resize(1100, 760)
@@ -77,7 +81,68 @@ class StoryDialog(QDialog):
         self.refresh_scene_list()
         self.update_cost_line()
         self.set_busy(False)
+        self.apply_language(self.language)
         self.mark_clean()
+
+    def tr_(self, text):
+        return i18n.story_text(text, self.language)
+
+    def apply_language(self, language):
+        """Update display text without writing editor content or changing canonical choices."""
+        self.language = language if language in ('tr', 'en') else 'tr'
+        self.setWindowTitle(self.tr_(TITLE))
+        dynamic = (self.status_label, self.cost_label, self.usage_label, self.preview,
+                   self.video_label, self.style_ref_label, self.char_ref_label)
+        for widget in self.findChildren(QWidget):
+            # The host's generic translation pass must leave Story-owned text to this method.
+            widget.setProperty('i18n_skip', True)
+            if widget in dynamic:
+                continue
+            slots = []
+            if isinstance(widget, (QLabel, QPushButton, QCheckBox)):
+                slots.append(('text', widget.text, widget.setText))
+            if isinstance(widget, QGroupBox):
+                slots.append(('title', widget.title, widget.setTitle))
+            if isinstance(widget, (QLineEdit, QPlainTextEdit)):
+                slots.append(('placeholder', widget.placeholderText, widget.setPlaceholderText))
+            if widget.toolTip():
+                slots.append(('tooltip', widget.toolTip, widget.setToolTip))
+            for name, getter, setter in slots:
+                prop = 'story_source_' + name
+                source = widget.property(prop)
+                if source is None:
+                    source = getter()
+                    widget.setProperty(prop, source)
+                setter(self.tr_(source))
+        for index, source in enumerate(('Fikir ve rehber', 'Sahneler', 'Görsel ve video')):
+            self.tabs.setTabText(index, self.tr_(source))
+        for combo in (self.quality, self.style, self.pov, self.tense, self.rewrite_mode):
+            blocked = combo.blockSignals(True)
+            for index in range(combo.count()):
+                prop = f'story_item_{index}'
+                source = combo.property(prop)
+                if source is None:
+                    source = combo.itemText(index)
+                    combo.setProperty(prop, source)
+                combo.setItemText(index, self.tr_(source))
+            combo.blockSignals(blocked)
+        self.duration.setSuffix(' s' if self.language == 'en' else ' sn')
+        self.quality.setToolTip('\n'.join(f'{self.tr_(a)}: {b.replace(' ya da ', ' or ') if self.language == 'en' else b} ({self.tr_(c)}) — {self.tr_(d)}'
+                                         for a, b, c, d in ss.ROUTING_TABLE))
+        self._render_status()
+        self.update_cost_line()
+        if self._last_usage_result is not None:
+            self.show_usage(self._last_usage_result)
+        self.style_ref_label.setText(Path(self.style_reference).name if self.style_reference else self.tr_('Yok'))
+        self.char_ref_label.setText(', '.join(Path(p).name for p in self.character_references)
+                                    if self.character_references else self.tr_('Yok'))
+        self.show_media(self.current_scene())
+        # Only change the built-in placeholder in list items; titles are user content.
+        for index, scene in enumerate(self.state.scenes):
+            item = self.scene_list.item(index)
+            if item is not None and not scene.title:
+                marks = ('▣' if scene.image_path else '') + ('▶' if scene.video_path else '')
+                item.setText(f'{index + 1}. {self.tr_("Adsız")} {marks}'.strip())
 
     # ------------------------------------------------------------ unsaved changes
 
@@ -104,7 +169,7 @@ class StoryDialog(QDialog):
 
     def ask(self, text, buttons, default):
         """One modal question; returns the StandardButton chosen. Tests replace this."""
-        return QMessageBox.question(self, TITLE, text, buttons, default)
+        return QMessageBox.question(self, self.tr_(TITLE), self.tr_(text), buttons, default)
 
     def confirm(self, text):
         """Yes/No question; True without asking when nobody can answer (see can_ask)."""
@@ -379,6 +444,15 @@ class StoryDialog(QDialog):
         return Path(value) if value else None
 
     def set_status(self, text):
+        self._status_source = text
+        self._progress_seconds = None
+        self._render_status()
+
+    def _render_status(self):
+        text = self.tr_(self._status_source)
+        if self._progress_seconds is not None:
+            unit = 's' if self.language == 'en' else 'sn'
+            text += f' — {self._progress_seconds} {unit}'
         self.status_label.setText(text)
         self.status_label.setToolTip(text)
 
@@ -400,7 +474,7 @@ class StoryDialog(QDialog):
         image = ss.image_cost_line(self.image_model.currentText().strip(), self.image_size.currentText())
         video = ss.video_cost_line(self.video_model.currentText().strip(), self.resolution.currentText(),
                                    self.duration.value())
-        self.cost_label.setText(f'Görsel — {image} · Video — {video}')
+        self.cost_label.setText(self.tr_(f'Görsel — {image} · Video — {video}'))
 
     # ------------------------------------------------------------ state <-> widgets
 
@@ -412,9 +486,9 @@ class StoryDialog(QDialog):
         index = self.style.findData(bible.style)
         self.style.setCurrentIndex(max(0, index))
         if bible.pov:
-            self.pov.setCurrentText(bible.pov)
+            self.pov.setCurrentIndex(max(0, self.pov.findData(bible.pov)))
         if bible.tense:
-            self.tense.setCurrentText(bible.tense)
+            self.tense.setCurrentIndex(max(0, self.tense.findData(bible.tense)))
         self.genre.setText(bible.genre)
         data = {k: v for k, v in self.state.to_dict()['bible'].items()
                 if k not in ('premise', 'style', 'pov', 'tense')}
@@ -425,8 +499,8 @@ class StoryDialog(QDialog):
         bible = self.state.bible
         bible.premise = self.premise.toPlainText().strip()
         bible.style = self.style.currentData()
-        bible.pov = self.pov.currentText()
-        bible.tense = self.tense.currentText()
+        bible.pov = self.pov.currentData()
+        bible.tense = self.tense.currentData()
         bible.genre = self.genre.text().strip() or bible.genre
 
     def apply_bible_editor(self):
@@ -448,7 +522,7 @@ class StoryDialog(QDialog):
         self.scene_list.clear()
         for index, scene in enumerate(self.state.scenes, 1):
             marks = ('▣' if scene.image_path else '') + ('▶' if scene.video_path else '')
-            item = QListWidgetItem(f'{index}. {scene.title or "Adsız"} {marks}'.strip())
+            item = QListWidgetItem(f'{index}. {scene.title or self.tr_('Adsız')} {marks}'.strip())
             item.setData(Qt.ItemDataRole.UserRole, scene.id)
             self.scene_list.addItem(item)
         self._loading = False
@@ -484,19 +558,19 @@ class StoryDialog(QDialog):
         scene.motion_prompt = self.motion_prompt.toPlainText()
         item = self.scene_list.currentItem()
         if item is not None:
-            item.setText(f'{self.state.index_of(scene.id) + 1}. {scene.title or "Adsız"}')
+            item.setText(f'{self.state.index_of(scene.id) + 1}. {scene.title or self.tr_('Adsız')}')
 
     def show_media(self, scene):
         image = scene.image_path if scene else ''
         pixmap = QPixmap(image) if image and Path(image).is_file() else QPixmap()
         if pixmap.isNull():
             self.preview.setPixmap(QPixmap())
-            self.preview.setText(Path(image).name if image else 'Görsel yok')
+            self.preview.setText(Path(image).name if image else self.tr_('Görsel yok'))
         else:
             self.preview.setPixmap(pixmap.scaled(self.preview.size(), Qt.AspectRatioMode.KeepAspectRatio,
                                                  Qt.TransformationMode.SmoothTransformation))
         video = scene.video_path if scene else ''
-        self.video_label.setText(video or 'Video yok')
+        self.video_label.setText(video or self.tr_('Video yok'))
 
     def add_empty_scene(self):
         scene = ss.Scene(title=f'Sahne {len(self.state.scenes) + 1}')
@@ -537,8 +611,8 @@ class StoryDialog(QDialog):
 
     def on_progress(self, seconds):
         if seconds and seconds % 5 == 0:
-            text = self.status_label.text().split(' — ')[0]
-            self.set_status(f'{text} — {seconds} sn')
+            self._progress_seconds = seconds
+            self._render_status()
 
     def _release(self, worker):
         if worker is not self.worker:
@@ -581,7 +655,8 @@ class StoryDialog(QDialog):
         return self.start(TextWorker(job, key, self._transport), on_done)
 
     def show_usage(self, result):
-        self.last_usage = ss.usage_line(result)
+        self._last_usage_result = result
+        self.last_usage = self.tr_(ss.usage_line(result))
         self.usage_label.setText(self.last_usage)
 
     def text_model_choice(self):
@@ -674,9 +749,9 @@ class StoryDialog(QDialog):
 
         def done(result):
             if ss.apply_memory(self.state, scene_id, result.text):
-                self.set_status(self.status_label.text() + ' Özet ve süreklilik notları güncellendi.')
+                self.set_status(self._status_source + ' Özet ve süreklilik notları güncellendi.')
             else:
-                self.set_status(self.status_label.text() + ' Özet güncellenemedi (geçersiz yanıt); eski notlar korundu.')
+                self.set_status(self._status_source + ' Özet güncellenemedi (geçersiz yanıt); eski notlar korundu.')
         self.run_text(job, done)
 
     def split_text(self):
@@ -742,21 +817,21 @@ class StoryDialog(QDialog):
     # ------------------------------------------------------------ image / video
 
     def choose_style_reference(self):
-        path, _ = QFileDialog.getOpenFileName(self, 'Stil referansı seç', '', 'Görsel (*.png *.jpg *.jpeg *.webp)')
+        path, _ = QFileDialog.getOpenFileName(self, self.tr_('Stil referansı seç'), '', self.tr_('Görsel (*.png *.jpg *.jpeg *.webp)'))
         if path:
             self.style_reference = path
             self.style_ref_label.setText(Path(path).name)
 
     def choose_character_references(self):
-        paths, _ = QFileDialog.getOpenFileNames(self, 'Karakter referansları seç', '', 'Görsel (*.png *.jpg *.jpeg *.webp)')
+        paths, _ = QFileDialog.getOpenFileNames(self, self.tr_('Karakter referansları seç'), '', self.tr_('Görsel (*.png *.jpg *.jpeg *.webp)'))
         if paths:
             self.character_references = paths[:gemini_api.MAX_CHARACTER_REFERENCES]
             self.char_ref_label.setText(', '.join(Path(p).name for p in self.character_references))
 
     def clear_references(self):
         self.style_reference, self.character_references = '', []
-        self.style_ref_label.setText('Yok')
-        self.char_ref_label.setText('Yok')
+        self.style_ref_label.setText(self.tr_('Yok'))
+        self.char_ref_label.setText(self.tr_('Yok'))
 
     def references(self):
         """[(path, role, label)]: character files are labelled by their file name (name them after the
@@ -872,8 +947,8 @@ class StoryDialog(QDialog):
         if not path:
             folder = self.output_folder()
             suggested = str((folder / (ss.slug(self.state.bible.title) + '.hikaye.json')) if folder else '')
-            path, _ = QFileDialog.getSaveFileName(self, 'Hikâyeyi kaydet', self.story_path or suggested,
-                                                  'Hikâye (*.hikaye.json *.json)')
+            path, _ = QFileDialog.getSaveFileName(self, self.tr_('Hikâyeyi kaydet'), self.story_path or suggested,
+                                                  self.tr_('Hikâye (*.hikaye.json *.json)'))
             if not path:
                 return False
         try:
@@ -893,7 +968,7 @@ class StoryDialog(QDialog):
         if not self.maybe_save():
             return False
         if not path:
-            path, _ = QFileDialog.getOpenFileName(self, 'Hikâye aç', self.story_path, 'Hikâye (*.hikaye.json *.json)')
+            path, _ = QFileDialog.getOpenFileName(self, self.tr_('Hikâye aç'), self.story_path, self.tr_('Hikâye (*.hikaye.json *.json)'))
             if not path:
                 return False
         try:

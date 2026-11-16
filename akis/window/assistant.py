@@ -241,6 +241,10 @@ class AssistantMixin:
             return False
         if file.suffix.lower() in ('.png', '.jpg', '.jpeg', '.webp'):
             clip = file.with_name(file.stem + '_klip.mp4')
+            number = 2
+            while clip.exists():
+                clip = file.with_name(f'{file.stem}_klip_{number}.mp4')
+                number += 1
             result = MediaService(app_support.ffmpeg_path()).run(
                 ['-y', '-loop', '1', '-t', str(STILL_CLIP_SECONDS), '-i', str(file), '-r', '30',
                  '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p', '-c:v', 'libx264', '-an', str(clip)], text=True)
@@ -248,15 +252,13 @@ class AssistantMixin:
                 QMessageBox.warning(self, APP_NAME, 'Görsel klibe dönüştürülemedi.')
                 return False
             file = clip
-        before = len(self.media_bin.paths)
-        self.add_video(str(file))
-        return bool(self.state.source) and (len(self.media_bin.paths) > before or str(file) in self.media_bin.paths)
+        return self.add_video(str(file))
 
     def show_story_studio(self):
         if self.story_dialog is None:
             self.story_dialog = StoryDialog(self, api_key=self.gemini_key, output_dir=self.story_output_dir,
                                             add_media=self.add_generated_media,
-                                            default_aspect=str(self.aspect.currentData() or '16:9'))
+                                            default_aspect=str(self.aspect.currentData() or '16:9'), language=self.ui_language())
         self.story_dialog.show()
         self.story_dialog.raise_()
         self.story_dialog.activateWindow()

@@ -44,7 +44,9 @@ GEMINI_TEXT_FALLBACKS = {
 }
 GEMINI_PLAN_THINKING = 'medium'   # planning needs real reasoning about timing, but not the slowest level
 GEMINI_PLAN_MAX_TOKENS = 32768    # includes thinking tokens; the non-streaming cap
-TRANSCRIPTION_MODELS = {'OpenAI': ('gpt-4o-mini-transcribe', 'gpt-4o-transcribe', 'whisper-1'), 'xAI': ('grok-voice-transcribe-2.0', 'grok-voice-transcribe-1.0'), 'Gemini': ('gemini-2.5-flash', 'gemini-2.5-pro')}
+# Gemini 2.5 is still listed by /models but rejects new users with HTTP 404.
+# 3.6 Flash accepted real inline audio on 2026-11-15; leave typed model IDs untouched.
+TRANSCRIPTION_MODELS = {'OpenAI': ('gpt-4o-mini-transcribe', 'gpt-4o-transcribe', 'whisper-1'), 'xAI': ('grok-voice-transcribe-2.0', 'grok-voice-transcribe-1.0'), 'Gemini': ('gemini-3.6-flash', 'gemini-3.8-flash')}
 
 PLAN_TIMEOUT = 300           # image-heavy planning calls can take minutes
 PLAN_DEADLINE = 2 * PLAN_TIMEOUT  # whole plan request, Gemini fallback chain and retries included

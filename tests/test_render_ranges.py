@@ -98,7 +98,7 @@ class RenderTests(unittest.TestCase):
         self.assertTrue(self.media.has_audio(ranged))
         self.assertEqual(seen, sorted(seen))
         self.assertEqual(seen[-1], 1.0)
-        self.assertFalse((self.root / 'ranged.part.mp4').exists())
+        self.assertEqual(list(self.root.glob('ranged.part-*.mp4')), [])
 
     def test_speed_and_a_silent_edit(self):
         with patch.object(timeline_render, 'MAX_PICTURE_INPUTS', 2):
@@ -118,7 +118,7 @@ class RenderTests(unittest.TestCase):
         with patch.object(timeline_render, 'MAX_PICTURE_INPUTS', 2), self.assertRaises(FileNotFoundError):
             TimelineRenderer(self.media, (160, 90)).export(broken, output)
         self.assertFalse(output.exists())
-        self.assertFalse((self.root / 'broken.part.mp4').exists())
+        self.assertEqual(list(self.root.glob('broken.part-*.mp4')), [])
 
 
 if __name__ == '__main__':

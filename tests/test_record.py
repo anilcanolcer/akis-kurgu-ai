@@ -149,6 +149,19 @@ class DialogTests(unittest.TestCase):
             self.assertEqual((d.kind, Path(d.path).suffix), ('video', '.mp4'))
             self.assertTrue(Path(d.path).name.startswith('kayit-'))
 
+    def test_selected_microphone_is_not_silently_omitted_from_screen_recording(self):
+        from akis.record_dialog import RecordDialog
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch('akis.record_dialog.RecordDialog._screens', return_value=[FakeScreen()]):
+            d = RecordDialog(folder=tmp, devices=FakeDevices)
+            with patch.object(d.microphone, 'currentData', return_value=object()), \
+                 patch.object(d, '_dshow_name', return_value=None), \
+                 patch.object(d.screen_recorder, 'start') as start:
+                d.start()
+            start.assert_not_called()
+            self.assertIn('Seçilen mikrofon', d.status.text())
+            d.close()
+
 
 class WindowTests(unittest.TestCase):
     def setUp(self):
@@ -197,6 +210,18 @@ class WindowTests(unittest.TestCase):
              patch.object(w, 'add_video') as added:
             w.record_media()
         added.assert_not_called()
+
+    def test_failed_video_recording_is_not_reported_as_added(self):
+        w = self.window
+        video = self.root / 'bozuk-kayit.mp4'
+        video.write_bytes(b'not an mp4')
+        with patch('akis.record_dialog.RecordDialog', side_effect=self.fake_dialog(video, 'video')), \
+             patch('akis.media_service.MediaService.duration', side_effect=ValueError('Medya süresi okunamadı.')), \
+             patch('main.QMessageBox.warning') as warning:
+            w.record_media()
+        warning.assert_called_once()
+        self.assertNotIn('Kayıt projeye eklendi', w.status_label.text())
+        self.assertEqual(w.state.source, '')
 
     def test_button_in_the_sidebar(self):
         from PySide6.QtWidgets import QPushButton

@@ -17,7 +17,10 @@ EN_UI = {
     "Dışa aktarma bilgisayarınızda yapılır. AI yalnızca siz başlatınca çalışır.":
         "Export runs on your computer. AI only runs when you start it.",
     "Yeni proje": "New project", "Video ekleyerek başlayın": "Start by adding a video",
-    "Proje aç": "Open project", "Projeyi kaydet": "Save project", "Dışa aktar  ↗": "Export  ↗",
+    "Proje aç": "Open project", "Projeyi kaydet": "Save project", "Farklı kaydet": "Save As",
+    "Dışa aktar  ↗": "Export  ↗",
+    "Projeyi başka bir konuma kaydeder (Ctrl+Shift+S)": "Save the project to another location (Ctrl+Shift+S)",
+    "Projeyi farklı kaydet": "Save project as",
     "Ses": "Audio", "Zaman çizelgesi": "Timeline", "Seçim: —": "Selection: —",
     "✦ AI Kurgu": "✦ AI Edit", "Düzenle": "Edit", "Yayın": "Publish",
     "Videonu anlat.\nAkış gerisini planlasın.": "Describe your video.\nLet Akış plan the rest.",
@@ -313,6 +316,9 @@ EN_UI = {
     'Kurgu dosyası yazılamadı: {error}': 'The edit file could not be written: {error}',
     'Kurgu dosyası kaydedildi: {name}': 'Edit file saved: {name}',
     'Kurgu dosyası kaydedildi:\n{path}': 'Edit file saved:\n{path}',
+    'Hedef dosya: {path}': 'Target file: {path}',
+    'Windows Güvenliği veya antivirüs yazmayı engellediyse, klasör izinlerini ve Denetimli klasör erişimini kontrol edin; bu uygulama ile FFmpeg’e izin verin ya da başka klasör seçin.':
+        'If Windows Security or antivirus blocked the write, check folder permissions and Controlled folder access; allow this app and FFmpeg to write there, or choose another folder.',
     '{count} klip yazıldı.': '{count} clips written.',
     '{count} yazı ve altyazı klibi aktarılmadı.': '{count} text and caption clips were left out.',
     '{count} geçiş aktarılmadı.': '{count} transitions were left out.',
@@ -596,6 +602,15 @@ EN_UI = {
     "Klip silindi. Ctrl+Z ile geri alabilirsiniz.": "Clip deleted. Press Ctrl+Z to undo.",
     "Kaydetmek için önce bir video veya medya ekleyin.": "Add a video or media before saving.",
     "Proje ve sürüm anlık görüntüsü kaydedildi.": "Project and version snapshot saved.",
+    "Proje kaydedildi; sürüm anlık görüntüsü oluşturulamadı: {error}":
+        "Project saved; the version snapshot could not be created: {error}",
+    "Proje kaydedilemedi: {error} (konum: {path})": "The project could not be saved: {error} (location: {path})",
+    "Windows bu konuma yazmayı engelledi: {path}. Dosya başka bir uygulamada açıksa kapatın. "
+    "Klasöre yazma izniniz yoksa farklı bir konum seçin. Windows Defender'da Denetimli klasör erişimi "
+    "bu uygulamayı engelliyorsa, uygulamaya izin verin. Ayrıntı: {error}":
+        "Windows blocked writing to this location: {path}. Close the file if another app is using it. "
+        "Choose a different folder if you do not have write access. If Windows Defender Controlled folder "
+        "access is blocking this app, allow the app there. Details: {error}",
     "Proje açıldı ve son ayarlar geri yüklendi.": "Project opened and its settings restored.",
     "Projede kaydedilmemiş değişiklikler var. Kaydedilsin mi?": "The project has unsaved changes. Save them?",
     # Recovery prompt: three explicit choices.
@@ -793,3 +808,519 @@ def use_qt_language(code: str) -> bool:
             _qt_translator = translator
             return True
     return False
+
+
+# Story Studio owns these strings; story content and model identifiers remain untouched.
+STORY_EN = {
+    'Hikâye Stüdyosu':
+        'Story Studio',
+    'Fikir ve rehber':
+        'Idea and story bible',
+    'Sahneler':
+        'Scenes',
+    'Görsel ve video':
+        'Image and video',
+    'Taslak':
+        'Draft',
+    'Final':
+        'Final',
+    'Modelleri denetle':
+        'Check models',
+    'Metin':
+        'Text',
+    'Kalite':
+        'Quality',
+    'Hikâyenin ana fikri: kim, ne istiyor, ne engel oluyor, nerede geçiyor…':
+        'Story premise: who, what they want, what stands in their way, where it happens…',
+    'Tür (ör. dram, polisiye, fantastik)':
+        'Genre (e.g. drama, crime, fantasy)',
+    'Ana fikir':
+        'Premise',
+    'Üslup':
+        'Style',
+    'Anlatıcı':
+        'Point of view',
+    'Anlatı zamanı':
+        'Narrative tense',
+    'Tür':
+        'Genre',
+    'Rehberi üret':
+        'Generate story bible',
+    'Taslak çıkar':
+        'Generate outline',
+    'Rehberdeki değişiklikleri uygula':
+        'Apply story bible changes',
+    'Hikâye rehberi (JSON; karakterlerin "visual" alanı görsellerde aynen kullanılır)':
+        'Story bible (JSON; character "visual" fields are used verbatim in images)',
+    'Boş sahne ekle':
+        'Add empty scene',
+    'Sahneyi sil':
+        'Delete scene',
+    'Metni sahnelere böl':
+        'Split text into scenes',
+    'Seçili sahnenin metnini model yardımıyla sahnelere ayırır.':
+        'Split the selected scene text into scenes using AI.',
+    'Sahne başlığı':
+        'Scene title',
+    'Talimat (isteğe bağlı): ne olsun, neye odaklanılsın…':
+        'Instruction (optional): what should happen, what to focus on…',
+    'Kelime':
+        'Words',
+    'Sahneyi yaz':
+        'Write scene',
+    'Hikâyenin sonuna yeni bir sahne yazar.':
+        'Write a new scene at the end of the story.',
+    'Devam et':
+        'Continue',
+    'Yeniden yaz':
+        'Rewrite',
+    'Uzat':
+        'Extend',
+    'Kısalt':
+        'Shorten',
+    'Sonra özeti güncelle':
+        'Update summary afterwards',
+    'İstemler (İngilizce; üretmeden önce düzenleyebilirsiniz)':
+        'Prompts (English; edit before generating)',
+    'İstemleri sahneden çıkar':
+        'Extract prompts from scene',
+    'Görsel istemi':
+        'Image prompt',
+    'Hareket ve ses istemi (video)':
+        'Motion and sound prompt (video)',
+    'Görsel':
+        'Image',
+    'Yok':
+        'None',
+    'Stil referansı seç':
+        'Choose style reference',
+    'Karakter referansları seç':
+        'Choose character references',
+    'Referansları temizle':
+        'Clear references',
+    'Bu sahnenin görselini üret':
+        'Generate image for this scene',
+    'En-boy':
+        'Aspect ratio',
+    'Boyut':
+        'Size',
+    'Görselden video üret':
+        'Generate video from image',
+    'Metinden video üret':
+        'Generate video from text',
+    'Süre':
+        'Duration',
+    'Çözünürlük':
+        'Resolution',
+    'Sonuç':
+        'Result',
+    'Görsel yok':
+        'No image',
+    'Video yok':
+        'No video',
+    'Görseli projeye ekle':
+        'Add image to project',
+    'Videoyu projeye ekle':
+        'Add video to project',
+    'Hazır.':
+        'Ready.',
+    'İptal':
+        'Cancel',
+    'Hikâyeyi kaydet':
+        'Save story',
+    'Hikâye aç':
+        'Open story',
+    'Kapat':
+        'Close',
+    'Edebi':
+        'Literary',
+    'Sade':
+        'Plain',
+    'Masalsı':
+        'Fairy tale',
+    'Gerilim':
+        'Thriller',
+    'Mizahi':
+        'Humorous',
+    'Üçüncü tekil sınırlı':
+        'Third person limited',
+    'Birinci tekil (ben)':
+        'First person (I)',
+    'Üçüncü tekil tanrısal':
+        'Third person omniscient',
+    'İkinci tekil (sen)':
+        'Second person (you)',
+    "Di'li geçmiş":
+        'Simple past',
+    'Şimdiki zaman':
+        'Present',
+    "Miş'li geçmiş (masal)":
+        'Reported past (fairy tale)',
+    'Hikâyede kaydedilmemiş değişiklikler var (üretilen sahneler dahil). Kaydedilsin mi?':
+        'The story has unsaved changes (including generated scenes). Save them?',
+    '"{title}" sahnesi silinsin mi? Bu işlem geri alınamaz.':
+        'Delete scene "{title}"? This cannot be undone.',
+    'Rehberdeki karakterler ve olay örgüsü yeni üretilen rehberle değiştirilecek; elle yaptığınız düzenlemeler kaybolur. Devam edilsin mi?':
+        'The characters and plot in the story bible will be replaced with a newly generated bible; your manual edits will be lost. Continue?',
+    'Rehber geçerli JSON değil; düzeltip tekrar uygulayın.':
+        'The story bible is not valid JSON; correct it and apply again.',
+    'Rehber güncellendi.':
+        'Story bible updated.',
+    'Adsız':
+        'Untitled',
+    'Önce süren işlemin bitmesini bekleyin.':
+        'Wait for the current operation to finish first.',
+    'Sonuç işlenemedi: {detail}':
+        'Could not process result: {detail}',
+    'Hata: {detail}':
+        'Error: {detail}',
+    'İşlem iptal edildi; sonucu kullanılmayacak.':
+        'Operation cancelled; its result will be discarded.',
+    'İptal ediliyor…':
+        'Cancelling…',
+    'Gemini API anahtarı yok. Ana penceredeki AI ayarlarından Gemini anahtarını girin.':
+        'No Gemini API key. Enter your Gemini key in the main window AI settings.',
+    'Hikâye rehberi hazır. Gözden geçirip düzenleyebilirsiniz.':
+        'Story bible ready. You can review and edit it.',
+    'Olay örgüsü taslağı rehbere eklendi.':
+        'Plot outline added to the story bible.',
+    'Sahne hazır.':
+        'Scene ready.',
+    'Yanıt çıktı sınırında kesildi; metin eksik olabilir. "Devam et" ile tamamlayabilirsiniz.':
+        'The response reached the output limit; the text may be incomplete. Use "Continue" to finish it.',
+    '{prefix} Yedek model kullanıldı: {model}.':
+        '{prefix} Fallback model used: {model}.',
+    '{prefix} Özet ve süreklilik notları güncellendi.':
+        '{prefix} Summary and continuity notes updated.',
+    '{prefix} Özet güncellenemedi (geçersiz yanıt); eski notlar korundu.':
+        '{prefix} Summary could not be updated (invalid response); previous notes were kept.',
+    'Bölmek için metni bir sahneye yapıştırın ve o sahneyi seçin.':
+        'Paste text into a scene and select it to split it.',
+    'Metin {count} sahneye bölündü.':
+        'Text split into {count} scenes.',
+    'Görsel ve hareket istemleri hazır; üretmeden önce düzenleyebilirsiniz.':
+        'Image and motion prompts ready; you can edit them before generating.',
+    'Model listesi güncellendi.':
+        'Model list updated.',
+    '{prefix} Bu anahtarla görünmeyen: {models}':
+        '{prefix} Unavailable with this key: {models}',
+    'Modeller denetleniyor…':
+        'Checking models…',
+    'Görsel (*.png *.jpg *.jpeg *.webp)':
+        'Images (*.png *.jpg *.jpeg *.webp)',
+    'Önce bir sahne seçin.':
+        'Select a scene first.',
+    'Görsel kaydedildi: {path}':
+        'Image saved: {path}',
+    'Video kaydedildi: {path}':
+        'Video saved: {path}',
+    'Bu sahnenin görseli yok; önce görsel üretin ya da "Metinden video üret"i kullanın.':
+        'This scene has no image; generate one first or use "Generate video from text".',
+    'Eklenecek dosya yok; önce üretin.':
+        'No file to add; generate one first.',
+    'Projeye eklenemedi: {detail}':
+        'Could not add to project: {detail}',
+    'Ana pencere dosyayı eklemedi.':
+        'The main window did not add the file.',
+    'Projeye eklendi: {path}':
+        'Added to project: {path}',
+    'Kaydedilemedi: {detail}':
+        'Could not save: {detail}',
+    'Hikâye kaydedildi: {path}':
+        'Story saved: {path}',
+    'Hikâye açıldı: {path}':
+        'Story opened: {path}',
+    'Hikâye (*.hikaye.json *.json)':
+        'Story (*.hikaye.json *.json)',
+    'Hikâye dosyası geçersiz.':
+        'Invalid story file.',
+    'Hikâye dosyası okunamadı: {detail}':
+        'Could not read story file: {detail}',
+    'Önce hikâyenin ana fikrini yazın.':
+        'Write the story premise first.',
+    'Model geçerli bir hikâye rehberi döndürmedi; tekrar deneyin.':
+        'The model did not return a valid story bible; try again.',
+    'Model geçerli bir taslak döndürmedi; tekrar deneyin.':
+        'The model did not return a valid outline; try again.',
+    'Sahne bulunamadı.':
+        'Scene not found.',
+    'Devam edilecek metin yok; önce sahneyi yazın.':
+        'No text to continue; write the scene first.',
+    'Bilinmeyen yeniden yazma biçimi: {mode}':
+        'Unknown rewrite mode: {mode}',
+    'Yeniden yazılacak metin yok.':
+        'No text to rewrite.',
+    'Sahne artık yok.':
+        'The scene no longer exists.',
+    'Bölünecek metin en az iki paragraf olmalı.':
+        'Text to split must contain at least two paragraphs.',
+    'Görsel istemi için önce sahne metni gerekli.':
+        'Scene text is required before creating an image prompt.',
+    'fiyat bilinmiyor':
+        'price unknown',
+    'fiyat belgelenmedi':
+        'price undocumented',
+    'Tahmini maliyet: {cost} (1 görsel, {model}, {size})':
+        'Estimated cost: {cost} (1 image, {model}, {size})',
+    'Tahmini maliyet: {cost} ({model}, {resolution}, {seconds} sn)':
+        'Estimated cost: {cost} ({model}, {resolution}, {seconds} s)',
+    'Tahmini video çıktı maliyeti: {cost} + girdi/metin/düşünme; ücretli katman ({model}, {resolution}, {seconds} sn)':
+        'Estimated video output cost: {cost} + input/text/thinking; paid tier ({model}, {resolution}, {seconds} s)',
+    '{cost} — görsel üretiliyor…':
+        '{cost} — generating image…',
+    '{cost} — video üretiliyor; birkaç dakika sürebilir…':
+        '{cost} — generating video; this may take a few minutes…',
+    'Görsel — {image} · Video — {video}':
+        'Image — {image} · Video — {video}',
+    'Görsel üretiliyor ({model}, {size})…':
+        'Generating image ({model}, {size})…',
+    'Video üretiliyor ({model}, {resolution}, {seconds} sn); bu birkaç dakika sürebilir…':
+        'Generating video ({model}, {resolution}, {seconds} s); this may take a few minutes…',
+    '{prefix} — {seconds} sn':
+        '{prefix} — {seconds} s',
+    'Sahne yazılıyor':
+        'Writing scene',
+    'Sahneye devam ediliyor':
+        'Continuing scene',
+    'Sahne yeniden yazılıyor':
+        'Rewriting scene',
+    'Özet ve süreklilik notları güncelleniyor':
+        'Updating summary and continuity notes',
+    'Görsel istemi hazırlanıyor':
+        'Preparing image prompt',
+    'Hikâye rehberi oluşturuluyor':
+        'Creating story bible',
+    'Olay örgüsü taslağı çıkarılıyor':
+        'Generating plot outline',
+    'Metin sahnelere bölünüyor':
+        'Splitting text into scenes',
+    'Metin üretiliyor':
+        'Generating text',
+    '{prefix} ({model})…':
+        '{prefix} ({model})…',
+    'Token: {prompt} girdi{cached} · {output} çıktı ({thoughts} düşünme) · {cost} · {model}':
+        'Tokens: {prompt} input{cached} · {output} output ({thoughts} thinking) · {cost} · {model}',
+    ' ({count} önbellek)':
+        ' ({count} cached)',
+    '{prefix} (yedek model; {reason})':
+        '{prefix} (fallback model; {reason})',
+    'Plan / taslak / özet':
+        'Plan / outline / summary',
+    'Sahne yazımı':
+        'Scene writing',
+    'Son görsel':
+        'Final image',
+    'Hızlı küçük resim':
+        'Quick thumbnail',
+    'Premium görsel':
+        'Premium image',
+    'Video önizleme':
+        'Video preview',
+    'Son video':
+        'Final video',
+    'En hızlı/ucuz; çoklu referansta zayıf':
+        'Fastest/cheapest; weak with multiple references',
+    '≈0,134 $/görsel; yalnızca istenirse':
+        '≈$0.134/image; only on request',
+    '≈0,050 $/görsel':
+        '≈$0.050/image',
+    '≈0,070 $/sn çıktı + girdi; ücretli katman':
+        '≈$0.070/s output + input; paid tier',
+    '≈0,104 $/sn çıktı + girdi; ücretli katman':
+        '≈$0.104/s output + input; paid tier',
+    '720p, 5–8 sn':
+        '720p, 5–8 s',
+    'Çıktı klasörü belirlenmemiş.':
+        'No output folder selected.',
+    'Taslak sahne, deneme, devam':
+        'Draft scene, trial, continuation',
+    'medium (hızlı denemede low)':
+        'medium (low for quick trials)',
+    'Ucuz, hızlı, ücretsiz katmanı var':
+        'Cheap, fast, free tier available',
+    'Son okuma, cilalama, karmaşık olay örgüsü':
+        'Proofreading, polishing, complex plots',
+    'Daha tutarlı ve derin; ücretsiz katmanı yok':
+        'More consistent and deeper; no free tier',
+    'Özet, süreklilik, görsel istemi':
+        'Summary, continuity, image prompt',
+    'Kısa, yapılandırılmış iş':
+        'Short, structured tasks',
+    'Görsel taslağı':
+        'Draft image',
+    '≈0,034 $/görsel':
+        '≈$0.034/image',
+    'API anahtarı ve model gereklidir.':
+        'An API key and model are required.',
+    'API anahtarı gereklidir.':
+        'An API key is required.',
+    'Görsel istemi boş olamaz.':
+        'The image prompt cannot be empty.',
+    'Video istemi boş olamaz.':
+        'The video prompt cannot be empty.',
+    'İstek metni boş olamaz.':
+        'Request text cannot be empty.',
+    'Desteklenmeyen görsel türü: {name} (PNG, JPEG ya da WEBP seçin).':
+        'Unsupported image type: {name} (choose PNG, JPEG or WEBP).',
+    '{name}: desteklenmeyen görsel türü ({mime}).':
+        '{name}: unsupported image type ({mime}).',
+    '{name}: görsel dosyası boş.':
+        '{name}: the image file is empty.',
+    '{name}: görsel çok büyük (en fazla {limit} MB).':
+        '{name}: image too large (maximum {limit} MB).',
+    'Referans görsellerin toplamı çok büyük (en fazla {limit} MB).':
+        'Reference images are too large in total (maximum {limit} MB).',
+    'Geçersiz düşünme düzeyi: {level} (low, medium ya da high).':
+        'Invalid thinking level: {level} (low, medium or high).',
+    'Çıktı sınırı 1 ile {limit} token arasında olmalı.':
+        'The output limit must be between 1 and {limit} tokens.',
+    'Geçersiz rol: {role}':
+        'Invalid role: {role}',
+    'Geçersiz en-boy oranı: {ratio}. Geçerli değerler: {values}.':
+        'Invalid aspect ratio: {ratio}. Valid values: {values}.',
+    '"512" boyutu yalnızca gemini-3.1-flash-image modelinde kullanılabilir.':
+        'The "512" size is only available with gemini-3.1-flash-image.',
+    'Geçersiz görsel boyutu: {size} (1K, 2K ya da 4K; büyük K harfiyle).':
+        'Invalid image size: {size} (1K, 2K or 4K; with an uppercase K).',
+    'En fazla {limit} referans görsel gönderilebilir.':
+        'You can submit at most {limit} reference images.',
+    'En fazla {limit} karakter referansı gönderilebilir.':
+        'You can submit at most {limit} character references.',
+    'En fazla {limit} nesne/stil referansı gönderilebilir.':
+        'You can submit at most {limit} object/style references.',
+    'Video için en-boy oranı 16:9 ya da 9:16 olmalı.':
+        'Video aspect ratio must be 16:9 or 9:16.',
+    'Geçersiz çözünürlük: {resolution} ({values}).':
+        'Invalid resolution: {resolution} ({values}).',
+    'Video süresi {range} arası tam saniye olmalı.':
+        'Video duration must be a whole number of seconds between {range}.',
+    'Videoya en fazla {limit} görsel eklenebilir.':
+        'You can add at most {limit} images to a video.',
+    'İlk ve son kare modu tam iki görsel ister.':
+        'First and last frame mode requires exactly two images.',
+    'İlk/son kare modunda süre en fazla {limit} saniye olabilir.':
+        'First/last frame mode supports at most {limit} seconds.',
+    'delivery "inline" ya da "uri" olmalı.':
+        'delivery must be "inline" or "uri".',
+    '{provider} beklenmeyen bir yanıt döndürdü; daha sonra tekrar deneyin.':
+        '{provider} returned an unexpected response; try again later.',
+    '{provider} boş yanıt döndürdü. Tekrar deneyin ya da başka bir model seçin.':
+        '{provider} returned an empty response. Try again or choose another model.',
+    '{provider} yanıtı çıktı sınırına takıldı ve yarıda kesildi (düşünme tokenları da bu sınıra dahildir).':
+        '{provider} reached the output limit and the response was truncated (thinking tokens count toward this limit).',
+    '{provider} bozuk görsel verisi döndürdü.':
+        '{provider} returned invalid image data.',
+    '{provider} görseli tamamlayamadı (çıktı sınırı).':
+        '{provider} could not complete the image (output limit).',
+    '{provider} görsel döndürmedi{note}. İstemi değiştirip tekrar deneyin.':
+        '{provider} returned no image{note}. Change the prompt and try again.',
+    '{provider} {seconds} saniyede görsel döndürmedi. Tekrar denemeden önce birkaç dakika bekleyin.':
+        '{provider} returned no image within {seconds} seconds. Wait a few minutes before trying again.',
+    '{provider} video döndürmedi{note}. Bu genellikle içerik engeli ya da bölgesel kısıtlama demektir; istemi değiştirip tekrar deneyin.':
+        '{provider} returned no video{note}. This usually indicates a content block or regional restriction; change the prompt and try again.',
+    '{provider} tanınmayan bir video adresi döndürdü.':
+        '{provider} returned an unrecognized video address.',
+    '{provider} video dosyasını hazırlayamadı.':
+        '{provider} could not prepare the video file.',
+    '{provider} video dosyası {seconds} saniyede hazır olmadı.':
+        '{provider} video file was not ready within {seconds} seconds.',
+    '{provider} video dosyası indirilemedi: {detail}':
+        '{provider} video file could not be downloaded: {detail}',
+    '{provider} model listesi alınamadı: {detail}':
+        '{provider} model list could not be retrieved: {detail}',
+    'Video {seconds} saniyede tamamlanmadı. Ücretlendirilmiş olabileceği için otomatik olarak tekrar denenmedi; Google AI Studio kullanımınızı kontrol edip sonra tekrar deneyin.':
+        'The video did not finish within {seconds} seconds. It was not retried automatically because it may have been billed; check your Google AI Studio usage before trying again.',
+    '{provider} boş video dosyası döndürdü.':
+        '{provider} returned an empty video file.',
+    '{model} ücretsiz katmanda kullanılamıyor':
+        '{model} unavailable on the free tier',
+    '{model} bulunamadı':
+        '{model} not found',
+    '{model} istek sınırına takıldı':
+        '{model} rate limited',
+    '{model} yoğun (HTTP {code})':
+        '{model} busy (HTTP {code})',
+    '{model} zamanında yanıt vermedi':
+        '{model} did not respond in time',
+    '{detail}\n(Önce denenen: {reason})':
+        '{detail}\n(Previously tried: {reason})',
+}
+
+
+def story_text(source, code):
+    """Translate Story-owned display messages, preserving interpolated paths and user content.
+
+    Workers/services keep their Turkish message contract. Match only complete known templates;
+    recurse only into fields explicitly carrying another application message.
+    """
+    if code != 'en':
+        return source
+    if source in STORY_EN:
+        return STORY_EN[source]
+    # Usage includes a free-form model/reason tail; peel its known suffix before matching
+    # the token line so the model placeholder cannot swallow the fallback annotation.
+    if source.endswith(')') and ' (yedek model; ' in source:
+        prefix, reason = source.rsplit(' (yedek model; ', 1)
+        return story_text(prefix, code) + ' (fallback model; ' + '; '.join(story_text(item, code) for item in reason[:-1].split('; ')) + ')'
+    import re
+    import string
+    for suffix in (' Özet ve süreklilik notları güncellendi.',
+                   ' Özet güncellenemedi (geçersiz yanıt); eski notlar korundu.'):
+        if source.endswith(suffix):
+            prefix = source[:-len(suffix)]
+            return STORY_EN['{prefix}' + suffix].format(prefix=story_text(prefix, code))
+    for template, english in sorted(STORY_EN.items(), key=lambda item: len(item[0]), reverse=True):
+        if '{' not in template:
+            continue
+        parts = list(string.Formatter().parse(template))
+        pattern = ''.join(re.escape(literal) + (f'(?P<{field}>.*?)' if field else '')
+                          for literal, field, _, _ in parts)
+        match = re.fullmatch(pattern, source, re.DOTALL)
+        if match:
+            values = match.groupdict()
+            for key in ('prefix', 'detail', 'cost', 'image', 'video', 'cached', 'reason'):
+                if key in values:
+                    values[key] = story_text(values[key], code)
+            return english.format(**values)
+    return translate(source, code)
+
+
+EN_UI.update({
+    'Seçilen mikrofon ekran kaydı için bulunamadı; başka bir mikrofon seçin veya mikrofonsuz kaydedin.':
+        'The selected microphone could not be found for screen recording; choose another microphone or record without one.',
+    '＋ Müzik':
+        '＋ Music',
+    'Ses dosyası seçip zaman çizelgesinin ses izine ekler.':
+        'Choose an audio file and add it to the timeline’s audio track.',
+    'Bir ses klibi seçin; bu düzey dışa aktarılan videoda da kullanılır.':
+        'Select an audio clip; this level is also used in the exported video.',
+    'Müzik zaman çizelgesine eklendi.':
+        'Music added to the timeline.',
+    'Görsel klibe dönüştürülemedi: {error}':
+        'Could not convert image to a clip: {error}',
+    'Medya seç':
+        'Select media',
+    'Müzik seç':
+        'Select music',
+    'Ses dosyaları (*.mp3 *.wav *.m4a *.aac *.flac *.ogg *.opus *.wma);;Tüm dosyalar (*.*)':
+        'Audio files (*.mp3 *.wav *.m4a *.aac *.flac *.ogg *.opus *.wma);;All files (*.*)',
+    'Ses ya da video klibini seçin; düzeyi dışa aktarılan videoya da uygulanır.':
+        'Select an audio or video clip; its volume level also applies to the export.',
+})
+TR_UI.update({english: turkish for turkish, english in EN_UI.items()})
+EN_UI.update({
+    'Medya dosyaları (*.mp4 *.mov *.mkv *.webm *.avi *.m4v *.png *.jpg *.jpeg *.webp *.mp3 *.wav *.m4a *.aac *.flac *.ogg *.opus *.wma);;Tüm dosyalar (*.*)':
+        'Media files (*.mp4 *.mov *.mkv *.webm *.avi *.m4v *.png *.jpg *.jpeg *.webp *.mp3 *.wav *.m4a *.aac *.flac *.ogg *.opus *.wma);;All files (*.*)',
+    'Fotoğraf 5 saniyelik klip olarak eklendi.': 'Photo added as a 5-second clip.',
+    'Ses düzeyi artışlarında yakınlaştır': 'Punch in on loudness peaks',
+    'Kaynak sesindeki belirgin ses düzeyi artışlarında görüntü kısa süre yakınlaşır; müzik vuruşları da bunu tetikleyebilir. Yeniden basınca kaldırmayı sorar; internet gerekmez.':
+        'The picture briefly zooms in on strong loudness peaks in the source audio; music peaks can trigger it too. Press again to be asked about removing them; no internet needed.',
+    'Ses düzeyi artışlarında yakınlaştırmalar var. Kaldırılsın mı?': 'There are loudness-peak zooms on the video. Remove them?',
+    '{count} ses düzeyi artışı yakınlaştırması kaldırıldı.': '{count} loudness-peak zooms were removed.',
+    'Kaynak sesindeki ani ses düzeyi artışları aranıyor…': 'Looking for loudness peaks in the source audio…',
+    'Belirgin ses düzeyi artışı bulunamadı.': 'No clear loudness peak was found.',
+    '{count} ses düzeyi artışı anında yakınlaştırma eklendi. Beğenmezseniz geri alabilirsiniz (Ctrl+Z).':
+        '{count} punch-in zooms were added on loudness peaks. You can undo it (Ctrl+Z).',
+    'Analiz işlemi sonuç vermeden kapandı.': 'Analysis finished without a result.',
+})
+TR_UI.update({english: turkish for turkish, english in EN_UI.items()})

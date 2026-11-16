@@ -4,6 +4,7 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -160,9 +161,12 @@ class WindowTests(unittest.TestCase):
         with patch('akis.silence_cut.measure', return_value=levels(60, (8, 21, 40))):
             w.punch_in_on_emphasis()
             self.assertTrue(w.worker.wait(10000))          # the sound is read off the window's thread
-            app.processEvents()
+            deadline = time.monotonic() + 2
+            while not self.punches() and time.monotonic() < deadline:
+                app.processEvents()
+                time.sleep(0.01)
         self.assertEqual(self.punches(), 3)
-        self.assertIn('3 vurgu anında yakınlaştırma eklendi', w.status_label.text())
+        self.assertIn('3 ses düzeyi artışı anında yakınlaştırma eklendi', w.status_label.text())
         with patch('main.QMessageBox.question', return_value=QMessageBox.StandardButton.Yes):
             w.punch_in_on_emphasis()
         self.assertEqual(self.punches(), 0)
@@ -176,8 +180,11 @@ class WindowTests(unittest.TestCase):
              patch('main.QMessageBox.information') as told:
             self.window.punch_in_on_emphasis()
             self.assertTrue(self.window.worker.wait(10000))
-            app.processEvents()
-        self.assertEqual(told.call_args.args[2], 'Belirgin bir vurgu anı bulunamadı.')
+            deadline = time.monotonic() + 2
+            while not told.called and time.monotonic() < deadline:
+                app.processEvents()
+                time.sleep(0.01)
+        self.assertEqual(told.call_args.args[2], 'Belirgin ses düzeyi artışı bulunamadı.')
         self.assertFalse(self.window.undo())
 
 

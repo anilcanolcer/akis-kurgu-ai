@@ -311,22 +311,25 @@ class MultitrackWidget(QWidget):
         clip = track.find(clip_id)
         delta = self.frame_for(event.position().x()) - self.drag_anchor
         if self.drag_mode == 'move':
+            target = max(0, self.original[0] + delta)
+            target = snap_frame(self.model, target, max(1, round(8 / self.zoom)), self.selected)
             # Dragged over another track of the same kind: the clip goes there when it has room.
             over = int((event.position().y() - 30) // 43)
             if 0 <= over < len(self.model.tracks) and over != ti and self.model.tracks[over].kind == track.kind:
+                original_start = clip.start
                 track.clips.remove(clip)
+                clip.start = target
                 try:
                     self.model.tracks[over].add(clip)
                 except ValueError:
-                    track.clips.append(clip)        # no room there: it stays where it was
+                    clip.start = original_start
+                    track.clips.append(clip)        # no room at the requested time: it stays on this track
                 else:
                     ti, track = over, self.model.tracks[over]
                     self.selected, self.selected_track = (over, clip.id), over
                     self.selection_changed.emit()
         try:
             if self.drag_mode == 'move':
-                target = max(0, self.original[0] + delta)
-                target = snap_frame(self.model, target, max(1, round(8 / self.zoom)), self.selected)
                 track.move(clip.id, target)
             elif self.drag_mode == 'trim_start':
                 track.trim_start(clip.id, max(0, self.original[0] + delta))

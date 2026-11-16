@@ -7,6 +7,7 @@ from unittest.mock import Mock, patch
 
 from array import array
 
+from akis import timeline_render
 from akis.media_service import MediaService, RenderCancelled
 from akis.timeline_model import Clip, Timeline, Track
 from akis.timeline_render import TimelineRenderer, _escape_filter_path, active_clips, partial_output_path
@@ -294,15 +295,14 @@ class RealRenderFixes(unittest.TestCase):
                 outcome.append('cancelled')
         thread = threading.Thread(target=export)
         thread.start()
-        partial = self.root / 'final.part.mp4'
         deadline = time.monotonic() + 5
-        while not partial.exists() and time.monotonic() < deadline:
+        while not list(self.root.glob('final.part-*.mp4')) and time.monotonic() < deadline:
             time.sleep(0.02)
         self.media.cancel()
         thread.join(5)
         self.assertEqual(outcome, ['cancelled'])
         self.assertEqual(target.read_bytes(), b'previous good export')
-        self.assertFalse(partial.exists())
+        self.assertEqual(list(self.root.glob('final.part-*.mp4')), [])
 
     def test_line_breaks_draw_no_extra_blank_line(self):
         heights = {}
@@ -386,13 +386,67 @@ class RenderFixTests(unittest.TestCase):
                 self.assertEqual(sorted(p.name for p in Path(tmp).iterdir()), ['final.mp4'])
             media, calls = _fake_media()
             TimelineRenderer(media, (160, 90)).export(timeline, target)
-            self.assertEqual(calls[0][0][-1], str(Path(tmp) / 'final.part.mp4'))
+            partial = Path(calls[0][0][-1])
+            self.assertEqual(partial.parent, Path(tmp))
+            self.assertTrue(partial.name.startswith('final.part-'))
+            self.assertEqual(partial.suffix, '.mp4')
             self.assertEqual(target.read_bytes(), b'new')
             self.assertEqual(sorted(p.name for p in Path(tmp).iterdir()), ['final.mp4'])
 
+    def test_failure_does_not_delete_a_preexisting_part_named_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / 'final.mp4'
+            target.write_bytes(b'previous export')
+            sidecar = Path(tmp) / 'final.part.mp4'
+            sidecar.write_bytes(b'user file')
+            timeline = Timeline(fps_num=10, tracks=[Track('text', 't', [Clip('', 0, 5, text='x')])])
+            media, _ = _fake_media(lambda args: Path(args[-1]).write_bytes(b'partial'), returncode=1)
+            with self.assertRaisesRegex(RuntimeError, 'boom'):
+                TimelineRenderer(media, (160, 90)).export(timeline, target)
+            self.assertEqual(target.read_bytes(), b'previous export')
+            self.assertEqual(sidecar.read_bytes(), b'user file')
+            self.assertEqual(list(Path(tmp).glob('final.part-*.mp4')), [])
+
     def test_partial_name_keeps_container_extension(self):
-        self.assertEqual(partial_output_path('C:/v/clip.mov').name, 'clip.part.mov')
-        self.assertEqual(partial_output_path('C:/v/clip').name, 'clip.part.mp4')
+        first = partial_output_path('C:/v/clip.mov')
+        second = partial_output_path('C:/v/clip.mov')
+        self.assertNotEqual(first, second)
+        self.assertTrue(first.name.startswith('clip.part-'))
+        self.assertEqual(first.suffix, '.mov')
+        self.assertTrue(partial_output_path('C:/v/clip').name.startswith('clip.part-'))
+        self.assertEqual(partial_output_path('C:/v/clip').suffix, '.mp4')
+
+    def test_partial_name_stays_within_windows_component_limit(self):
+        target = Path('C:/v') / ('a' * 220 + '.mp4')
+        partial = partial_output_path(target)
+        self.assertEqual(partial.parent, target.parent)
+        self.assertEqual(partial.suffix, '.mp4')
+        self.assertLessEqual(len(partial.name.encode('utf-16-le')) // 2, 255)
+        self.assertNotEqual(partial, partial_output_path(target))
+
+    def test_export_to_long_valid_filename(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / ('a' * 220 + '.mp4')
+            timeline = Timeline(fps_num=10, tracks=[Track('text', 't', [Clip('', 0, 5, text='x')])])
+            media, _ = _fake_media()
+            TimelineRenderer(media, (160, 90)).export(timeline, target)
+            self.assertEqual(target.read_bytes(), b'new')
+            self.assertEqual(list(Path(tmp).iterdir()), [target])
+
+    def test_permission_error_shows_final_target_and_windows_security_hint(self):
+        from akis import i18n
+        target = 'C:/Videos/final.mp4'
+        say = lambda text: i18n.translate(text, 'en')
+        message = timeline_render.export_failure('Access is denied', target, say)
+        self.assertIn('Target file: C:/Videos/final.mp4', message)
+        self.assertIn('Access is denied', message)
+        self.assertIn('Controlled folder access', message)
+        self.assertIn('FFmpeg', message)
+
+    def test_non_permission_error_does_not_show_security_hint(self):
+        message = timeline_render.export_failure('Invalid input media', 'out.mp4')
+        self.assertIn('Hedef dosya: out.mp4', message)
+        self.assertNotIn('Denetimli klasör erişimi', message)
 
 
 if __name__ == '__main__':

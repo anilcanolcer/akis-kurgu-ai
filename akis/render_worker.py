@@ -2,7 +2,7 @@
 from PySide6.QtCore import QThread, Signal
 from akis.media_service import MediaService, RenderCancelled
 from akis.timeline_model import Timeline
-from akis.timeline_render import TimelineRenderer
+from akis.timeline_render import TimelineRenderer, export_failure
 
 
 class TimelineRenderWorker(QThread):
@@ -12,11 +12,12 @@ class TimelineRenderWorker(QThread):
     cancelled = Signal()
     progress = Signal(int)  # whole percent of an export, each value once
 
-    def __init__(self, timeline, output, size, executable, frame=None, adjustments=None):
+    def __init__(self, timeline, output, size, executable, frame=None, adjustments=None, say=str):
         super().__init__()
         self.executable = executable
         self.timeline = Timeline.from_dict(timeline.to_dict())
         self.output, self.size, self.frame = output, size, frame
+        self.say = say
         self.adjustments = dict(adjustments or {})
         # The playback proxy passes a folder of stored pieces (akis.chunk_preview): only changed pieces
         # are drawn again.
@@ -50,4 +51,4 @@ class TimelineRenderWorker(QThread):
             if self.media.cancelled:  # e.g. a probe killed mid-way reports as unreadable media
                 self.cancelled.emit()
             else:
-                self.failed.emit(str(exc))
+                self.failed.emit(export_failure(exc, self.output, self.say))

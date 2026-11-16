@@ -9,7 +9,7 @@ from PySide6.QtCore import QThread, Signal
 
 from akis.media_service import MediaService, RenderCancelled
 from akis.timeline_model import Timeline
-from akis.timeline_render import TimelineRenderer
+from akis.timeline_render import TimelineRenderer, export_failure
 
 # (suffix added to the file name, name shown to the user, canvas)
 FORMATS = (('dikey', 'Dikey 9:16', (1080, 1920)), ('kare', 'Kare 1:1', (1080, 1080)), ('yatay', 'Yatay 16:9', (1920, 1080)))
@@ -32,10 +32,11 @@ class MultiExportWorker(QThread):
     cancelled = Signal()
     progress = Signal(int)
 
-    def __init__(self, timeline, outputs, executable, adjustments=None):
+    def __init__(self, timeline, outputs, executable, adjustments=None, say=str):
         super().__init__()
         self.timeline = Timeline.from_dict(timeline.to_dict())
         self.outputs = list(outputs)            # [(shown name, canvas, path)]
+        self.say = say
         self.adjustments = dict(adjustments or {})
         self.media = MediaService(executable)
         self._percent = None
@@ -50,6 +51,7 @@ class MultiExportWorker(QThread):
             self.progress.emit(percent)
 
     def run(self):
+        path = self.outputs[0][2] if self.outputs else ''
         try:
             for index, (_, canvas, path) in enumerate(self.outputs):
                 renderer = TimelineRenderer(self.media, canvas, **self.adjustments)
@@ -61,4 +63,4 @@ class MultiExportWorker(QThread):
             if self.media.cancelled:
                 self.cancelled.emit()
             else:
-                self.failed.emit(str(exc))
+                self.failed.emit(export_failure(exc, path, self.say))

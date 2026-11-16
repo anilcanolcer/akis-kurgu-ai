@@ -2,6 +2,7 @@
 import os
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 import shutil
+import hashlib
 import subprocess
 import tempfile
 import unittest
@@ -79,6 +80,60 @@ class BuildTests(unittest.TestCase):
         self.assertEqual(percents, sorted(percents))
         self.assertEqual(percents[-1], 100)
 
+    def test_write_failure_preserves_old_output_and_reports_its_path(self):
+        out = self.root / 'denied'
+        out.mkdir()
+        worker = batch_export.BatchExportWorker([str(self.video)], str(out), FFMPEG,
+                                                aspect='Kaynak oranı', profile='Reels · 1080×1920')
+        target = Path(worker.outputs[0])
+        target.write_bytes(b'previous batch export')
+        original = worker.media.run
+        def denied(args, text=False, timeout=None, on_progress=None):
+            arguments = list(map(str, args))
+            if '-/filter_complex' in arguments:
+                Path(arguments[-1]).write_bytes(b'partial render')
+                return subprocess.CompletedProcess(arguments, 1, '', 'Permission denied')
+            return original(args, text=text, timeout=timeout, on_progress=on_progress)
+        worker.media.run = denied
+        reports = []
+        worker.completed.connect(reports.append)
+        worker.start()
+        self.assertTrue(worker.wait(60000))
+        app.processEvents()
+        self.assertEqual(target.read_bytes(), b'previous batch export')
+        self.assertEqual(list(out.glob(f'{target.stem}.part-*.mp4')), [])
+        self.assertEqual(len(reports), 1)
+        self.assertIn(str(target), reports[0])
+        self.assertIn('Permission denied', reports[0])
+        self.assertIn('Denetimli klasör erişimi', reports[0])
+
+    def test_cancel_preserves_old_output_and_removes_only_its_partial(self):
+        out = self.root / 'cancelled'
+        out.mkdir()
+        worker = batch_export.BatchExportWorker([str(self.video)], str(out), FFMPEG,
+                                                aspect='Kaynak oranı', profile='Reels · 1080×1920')
+        target = Path(worker.outputs[0])
+        target.write_bytes(b'previous batch export')
+        original = worker.media.run
+        def slow(args, text=False, timeout=None, on_progress=None):
+            arguments = list(map(str, args))
+            if '-/filter_complex' in arguments:
+                arguments.insert(0, '-re')
+            return original(arguments, text=text, timeout=timeout, on_progress=on_progress)
+        worker.media.run = slow
+        cancelled = []
+        worker.cancelled.connect(lambda: cancelled.append(True))
+        worker.start()
+        deadline = __import__('time').monotonic() + 10
+        while not list(out.glob(f'{target.stem}.part-*.mp4')) and __import__('time').monotonic() < deadline:
+            __import__('time').sleep(0.01)
+        worker.cancel()
+        self.assertTrue(worker.wait(60000))
+        app.processEvents()
+        self.assertEqual(cancelled, [True])
+        self.assertEqual(target.read_bytes(), b'previous batch export')
+        self.assertEqual(list(out.glob(f'{target.stem}.part-*.mp4')), [])
+
     def test_cancel_before_start_reports_cancelled(self):
         worker = batch_export.BatchExportWorker([str(self.video)], str(self.root), FFMPEG, aspect='Kaynak oranı',
                                                 profile='Reels · 1080×1920')
@@ -89,6 +144,45 @@ class BuildTests(unittest.TestCase):
         self.assertTrue(worker.wait(60000))
         app.processEvents()
         self.assertEqual(cancelled, [True])
+
+    def test_distinct_names_and_all_inputs_survive_in_place_batch(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            other = root / 'other'
+            other.mkdir()
+            inputs = [root / 'a.mp4', other / 'a.mp4', root / 'a_akis.mp4']
+            for path in inputs:
+                shutil.copyfile(self.video, path)
+            before = [hashlib.sha256(path.read_bytes()).hexdigest() for path in inputs]
+            worker = batch_export.BatchExportWorker([str(p) for p in inputs], str(root), FFMPEG,
+                                                    aspect='Kaynak oranı', profile='Reels · 1080×1920')
+            worker.start()
+            self.assertTrue(worker.wait(180000))
+            app.processEvents()
+            self.assertEqual([hashlib.sha256(path.read_bytes()).hexdigest() for path in inputs], before)
+            self.assertEqual(len({output for _, output, _ in worker.results}), 3)
+            self.assertTrue(all(output and Path(output).is_file() for _, output, _ in worker.results))
+
+
+class OutputPlanningTests(unittest.TestCase):
+    def test_duplicate_names_are_numbered_and_future_sources_reserved(self):
+        with tempfile.TemporaryDirectory() as folder:
+            sources = [str(Path(folder) / 'a.mp4'), str(Path(folder) / 'other' / 'a.mp4'),
+                       str(Path(folder) / 'a_akis.mp4')]
+            names = [Path(p).name for p in batch_export.outputs_for(sources, folder)]
+            self.assertEqual(names, ['a_akis_2.mp4', 'a_akis_3.mp4', 'a_akis_akis.mp4'])
+
+    def test_hardlink_to_any_input_is_reserved(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            source = root / 'a.mp4'
+            source.write_bytes(b'source')
+            alias = root / 'a_akis.mp4'
+            try:
+                os.link(source, alias)
+            except OSError as exc:
+                self.skipTest(str(exc))
+            self.assertEqual(Path(batch_export.outputs_for([str(source)], folder)[0]).name, 'a_akis_2.mp4')
 
 
 class DialogTests(unittest.TestCase):
@@ -165,6 +259,19 @@ class WindowTests(unittest.TestCase):
         started, asked = self.start(existing=['b_akis.mp4'], answer=QMessageBox.StandardButton.No)
         self.assertEqual(started, [])
         self.assertIn('b_akis.mp4', asked.call_args.args[2])
+
+    def test_overwrite_prompt_uses_the_collision_safe_worker_names(self):
+        videos = [str(self.root / 'a.mp4'), str(self.root / 'a_akis.mp4')]
+        (self.root / 'a_akis.mp4').write_bytes(b'input')
+        (self.root / 'a_akis_2.mp4').write_bytes(b'existing output')
+        with patch('akis.batch_dialog.BatchDialog.exec', return_value=1), \
+             patch('akis.batch_dialog.BatchDialog.selection', return_value=(videos, str(self.root), False, None)), \
+             patch('main.QMessageBox.question', return_value=QMessageBox.StandardButton.No) as asked, \
+             patch.object(self.window, 'start_worker') as start:
+            self.window.export_batch()
+        start.assert_not_called()
+        self.assertIn('a_akis_2.mp4', asked.call_args.args[2])
+        self.assertEqual((self.root / 'a_akis.mp4').read_bytes(), b'input')
 
     def test_report_is_shown_when_done(self):
         with patch('main.QMessageBox.information') as shown:

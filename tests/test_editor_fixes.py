@@ -3,6 +3,7 @@ smaller editor fixes."""
 import os
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -55,7 +56,8 @@ class WindowCase(unittest.TestCase):
     def add_media(self, window, path, track=1):
         window.multitrack_view.selected_track = track
         with patch('PySide6.QtWidgets.QFileDialog.getOpenFileName', return_value=(str(path), '')), \
-             patch('main.timeline_service.validate_track_media'):
+             patch('main.timeline_service.validate_track_media'), \
+             patch('main.timeline_service.infer_media_kind', return_value='audio'):
             window.add_timeline_media()
 
     def clips(self, window, kind):
@@ -63,6 +65,110 @@ class WindowCase(unittest.TestCase):
 
 
 class WorkBeforeVideoTests(WindowCase):
+    def test_still_image_is_persisted_as_a_five_second_clip_and_undoes_as_one_step(self):
+        w = self.window
+        image = self.file('photo.png')
+        w.multitrack_view.selected_track = None
+
+        def fake_convert(arguments, text=False):
+            Path(arguments[-1]).write_bytes(b'generated video')
+            return subprocess.CompletedProcess(arguments, 0, '', '')
+
+        with patch('PySide6.QtWidgets.QFileDialog.getOpenFileName', return_value=(str(image), '')) as choose, \
+             patch('akis.window.timeline_edit.app_support.app_data_dir', return_value=self.root / 'app-data'), \
+             patch('akis.window.timeline_edit.app_support.ffmpeg_path', return_value='ffmpeg'), \
+             patch('akis.window.timeline_edit.MediaService.run', side_effect=fake_convert) as convert, \
+             patch('akis.media_service.MediaService.duration', return_value=5.0), \
+             patch('akis.media_service.MediaService.dimensions', return_value=(640, 480)):
+            undo_count = len(w._undo_stack)
+            w.add_timeline_media()
+
+        clip = w.multitrack.tracks[0].clips[0]
+        self.assertEqual(Path(clip.source).parent, self.root / 'app-data' / 'stills')
+        self.assertEqual(clip.length, 150)  # five seconds at the default 30 fps
+        self.assertIn(str(image), w.media_bin.paths)  # keep the selected photo discoverable
+        self.assertIn(clip.source, w.media_bin.paths)
+        self.assertIn('*.png', choose.call_args.args[3])
+        self.assertIn('*.flac', choose.call_args.args[3])
+        convert_args = convert.call_args.args[0]
+        self.assertIn(str(image), convert_args)
+        self.assertEqual(convert_args[convert_args.index('-t') + 1], '5')
+        self.assertEqual(len(w._undo_stack), undo_count + 1)
+        self.assertTrue(w.undo())
+        self.assertEqual(w.multitrack.tracks[0].clips, [])
+
+    def test_music_button_routes_audio_without_a_selected_track_and_volume_is_undoable(self):
+        w = self.window
+        music = self.file('track.flac')
+        w.multitrack_view.selected_track = None
+        with patch('PySide6.QtWidgets.QFileDialog.getOpenFileName', return_value=(str(music), '')) as choose, \
+             patch('akis.window.timeline_edit.app_support.ffmpeg_path', return_value='ffmpeg'), \
+             patch('akis.media_service.MediaService.duration', return_value=2.0), \
+             patch('akis.media_service.MediaService.has_audio', return_value=True):
+            w.music_button.click()
+
+        audio_track = next(track for track in w.multitrack.tracks if track.kind == 'audio')
+        self.assertEqual(audio_track.clips[0].source, str(music))
+        self.assertEqual(w.multitrack_view.selected, (w.multitrack.tracks.index(audio_track), audio_track.clips[0].id))
+        self.assertIn('*.flac', choose.call_args.args[3])
+        self.assertEqual(main.i18n.translate('＋ Müzik', 'en'), '＋ Music')
+        self.assertIn('dışa aktarılan', next(b for b in w.findChildren(QPushButton) if b.text() == 'Klip sesi').toolTip())
+        with patch('PySide6.QtWidgets.QInputDialog.getInt', return_value=(35, True)):
+            w.set_clip_volume()
+        self.assertEqual(w.multitrack.tracks[1].clips[0].volume, 0.35)
+        self.assertTrue(w.undo())
+        self.assertEqual(w.multitrack.tracks[1].clips[0].volume, 1.0)
+        self.assertTrue(w.undo())
+        self.assertEqual(w.multitrack.tracks[1].clips, [])
+        w.apply_language('en')
+        self.assertEqual(w.music_button.text(), '＋ Music')
+        self.assertIn('audio track', w.music_button.toolTip())
+        self.assertIn('export', next(b for b in w.findChildren(QPushButton) if b.text() == 'Clip volume').toolTip())
+
+    def test_add_media_routes_audio_only_import_to_default_audio_track(self):
+        w = self.window
+        music = self.file('track.wav')
+        w.multitrack_view.selected_track = None
+        with patch('PySide6.QtWidgets.QFileDialog.getOpenFileName', return_value=(str(music), '')), \
+             patch('akis.window.timeline_edit.app_support.ffmpeg_path', return_value='ffmpeg'), \
+             patch('akis.media_service.MediaService.duration', return_value=3.0), \
+             patch('akis.media_service.MediaService.dimensions', side_effect=ValueError('audio only')), \
+             patch('akis.media_service.MediaService.has_audio', return_value=True):
+            w.add_timeline_media()
+        audio_track = next(track for track in w.multitrack.tracks if track.kind == 'audio')
+        self.assertEqual(audio_track.clips[0].source, str(music))
+        self.assertEqual(audio_track.clips[0].length, 90)
+
+    def test_media_kind_overrides_an_incompatible_selected_track(self):
+        w = self.window
+        music = self.file('music.wav')
+        w.multitrack_view.selected_track = 0  # the video track must not reject audio-only media
+        with patch('PySide6.QtWidgets.QFileDialog.getOpenFileName', return_value=(str(music), '')), \
+             patch('akis.window.timeline_edit.app_support.ffmpeg_path', return_value='ffmpeg'), \
+             patch('akis.media_service.MediaService.duration', return_value=2.0), \
+             patch('akis.media_service.MediaService.dimensions', side_effect=ValueError('audio only')), \
+             patch('akis.media_service.MediaService.has_audio', return_value=True):
+            w.add_timeline_media()
+        self.assertEqual(w.multitrack.tracks[0].clips, [])
+        self.assertEqual(w.multitrack.tracks[1].clips[0].source, str(music))
+
+        photo = self.file('still.jpg')
+        w.multitrack_view.selected_track = 1  # the audio track must not reject a still image
+        with patch('PySide6.QtWidgets.QFileDialog.getOpenFileName', return_value=(str(photo), '')), \
+             patch.object(w, 'convert_still_to_clip', return_value=str(self.root / 'still.mp4')), \
+             patch('akis.window.timeline_edit.app_support.ffmpeg_path', return_value='ffmpeg'), \
+             patch('akis.media_service.MediaService.duration', return_value=5.0), \
+             patch('akis.media_service.MediaService.dimensions', return_value=(640, 480)):
+            w.add_timeline_media()
+        self.assertEqual(w.multitrack.tracks[1].clips[0].source, str(music))
+        self.assertEqual(w.multitrack.tracks[0].clips[0].source, str(self.root / 'still.mp4'))
+
+    def test_still_cache_name_is_safe_for_long_photo_names(self):
+        photo = self.file('x' * 230 + '.png')
+        with patch('akis.window.timeline_edit.app_support.app_data_dir', return_value=self.root / 'app-data'):
+            cached = self.window._still_cache_path(photo)
+        self.assertLessEqual(len(cached.name.encode('utf-16-le')) // 2, 255)
+
     def test_media_before_a_video_is_unsaved_autosaved_and_saved(self):
         w = self.window
         self.assertFalse(w.has_content())
@@ -333,7 +439,7 @@ class EditorBehaviourTests(WindowCase):
 class ShortcutTests(WindowCase):
     def test_shortcuts_and_tooltips(self):
         w = self.window
-        self.assertEqual(set(w.shortcut_actions), {'Ctrl+S', 'Ctrl+O', 'Ctrl+E', 'Space', 'Delete'})
+        self.assertEqual(set(w.shortcut_actions), {'Ctrl+S', 'Ctrl+Shift+S', 'Ctrl+O', 'Ctrl+E', 'Space', 'Delete'})
         with patch.object(w, 'save_project') as save:
             w.shortcut_actions['Ctrl+S'].trigger()
         save.assert_called_once()

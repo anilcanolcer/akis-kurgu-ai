@@ -4,12 +4,64 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import time
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
 from akis.timeline_model import Timeline
 
 CURRENT_VERSION = 2
+REPLACE_RETRY_DELAYS = (0.05, 0.1, 0.2)
+
+
+def _is_transient_delete_share_lock(target):
+    """On Windows, os.replace may report access denied for a temporary no-delete-share handle.
+
+    Probe the target with DELETE access so a real sharing conflict (32/33) can be retried while
+    an ACL/access denial (5) still fails immediately.
+    """
+    if os.name != 'nt':
+        return False
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+        create_file = kernel32.CreateFileW
+        create_file.argtypes = (wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+                                wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE)
+        create_file.restype = wintypes.HANDLE
+        close_handle = kernel32.CloseHandle
+        close_handle.argtypes = (wintypes.HANDLE,)
+        close_handle.restype = wintypes.BOOL
+
+        ctypes.set_last_error(0)
+        handle = create_file(str(target), 0x00010000, 0x1 | 0x2 | 0x4, None, 3, 0x80, None)
+        invalid_handle = ctypes.c_void_p(-1).value
+        if handle is None or handle == invalid_handle:
+            return ctypes.get_last_error() in (32, 33)
+        close_handle(handle)
+        return False
+    except (AttributeError, OSError, TypeError, ValueError):
+        return False
+
+
+def _replace_with_retry(source, target):
+    """Retry short Windows sharing locks without changing the atomic-save guarantee."""
+    delays = REPLACE_RETRY_DELAYS
+    for attempt in range(len(delays) + 1):
+        try:
+            os.replace(source, target)
+            return
+        except OSError as exc:
+            code = getattr(exc, 'winerror', None)
+            sharing_violation = (code in (32, 33) or
+                                 (os.name == 'nt' and exc.errno in (32, 33)) or
+                                 (os.name == 'nt' and code == 5 and _is_transient_delete_share_lock(target)))
+            if not sharing_violation or attempt == len(delays):
+                raise
+            time.sleep(delays[attempt])
 
 
 def migrate(document):
@@ -75,10 +127,17 @@ def save(path, document):
             json.dump(data, stream, ensure_ascii=False, indent=2)
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(name, target)
+        _replace_with_retry(name, target)
     finally:
         if name and os.path.exists(name):
             os.unlink(name)
+
+
+@dataclass(frozen=True)
+class SaveResult:
+    """The project itself is saved when this is returned; the version copy is best-effort."""
+    snapshot_saved: bool | None = None
+    snapshot_error: OSError | None = None
 
 
 def make_document(state, timeline, publish, ai_prompt):
@@ -120,12 +179,19 @@ def prune_versions(path, keep=KEEP_VERSIONS):
 def save_with_snapshot(path, document, snapshot=False, keep=KEEP_VERSIONS):
     target = Path(path)
     save(target, document)
-    if snapshot:
+    if not snapshot:
+        return SaveResult()
+    try:
         versions = versions_folder(target)
         versions.mkdir(exist_ok=True)
         stamp = datetime.now().strftime('%Y%m%d-%H%M%S-%f')
         save(versions / f'{stamp}.json', document)
         prune_versions(target, keep)
+    except OSError as exc:
+        # The main project is already committed atomically. A protected/unwritable versions folder must
+        # not make the UI report that the project failed to save or leave the editor marked dirty.
+        return SaveResult(snapshot_saved=False, snapshot_error=exc)
+    return SaveResult(snapshot_saved=True)
 
 
 def normalize_project_path(path):

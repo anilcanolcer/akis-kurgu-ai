@@ -4,12 +4,15 @@ Self-contained (no import of main.py). The host passes the ffmpeg path, the sour
 cut, and reads `segments` after the dialog is accepted; applying them is the host's job
 (edit_plan.apply_plan), so the cut lands in the normal undo history.
 """
+import subprocess
+import threading
+
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QFormLayout, QLabel, QProgressBar, QSlider,
                                QVBoxLayout, QWidget)
 
-from akis import i18n, silence_cut
+from akis import app_support, i18n, silence_cut
 from akis.theme import color
 
 TITLE = 'Sessizlikleri çıkar'
@@ -22,12 +25,55 @@ class MeasureWorker(QThread):
     def __init__(self, executable, paths, measure=silence_cut.measure):
         super().__init__()
         self.executable, self.paths, self.measure = executable, list(paths), measure
+        self._cancelled = threading.Event()
+        self._process_lock = threading.Lock()
+        self._process = None
+
+    def cancel(self):
+        """Stop a running FFmpeg measurement without waiting on the GUI thread."""
+        self._cancelled.set()
+        self.requestInterruption()
+        with self._process_lock:
+            process = self._process
+        if process is not None and process.poll() is None:
+            try:
+                process.terminate()
+            except OSError:
+                pass
+
+    def _run_cancellable(self, command, **options):
+        timeout = options.pop('timeout', None)
+        process = subprocess.Popen(command, **options)
+        with self._process_lock:
+            self._process = process
+        try:
+            if self._cancelled.is_set():
+                process.terminate()
+            try:
+                stdout, stderr = process.communicate(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                stdout, stderr = process.communicate()
+                raise
+            return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+        finally:
+            with self._process_lock:
+                if self._process is process:
+                    self._process = None
+
+    def _measure(self, path):
+        if self.measure is silence_cut.measure:
+            return self.measure(self.executable, path, runner=self._run_cancellable)
+        return self.measure(self.executable, path)
 
     def run(self):
         for index, path in enumerate(self.paths):
-            if self.isInterruptionRequested():
+            if self._cancelled.is_set() or self.isInterruptionRequested():
                 return
-            self.measured.emit(index, self.measure(self.executable, path))
+            levels = self._measure(path)
+            if self._cancelled.is_set() or self.isInterruptionRequested():
+                return
+            self.measured.emit(index, levels)
 
 
 class CutStrip(QWidget):
@@ -121,6 +167,7 @@ class SilenceDialog(QDialog):
         self.worker = MeasureWorker(executable, [source['path'] for source in sources], measure)
         self.worker.measured.connect(self._measured)
         self.worker.finished.connect(self._measuring_done)
+        app_support.retain_background_thread(self.worker)
         self.worker.start()
 
     def tr_(self, text):
@@ -169,6 +216,6 @@ class SilenceDialog(QDialog):
 
     def done(self, code):
         if self.worker.isRunning():
-            self.worker.requestInterruption()
-            self.worker.wait(5000)
+            self.worker.cancel()
+            self.worker.wait(app_support.THREAD_STOP_WAIT_MS)
         super().done(code)

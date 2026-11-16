@@ -53,8 +53,8 @@ class ProjectMixin:
         if not dialog.exec() or not dialog.path:
             return
         if dialog.kind == 'video':
-            self.add_video(dialog.path)
-            self.set_status(self.ui_text('Kayıt projeye eklendi: {name}', name=Path(dialog.path).name))
+            if self.add_video(dialog.path):
+                self.set_status(self.ui_text('Kayıt projeye eklendi: {name}', name=Path(dialog.path).name))
             return
         try:
             seconds = MediaService(executable).duration(dialog.path)
@@ -70,21 +70,20 @@ class ProjectMixin:
         self.seek_timeline(self.timeline_frame)
         self.set_status(self.ui_text('Ses kaydı oynatma çizgisine eklendi: {name}', name=Path(dialog.path).name))
 
-    def add_video(self, path: str) -> None:
+    def add_video(self, path: str) -> bool:
         if not self.state.source:
-            self.load_video(path)
-            return
+            return self.load_video(path)
         file = Path(path)
         if file.suffix.lower() not in VIDEO_EXTS or not file.is_file():
             QMessageBox.warning(self, APP_NAME, 'Desteklenen bir video dosyası seçin.')
-            return
+            return False
         try:
             seconds = MediaService(app_support.ffmpeg_path()).duration(str(file))
             with self.history_step():
                 timeline_service.append_video(self.multitrack, str(file), seconds, self.multitrack_view.selected_track)
         except (ValueError, RuntimeError, OSError) as exc:
             QMessageBox.warning(self, APP_NAME, f'Video eklenemedi: {exc}')
-            return
+            return False
         self.media_bin.add(str(file))
         self.refresh_media_bin()
         self.refresh_timeline_view()
@@ -92,6 +91,7 @@ class ProjectMixin:
         self.multitrack_view.update()
         self.seek_timeline(self.timeline_frame)
         self.set_status(self.ui_text('Video zaman çizelgesine eklendi.'))
+        return True
 
     def load_video(self, path: str) -> bool:
         """Make `path` the main video; returns False (and has told the user why) when it was refused."""
@@ -182,35 +182,61 @@ class ProjectMixin:
         return project_service.make_document(asdict(self.state), self.multitrack, publish,
                                              self.ai_prompt.toPlainText())
 
-    def write_project(self, path: str, snapshot: bool = False) -> None:
-        project_service.save_with_snapshot(path, self.project_document(), snapshot)
+    def write_project(self, path: str, snapshot: bool = False) -> project_service.SaveResult:
+        return project_service.save_with_snapshot(path, self.project_document(), snapshot)
 
     def save_project(self) -> None:
         if not self.has_content():
             QMessageBox.information(self, APP_NAME, self.ui_text("Kaydetmek için önce bir video veya medya ekleyin."))
             return
-        path = self.project_path
-        if not path:
-            default = safe_filename(self.project_title.text()) + ".akis.json"
-            chosen, _ = QFileDialog.getSaveFileName(
-                self, "Projeyi kaydet", str(Path.home() / "Documents" / default), "Akış projesi (*.akis.json)"
-            )
-            if not chosen:
-                return
-            path = project_service.normalize_project_path(chosen)
-            if not self.confirm_overwrite(chosen, path):
-                return
+        if not self.project_path:
+            self.save_project_as()
+            return
+        self._save_project_to(self.project_path)
+
+    def save_project_as(self) -> None:
+        """Choose a new project file without changing the current project unless its save succeeds."""
+        if not self.has_content():
+            QMessageBox.information(self, APP_NAME, self.ui_text("Kaydetmek için önce bir video veya medya ekleyin."))
+            return
+        default = safe_filename(self.project_title.text()) + ".akis.json"
+        initial = self.project_path or str(Path.home() / "Documents" / default)
+        chosen, _ = QFileDialog.getSaveFileName(
+            self, self.ui_text("Projeyi farklı kaydet"), initial, "Akış projesi (*.akis.json)"
+        )
+        if not chosen:
+            return
+        path = project_service.normalize_project_path(chosen)
+        if not self.confirm_overwrite(chosen, path):
+            return
+        self._save_project_to(path)
+
+    def _save_project_to(self, path: str) -> None:
         try:
-            self.write_project(path, snapshot=True)
+            result = self.write_project(path, snapshot=True)
+        except PermissionError as exc:
+            log.exception("Proje kaydedilemedi: %s", path)
+            QMessageBox.critical(self, APP_NAME, self.ui_text(
+                "Windows bu konuma yazmayı engelledi: {path}. Dosya başka bir uygulamada açıksa kapatın. "
+                "Klasöre yazma izniniz yoksa farklı bir konum seçin. Windows Defender'da Denetimli klasör erişimi "
+                "bu uygulamayı engelliyorsa, uygulamaya izin verin. Ayrıntı: {error}", path=path, error=exc))
+            return
         except (OSError, ValueError) as exc:
             log.exception("Proje kaydedilemedi: %s", path)
-            QMessageBox.critical(self, APP_NAME, f'Proje kaydedilemedi: {exc}')
+            QMessageBox.critical(self, APP_NAME, self.ui_text(
+                "Proje kaydedilemedi: {error} (konum: {path})", error=exc, path=path))
             return
         self.project_path = path
         self.project_title.setText(project_name(path))
         self.mark_saved()
         self.discard_autosave()  # the project file now holds everything the autosave did
-        self.set_status(self.ui_text("Proje ve sürüm anlık görüntüsü kaydedildi."))
+        snapshot_error = getattr(result, 'snapshot_error', None)
+        if snapshot_error is not None:
+            log.warning("Proje kaydedildi ancak sürüm anlık görüntüsü oluşturulamadı (%s): %s", path, snapshot_error)
+            self.set_status(self.ui_text("Proje kaydedildi; sürüm anlık görüntüsü oluşturulamadı: {error}",
+                                         error=snapshot_error))
+        else:
+            self.set_status(self.ui_text("Proje ve sürüm anlık görüntüsü kaydedildi."))
 
     def project_signature(self) -> str:
         document = self.project_document()

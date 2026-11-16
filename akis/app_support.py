@@ -11,6 +11,7 @@ import re
 import shutil
 import sys
 import threading
+import weakref
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -51,6 +52,42 @@ THREAD_STOP_WAIT_MS = 2000  # how long closing the window waits for a background
 UNDO_LIMIT = 50  # timeline edit steps kept for undo
 STILL_CLIP_SECONDS = 5  # a generated still image is added to the timeline as a clip of this length
 _background_threads: list[QThread] = []  # still stopping after their window closed; waited for in main()
+_background_threads_lock = threading.Lock()
+
+
+def retain_background_thread(thread) -> None:
+    """Keep a QThread alive after its window closes, until Qt reports that it finished."""
+    with _background_threads_lock:
+        if thread in _background_threads:
+            return
+        _background_threads.append(thread)
+    finished = getattr(thread, "finished", None)
+    connect = getattr(finished, "connect", None)
+    if callable(connect):
+        reference = weakref.ref(thread)
+        connect(lambda ref=reference: release_background_thread(ref()))
+
+
+def release_background_thread(thread) -> None:
+    """Drop a retained thread only after its run() method has ended."""
+    if thread is None:
+        return
+    with _background_threads_lock:
+        try:
+            _background_threads.remove(thread)
+        except ValueError:
+            pass
+
+
+def _background_thread_finished(thread) -> bool:
+    """Tell a completed QThread from one whose start() has not reached the OS yet."""
+    is_finished = getattr(thread, "isFinished", None)
+    if callable(is_finished):
+        return bool(is_finished())
+    is_running = getattr(thread, "isRunning", None)
+    return callable(is_running) and not is_running()
+
+
 def start_temp_cleanup(root=None) -> threading.Thread:
     """Remove scratch folders a crash left in the temp directory, off the GUI thread (a big folder or a
     slow disk must not delay the window). Never raises; the thread is a daemon so it cannot block exit."""
@@ -60,11 +97,42 @@ def start_temp_cleanup(root=None) -> threading.Thread:
 
 
 def wait_for_background_threads() -> None:
-    """After the event loop: let interrupted update threads end so none is destroyed while running."""
-    while _background_threads:
-        thread = _background_threads.pop()
-        if not thread.wait((update_service.READ_TIMEOUT + 5) * 1000):
-            log.warning("Arka plan işi zamanında bitmedi")
+    """After the event loop, stop and drain retained QThreads without dropping live wrappers.
+
+    A bounded wait is repeated while a thread remains alive.  This runs after the UI event loop has closed,
+    so a slow non-cancellable operation may delay process exit, but it cannot destroy a running QThread.
+    Cancellable workers are asked to stop first and should drain promptly.
+    """
+    asked_to_stop = set()
+    while True:
+        with _background_threads_lock:
+            threads = list(_background_threads)
+        if not threads:
+            return
+        for thread in threads:
+            if _background_thread_finished(thread):
+                release_background_thread(thread)
+                continue
+            identity = id(thread)
+            if identity not in asked_to_stop:
+                asked_to_stop.add(identity)
+                cancel = getattr(thread, "cancel", None)
+                if callable(cancel):
+                    cancel()
+                else:
+                    request = getattr(thread, "requestInterruption", None)
+                    if callable(request):
+                        request()
+            wait = getattr(thread, "wait", None)
+            if callable(wait) and wait(THREAD_STOP_WAIT_MS):
+                if _background_thread_finished(thread):
+                    release_background_thread(thread)
+                else:
+                    # QThread.wait() returns immediately before start() has reached the OS thread.
+                    # Keep the wrapper registered and avoid a busy loop until it starts or finishes.
+                    threading.Event().wait(0.01)
+            else:
+                log.warning("Arka plan işi hâlâ bitmedi; güvenli kapanış için bekleniyor")
 
 
 def app_data_dir() -> Path:

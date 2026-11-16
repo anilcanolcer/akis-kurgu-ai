@@ -217,8 +217,18 @@ class CostTests(unittest.TestCase):
         self.assertAlmostEqual(ss.estimate_image_cost('gemini-3-pro-image', '1K', 2), 0.268)
         self.assertIsNone(ss.estimate_image_cost('gemini-3.1-flash-image', '4K'))
         self.assertIn('0.034', ss.image_cost_line('gemini-nano-banana-2.1', '1K'))
-        self.assertIn('fiyat belgelenmedi', ss.video_cost_line('gemini-omni-1.2-flash', '720p', 6))
-        self.assertNotRegex(ss.video_cost_line('gemini-omni-1.2-flash', '720p', 6), r'\$')
+        self.assertAlmostEqual(ss.estimate_video_cost('gemini-omni-1.2-flash', '720p', 6), 0.417024)
+        self.assertAlmostEqual(ss.estimate_video_cost('gemini-omni-1.2-flash', '360p', 3), 0.069516)
+        self.assertAlmostEqual(ss.estimate_video_cost('gemini-omni-1.2-flash', '1080p', 8), 0.834048)
+        self.assertAlmostEqual(ss.estimate_video_cost('gemini-omni-1.2-flash', '4K', 3), 0.625536)
+        line = ss.video_cost_line('gemini-omni-1.2-flash', '720p', 6)
+        for expected in ('0.417', '$', '+ girdi/metin/düşünme', 'ücretli katman'):
+            self.assertIn(expected, line)
+        for model, resolution in (('custom-video-model', '720p'), ('gemini-omni-1.1-flash', '720p'),
+                                  ('gemini-omni-1.2-flash', '8K')):
+            self.assertIsNone(ss.estimate_video_cost(model, resolution, 6))
+            self.assertIn('fiyat belgelenmedi', ss.video_cost_line(model, resolution, 6))
+            self.assertNotRegex(ss.video_cost_line(model, resolution, 6), r'\$')
 
     def test_usage_line(self):
         result = gemini_api.TextResult('x', 'gemini-3.6-flash', {'prompt': 5000, 'output': 800, 'thoughts': 1054,
@@ -274,3 +284,28 @@ class FileTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class StoryDisplayLanguageTests(unittest.TestCase):
+    def test_known_and_unknown_costs_have_english_display(self):
+        from akis import i18n, story_service as ss
+        english = lambda text: i18n.story_text(text, 'en')
+        self.assertIn('(1 image, unknown, 1K)', english(ss.image_cost_line('unknown', '1K')))
+        self.assertIn('price unknown', english(ss.image_cost_line('unknown', '1K')))
+        self.assertIn('price undocumented', english(ss.video_cost_line('unknown', '720p', 6)))
+        line = english(ss.video_cost_line('gemini-omni-1.2-flash', '720p', 6))
+        self.assertIn('Estimated video output cost:', line)
+        self.assertIn('input/text/thinking; paid tier', line)
+        self.assertIn('6 s)', line)
+
+    def test_application_errors_translate_without_changing_paths_or_models(self):
+        from akis import i18n
+        english = lambda text: i18n.story_text(text, 'en')
+        self.assertEqual(english('Görsel kaydedildi: C:/Görsel/model.png'),
+                         'Image saved: C:/Görsel/model.png')
+        self.assertEqual(english('Hata: Görsel istemi boş olamaz.'),
+                         'Error: The image prompt cannot be empty.')
+        self.assertEqual(english('gemini-4-argon ücretsiz katmanda kullanılamıyor'),
+                         'gemini-4-argon unavailable on the free tier')
+        self.assertEqual(english('Hata: provider diagnostic: raw text'),
+                         'Error: provider diagnostic: raw text')

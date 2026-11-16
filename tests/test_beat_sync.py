@@ -4,6 +4,7 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -123,7 +124,10 @@ class WindowTests(unittest.TestCase):
         with patch('akis.beat_sync.read_onsets', return_value=pulses(0.5, 0.0, 10.0)):
             w.snap_cuts_to_beat()
             self.assertTrue(w.worker.wait(10000))          # the beat is read off the window's thread
-            app.processEvents()
+            deadline = time.monotonic() + 2
+            while w.multitrack.tracks[0].clips[0].length == 54 and time.monotonic() < deadline:
+                app.processEvents()
+                time.sleep(0.01)  # the result is delivered on the next GUI event-loop turn
         main, sound = w.multitrack.tracks[0].clips, w.multitrack.tracks[1].clips
         self.assertEqual(main[0].length, 60)            # the cut at 1.8 s moved to the beat at 2 s
         self.assertEqual(main[1].start, 60)

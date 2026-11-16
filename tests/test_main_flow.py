@@ -1,10 +1,11 @@
 import os
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+import json
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtTest import QTest
 from akis.timeline_model import Timeline, Track, Clip
@@ -121,6 +122,121 @@ class MainWindowFlowTests(unittest.TestCase):
             window.save_project()
             message.assert_called_once()
             self.assertEqual(window.project_path, '')
+        window.close()
+
+    def test_snapshot_denial_keeps_the_successfully_saved_project(self):
+        from akis import project_service
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / 'chosen.akis.json'
+            window = MainWindow()
+            window.state.source = 'video.mp4'
+            window.state.duration = 2
+            window.multitrack = Timeline(tracks=[Track('video', 'Video', [Clip('video.mp4', 0, 60)])])
+            window.multitrack_view.set_model(window.multitrack)
+            real_save = project_service.save
+
+            def deny_snapshot(path, document):
+                if Path(path).parent.name == f'{target.name}.versions':
+                    raise PermissionError(13, 'Access denied')
+                return real_save(path, document)
+
+            with patch('PySide6.QtWidgets.QFileDialog.getSaveFileName', return_value=(str(target), '')) as chooser, \
+                 patch('akis.project_service.save', side_effect=deny_snapshot), \
+                 patch('main.QMessageBox.critical') as critical:
+                window.save_project()
+                chooser.assert_called_once()
+                critical.assert_not_called()
+            self.assertEqual(window.project_path, str(target))
+            self.assertFalse(window.has_unsaved_changes())
+            self.assertEqual(json.loads(target.read_text(encoding='utf-8'))['state']['source'], 'video.mp4')
+            self.assertIn('anlık görüntüsü oluşturulamadı', window.status_label.text())
+            window.close()
+
+    def test_save_uses_existing_path_and_refused_normalized_save_as_preserves_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            window = MainWindow()
+            window.state.source = 'video.mp4'
+            window.state.duration = 2
+            window.multitrack = Timeline(tracks=[Track('video', 'Video', [Clip('video.mp4', 0, 60)])])
+            window.multitrack_view.set_model(window.multitrack)
+            target = Path(tmp) / 'first.akis.json'
+            with patch('PySide6.QtWidgets.QFileDialog.getSaveFileName', return_value=(str(target), '')) as chooser:
+                window.save_project()
+            chooser.assert_called_once()
+            self.assertEqual(window.project_path, str(target))
+
+            window.publish_title.setText('Saved again')
+            with patch('PySide6.QtWidgets.QFileDialog.getSaveFileName') as chooser:
+                window.save_project()
+            chooser.assert_not_called()
+            self.assertEqual(json.loads(target.read_text(encoding='utf-8'))['publish']['title'], 'Saved again')
+
+            protected = Path(tmp) / 'protected.akis.json'
+            protected.write_bytes(b'keep this file')
+            with patch('PySide6.QtWidgets.QFileDialog.getSaveFileName', return_value=(str(Path(tmp) / 'protected.json'), '')), \
+                 patch('main.QMessageBox.question', return_value=QMessageBox.StandardButton.No) as question:
+                window.project_path = ''  # another Save As flow, with the normalized target already present
+                window.save_project()
+            question.assert_called_once()
+            self.assertEqual(protected.read_bytes(), b'keep this file')
+            self.assertEqual(window.project_path, '')
+            window.close()
+
+    def test_access_denied_reports_selected_location_and_keeps_existing_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / 'existing.akis.json'
+            target.write_bytes(b'previous project')
+            window = MainWindow()
+            window.project_path = str(target)
+            window.state.source = 'video.mp4'
+            window.state.duration = 2
+            with patch.object(window, 'write_project', side_effect=PermissionError(13, 'Access denied')), \
+                 patch('main.QMessageBox.critical') as critical:
+                window.save_project()
+            critical.assert_called_once()
+            message = critical.call_args.args[2]
+            self.assertIn(str(target), message)
+            self.assertIn('Defender', message)
+            self.assertIn('farklı bir konum', message)
+            self.assertEqual(window.project_path, str(target))
+            self.assertTrue(window.has_unsaved_changes())
+            self.assertEqual(target.read_bytes(), b'previous project')
+            window.close()
+
+    def test_save_as_failure_keeps_current_project_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            current = Path(tmp) / 'current.akis.json'
+            chosen = Path(tmp) / 'new.akis.json'
+            current.write_bytes(b'current project')
+            window = MainWindow()
+            window.project_path = str(current)
+            window.state.source = 'video.mp4'
+            window.state.duration = 2
+            with patch('PySide6.QtWidgets.QFileDialog.getSaveFileName', return_value=(str(chosen), '')) as chooser, \
+                 patch.object(window, 'write_project', side_effect=PermissionError(13, 'Access denied')), \
+                 patch('main.QMessageBox.critical') as critical:
+                window.save_project_as()
+            chooser.assert_called_once()
+            critical.assert_called_once()
+            self.assertEqual(window.project_path, str(current))
+            self.assertEqual(current.read_bytes(), b'current project')
+            self.assertFalse(chosen.exists())
+            window.close()
+
+    def test_save_as_is_discoverable_and_has_a_window_shortcut(self):
+        from PySide6.QtCore import Qt
+        from PySide6.QtTest import QTest
+        window = MainWindow()
+        self.assertEqual(window.save_as_button.text(), 'Farklı kaydet')
+        self.assertIn('Ctrl+Shift+S', window.save_as_button.toolTip())
+        self.assertEqual(window.shortcut_actions['Ctrl+Shift+S'].shortcut().toString(), 'Ctrl+Shift+S')
+        window.show()
+        app.processEvents()
+        with patch.object(window, 'save_project_as') as save_as:
+            QTest.keyClick(window, Qt.Key.Key_S,
+                           Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier)
+            app.processEvents()
+        save_as.assert_called_once()
         window.close()
 
 if __name__ == '__main__': unittest.main()

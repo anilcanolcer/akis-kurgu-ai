@@ -127,7 +127,9 @@ class RealExportTests(unittest.TestCase):
         self.assertEqual(percents, sorted(set(percents)))
         self.assertGreater(percents[-1], 90)
 
-        stopped = TimelineRenderWorker(self.timeline, str(self.root / 'c.mp4'), (320, 180), FFMPEG)
+        existing = self.root / 'c.mp4'
+        existing.write_bytes(b'previous export')
+        stopped = TimelineRenderWorker(self.timeline, str(existing), (320, 180), FFMPEG)
         cancelled = []
         stopped.cancelled.connect(lambda: cancelled.append(True))
         # Direct: cancel from the reporting thread at the first percent, before this short render can finish.
@@ -136,7 +138,32 @@ class RealExportTests(unittest.TestCase):
         self.assertTrue(stopped.wait(60000))
         app.processEvents()
         self.assertEqual(cancelled, [True])
-        self.assertFalse((self.root / 'c.mp4').exists())
+        self.assertEqual(existing.read_bytes(), b'previous export')
+        self.assertEqual(list(self.root.glob('c.part-*.mp4')), [])
+
+    def test_write_failure_preserves_target_and_reports_final_path_and_access_hint(self):
+        target = self.root / 'kept.mp4'
+        target.write_bytes(b'previous export')
+        worker = TimelineRenderWorker(self.timeline, str(target), (320, 180), FFMPEG)
+        original = worker.media.run
+        def denied(args, text=False, timeout=None, on_progress=None):
+            arguments = list(map(str, args))
+            if '-/filter_complex' in arguments:
+                Path(arguments[-1]).write_bytes(b'partial render')
+                return subprocess.CompletedProcess(arguments, 1, '', 'Access is denied')
+            return original(args, text=text, timeout=timeout, on_progress=on_progress)
+        worker.media.run = denied
+        failures = []
+        worker.failed.connect(failures.append)
+        worker.start()
+        self.assertTrue(worker.wait(60000))
+        app.processEvents()
+        self.assertEqual(target.read_bytes(), b'previous export')
+        self.assertEqual(list(self.root.glob('kept.part-*.mp4')), [])
+        self.assertEqual(len(failures), 1)
+        self.assertIn(str(target), failures[0])
+        self.assertIn('Access is denied', failures[0])
+        self.assertIn('Denetimli klasör erişimi', failures[0])
 
 
 class WindowTests(unittest.TestCase):

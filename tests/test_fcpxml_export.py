@@ -7,7 +7,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 from akis import fcpxml_export
 from akis.fcpxml_export import build, rational, volume_db
@@ -148,6 +148,30 @@ class WindowTests(unittest.TestCase):
         with patch('PySide6.QtWidgets.QFileDialog.getSaveFileName', return_value=('', '')):
             self.window.export_fcpxml()
         self.assertEqual(list(self.root.glob('*.fcpxml')), [])
+
+    def test_extensionless_name_asks_before_overwriting_final_path(self):
+        target = self.root / 'kurgu.fcpxml'
+        target.write_text('existing edit', encoding='utf-8')
+        with patch('PySide6.QtWidgets.QFileDialog.getSaveFileName', return_value=(str(target.with_suffix('')), '')), \
+             patch.object(self.window, 'export_canvas_size', return_value=(1080, 1920)), \
+             patch('main.QMessageBox.question', return_value=QMessageBox.StandardButton.No) as asked:
+            self.window.export_fcpxml()
+        asked.assert_called_once()
+        self.assertEqual(target.read_text(encoding='utf-8'), 'existing edit')
+
+    def test_write_failure_preserves_existing_edit_and_shows_target(self):
+        target = self.root / 'kurgu.fcpxml'
+        target.write_text('existing edit', encoding='utf-8')
+        with patch('PySide6.QtWidgets.QFileDialog.getSaveFileName', return_value=(str(target), '')), \
+             patch.object(self.window, 'export_canvas_size', return_value=(1080, 1920)), \
+             patch('akis.story_workers.os.replace', side_effect=PermissionError('Access is denied')), \
+             patch('main.QMessageBox.warning') as warning:
+            self.window.export_fcpxml()
+        self.assertEqual(target.read_text(encoding='utf-8'), 'existing edit')
+        self.assertIn(str(target), warning.call_args.args[2])
+        self.assertIn('Access is denied', warning.call_args.args[2])
+        self.assertIn('Denetimli klasör erişimi', warning.call_args.args[2])
+        self.assertEqual(list(self.root.glob('kurgu.fcpxml.*.part')), [])
 
 
 if __name__ == '__main__':

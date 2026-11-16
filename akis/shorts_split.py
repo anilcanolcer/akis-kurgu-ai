@@ -17,7 +17,7 @@ from PySide6.QtCore import QThread, Signal
 from akis import clip_fit, silence_cut
 from akis.media_service import MediaService, RenderCancelled
 from akis.timeline_model import Clip, Timeline, Track
-from akis.timeline_render import TimelineRenderer, duration_frames, output_overwrites_source
+from akis.timeline_render import TimelineRenderer, duration_frames, export_failure, output_overwrites_source
 from akis.timeline_slice import slice_timeline
 
 DEFAULT_LIMIT = 60
@@ -180,6 +180,7 @@ class ShortsExportWorker(QThread):
             self.progress.emit(percent)
 
     def run(self):
+        output = self.outputs[0] if self.outputs else ''
         try:
             fps = self.timeline.fps_num / self.timeline.fps_den
             for index, ((start, end), output) in enumerate(zip(self.parts, self.outputs)):
@@ -197,4 +198,4 @@ class ShortsExportWorker(QThread):
             if self.media.cancelled:
                 self.cancelled.emit()
             else:
-                self.failed.emit(str(exc))
+                self.failed.emit(export_failure(exc, output, self.say))

@@ -57,8 +57,8 @@ Talking-head videos, tutorials, vlogs and Shorts take hours of repetitive work: 
 | **Remove retakes** | When the same sentence was said several times, only the last attempt stays. |
 | **Cut filler words** | Finds and cuts hesitations such as "um", "uh" and their Turkish equivalents ("ııı", "eee", "şey"). |
 | **Separate speakers** | Marks speaker changes in interviews and conversations, or keeps a single speaker. Uses a small bundled voice model (WeSpeaker, CC BY 4.0). |
-| **Take the style of a sample video** | Measures a video you like (aspect ratio, framing, loudness, colour, tempo) and saves it as a template you can apply. |
-| **Cuts on the beat / punch-in on emphasis** | Moves cuts onto the music's beats; zooms in where the speaker's voice rises. |
+| **Take the style of a sample video** | Measures a video's aspect ratio, framing, loudness, colour and tempo. Saves the visual and audio settings as a template; shows tempo as editing advice. |
+| **Cuts on the beat / punch-in on emphasis** | Moves cuts onto the music's beats; zooms in at loudness peaks in the source audio, which can include background music. |
 | **Highlights and Shorts** | Splits the best moments, or the whole edit, into vertical Shorts with a blurred background, a part number and a title card. |
 | **Prompt editing** | Cuts, reorders, adds transitions, arrows and circles, text, colour and speed from a written request, with an optional step-by-step plan review. |
 
@@ -68,7 +68,7 @@ Talking-head videos, tutorials, vlogs and Shorts take hours of repetitive work: 
 - **CapCut-style trimming:** trim handles on the selected clip, trim to the playhead (**Q** / **W**), and select any range by dragging on an empty spot to delete it from every track at once.
 - Split, ripple delete, per-clip volume and **clip speed** (captions follow the new speed), framing (fit, fill, blurred background).
 - An opening **title** typed in the Edit tab becomes a 3-second text clip at the start of the video.
-- Waveforms and video thumbnails on clips; frame-accurate seeking; unlimited undo / redo.
+- Waveforms and video thumbnails on clips; frame-accurate seeking; undo / redo for the latest 50 edits.
 
 ### Captions, audio and voice-over
 

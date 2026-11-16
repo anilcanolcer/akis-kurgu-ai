@@ -121,7 +121,7 @@ class RealCopyTests(unittest.TestCase):
         self.assertTrue(self.media.has_audio(output))
         self.assertEqual(seen[-1], 1.0)
         self.assertEqual(seen, sorted(seen))
-        self.assertFalse((self.root / 'copy.part.mp4').exists())
+        self.assertEqual(list(self.root.glob('copy.part-*.mp4')), [])
         decoded = subprocess.run([FFMPEG, '-v', 'error', '-i', str(output), '-f', 'null', '-'], capture_output=True, text=True)
         self.assertEqual(decoded.returncode, 0)                                  # plays through
         # A join may repeat one timestamp (a single frame shown for no time); nothing more than that.
@@ -133,7 +133,13 @@ class RealCopyTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             fast_export.export([(str(self.root / 'missing.mp4'), 0.0, 1.0)], output, self.media)
         self.assertEqual(output.read_bytes(), b'old export')
-        self.assertFalse((self.root / 'kept.part.mp4').exists())
+        self.assertEqual(list(self.root.glob('kept.part-*.mp4')), [])
+        sidecar = self.root / 'kept.part.mp4'
+        sidecar.write_bytes(b'user file')
+        with self.assertRaises(RuntimeError):
+            fast_export.export([(str(self.root / 'missing.mp4'), 0.0, 1.0)], output, self.media)
+        self.assertEqual(output.read_bytes(), b'old export')
+        self.assertEqual(sidecar.read_bytes(), b'user file')
 
     def test_worker_reports_like_the_normal_export_worker(self):
         timeline = self.timeline()

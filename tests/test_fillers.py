@@ -2,6 +2,7 @@
 import os
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -98,7 +99,10 @@ class WindowTests(unittest.TestCase):
             worker = started[0]
             worker.start()
             self.assertTrue(worker.wait(20000))
-            app.processEvents()
+            deadline = time.monotonic() + 2
+            while not (asked.called or told.called) and time.monotonic() < deadline:
+                app.processEvents()
+                time.sleep(0.01)
         return heard, asked, told
 
     def test_fillers_are_cut_in_one_undo_step(self):
@@ -144,7 +148,10 @@ class WindowTests(unittest.TestCase):
             w.remove_fillers()
             started[0].start()
             self.assertTrue(started[0].wait(20000))
-            app.processEvents()
+            deadline = time.monotonic() + 2
+            while not asked.called and time.monotonic() < deadline:
+                app.processEvents()
+                time.sleep(0.01)
         self.assertEqual([name for name, _ in tried], ['small', 'base', 'tiny'])
         self.assertTrue(all(not download for name, download in tried if name != 'tiny'))   # never fetched unasked
         self.assertIn('4 dolgu sözcüğü bulundu', asked.call_args.args[2])

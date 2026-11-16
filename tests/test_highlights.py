@@ -2,12 +2,13 @@
 import os
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QFileDialog
 
 from akis import highlights, i18n, shorts_split
 from akis.highlights_dialog import HighlightsDialog
@@ -138,13 +139,17 @@ class WindowTests(unittest.TestCase):
         levels = curve(180, lively=[(60, 105)], base_speech=[(0, 180)])
         with patch('akis.silence_cut.measure', return_value=levels), \
              patch('akis.highlights_dialog.HighlightsDialog.exec', new=lambda dialog: 1), \
-             patch('PySide6.QtWidgets.QFileDialog.getExistingDirectory', return_value=str(self.root)), \
+             patch('PySide6.QtWidgets.QFileDialog.getExistingDirectory', return_value=str(self.root)) as choose_folder, \
              patch.object(w, 'start_worker', side_effect=lambda: started.append(w.worker)):
             w.find_highlights()
             analysis = started.pop(0)
             analysis.start()
             self.assertTrue(analysis.wait(20000))
-            app.processEvents()
+            deadline = time.monotonic() + 5
+            while len(started) < 1 and time.monotonic() < deadline:
+                app.processEvents()
+                time.sleep(.01)
+            self.assertEqual(choose_folder.call_args.args[3], QFileDialog.Option.DontUseNativeDialog)
         worker = started[0]
         self.assertIsInstance(worker, shorts_split.ShortsExportWorker)
         self.assertFalse(worker.numbered)

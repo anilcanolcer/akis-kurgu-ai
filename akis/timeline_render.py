@@ -9,6 +9,7 @@ import os
 import re
 import tempfile
 import textwrap
+import uuid
 import zlib
 from pathlib import Path
 from akis import audio_polish, caption_layout, clip_fit, emphasis, word_captions
@@ -143,10 +144,33 @@ def _fit_lines(text, font_path, px, max_width):
 
 
 def partial_output_path(output):
-    """Sibling name an export is written to before it replaces the target; keeps the extension
-    so FFmpeg still picks the container from it."""
+    """Unique sibling name for an in-progress export; keep the extension for FFmpeg's container guess.
+
+    A fixed ``name.part.mp4`` can be a user's existing file. If a render fails, deleting that partial
+    would delete the unrelated file, so each run gets its own unpredictable suffix.
+    """
     target = Path(output)
-    return target.with_name(f'{target.stem}.part{target.suffix or ".mp4"}')
+    suffix = target.suffix or ".mp4"
+    # NTFS limits each filename component to 255 UTF-16 units. A valid destination can
+    # otherwise become invalid when the temporary suffix is added to its full stem.
+    marker = f'.part-{uuid.uuid4().hex}'
+    budget = max(0, 255 - len((marker + suffix).encode('utf-16-le')) // 2)
+    stem = target.stem
+    while len(stem.encode('utf-16-le')) // 2 > budget:
+        stem = stem[:-1]
+    return target.with_name(f'{stem}{marker}{suffix}')
+
+
+def export_failure(message, output, say=str):
+    """Add the selected destination to an export error, with a hint for write-permission failures."""
+    detail = str(message).strip() or 'Bilinmeyen FFmpeg hatası.'
+    target = str(output)
+    lines = [say('Hedef dosya: {path}').format(path=target), detail]
+    folded = detail.casefold()
+    if any(term in folded for term in ('permission denied', 'access is denied', 'access denied',
+                                       'operation not permitted', 'winerror 5', 'errno 13')):
+        lines.append(say('Windows Güvenliği veya antivirüs yazmayı engellediyse, klasör izinlerini ve Denetimli klasör erişimini kontrol edin; bu uygulama ile FFmpeg’e izin verin ya da başka klasör seçin.'))
+    return '\n\n'.join(lines)
 
 
 class TimelineRenderer:

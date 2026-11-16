@@ -6,19 +6,48 @@ exported with the colour, speed and sound settings and the canvas of the open pr
 does not stop the others; the result lists what worked and what did not.
 """
 from pathlib import Path
+import os
 
 from PySide6.QtCore import QThread, Signal
 
 from akis import edit_plan, silence_cut, timeline_service, user_templates
 from akis.media_service import MediaService, RenderCancelled
 from akis.timeline_model import Timeline
-from akis.timeline_render import TimelineRenderer, output_overwrites_source
+from akis.timeline_render import TimelineRenderer, export_failure, output_overwrites_source
 
 SUFFIX = '_akis'
 
 
 def output_for(source, folder):
     return str(Path(folder) / f'{Path(source).stem}{SUFFIX}.mp4')
+
+
+def outputs_for(sources, folder):
+    """Reserve distinct names without overwriting any input, including filesystem aliases."""
+    sources = list(sources)
+    reserved = set()
+    outputs = []
+    def key(path):
+        return os.path.normcase(str(Path(path).resolve()))
+    def is_source(path):
+        for source in sources:
+            if key(path) == key(source):
+                return True
+            try:
+                if os.path.samefile(path, source):
+                    return True
+            except OSError:
+                pass
+        return False
+    for source in sources:
+        base = Path(output_for(source, folder))
+        path, number = base, 2
+        while key(path) in reserved or is_source(path):
+            path = base.with_name(f'{base.stem}_{number}{base.suffix}')
+            number += 1
+        reserved.add(key(path))
+        outputs.append(str(path))
+    return outputs
 
 
 def build(source, media, *, cut_silences=False, template=None, measure=silence_cut.measure):
@@ -50,6 +79,7 @@ class BatchExportWorker(QThread):
                  cut_silences=False, template=None, say=str):
         super().__init__()
         self.sources, self.folder = list(sources), folder
+        self.outputs = outputs_for(self.sources, folder)
         self.aspect, self.profile = aspect, profile
         self.adjustments = dict(adjustments or {})
         self.cut_silences, self.template = cut_silences, template
@@ -70,7 +100,7 @@ class BatchExportWorker(QThread):
     def run(self):
         try:
             for index, source in enumerate(self.sources):
-                output = output_for(source, self.folder)
+                output = self.outputs[index]
                 try:
                     timeline = build(source, self.media, cut_silences=self.cut_silences, template=self.template)
                     if output_overwrites_source(timeline, output):
@@ -84,7 +114,7 @@ class BatchExportWorker(QThread):
                 except Exception as exc:
                     if self.media.cancelled:
                         raise RenderCancelled() from exc
-                    self.results.append((source, None, str(exc).splitlines()[-1] if str(exc) else type(exc).__name__))
+                    self.results.append((source, None, export_failure(exc, output, self.say)))
                 self._report(index, 1.0)
             self.completed.emit(self.report())
         except RenderCancelled:

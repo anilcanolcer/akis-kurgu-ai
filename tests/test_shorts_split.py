@@ -4,11 +4,12 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QFileDialog
 
 from akis import i18n, shorts_split
 from akis.media_service import MediaService
@@ -140,6 +141,13 @@ class SliceTests(unittest.TestCase):
 
 @unittest.skipUnless(FFMPEG, 'ffmpeg gerekli')
 class RealRunTests(unittest.TestCase):
+    def make_source(self, root):
+        source = root / 'source.mp4'
+        subprocess.run([FFMPEG, '-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc=s=320x180:r=10:d=5',
+                        '-f', 'lavfi', '-i', 'sine=frequency=300:duration=5', '-pix_fmt', 'yuv420p',
+                        '-shortest', str(source)], check=True)
+        return source
+
     def test_a_long_landscape_video_becomes_numbered_vertical_parts(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
@@ -165,6 +173,62 @@ class RealRunTests(unittest.TestCase):
             self.assertTrue(all(abs(length - 50 / 3) < 0.4 for length in lengths), lengths)
             self.assertTrue(all(tuple(media.dimensions(p)) == (90, 160) for p in outputs))
             self.assertTrue(all(media.has_audio(p) for p in outputs))
+
+    def test_write_failure_preserves_old_part_and_reports_its_path(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            source = self.make_source(root)
+            target = root / '01-short.mp4'
+            target.write_bytes(b'previous Short')
+            timeline = Timeline(fps_num=10, tracks=[Track('video', 'V', [Clip(str(source), 0, 50)])])
+            worker = shorts_split.ShortsExportWorker(timeline, [(0, 5)], [str(target)], FFMPEG, canvas=(90, 160))
+            original = worker.media.run
+            def denied(args, text=False, timeout=None, on_progress=None):
+                arguments = list(map(str, args))
+                if '-/filter_complex' in arguments:
+                    Path(arguments[-1]).write_bytes(b'partial render')
+                    return subprocess.CompletedProcess(arguments, 1, '', 'Access is denied')
+                return original(args, text=text, timeout=timeout, on_progress=on_progress)
+            worker.media.run = denied
+            failures = []
+            worker.failed.connect(failures.append)
+            worker.start()
+            self.assertTrue(worker.wait(60000))
+            app.processEvents()
+            self.assertEqual(target.read_bytes(), b'previous Short')
+            self.assertEqual(list(root.glob('01-short.part-*.mp4')), [])
+            self.assertEqual(len(failures), 1)
+            self.assertIn(str(target), failures[0])
+            self.assertIn('Access is denied', failures[0])
+            self.assertIn('Denetimli klasör erişimi', failures[0])
+
+    def test_cancel_preserves_old_part_and_removes_only_its_partial(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            source = self.make_source(root)
+            target = root / '01-short.mp4'
+            target.write_bytes(b'previous Short')
+            timeline = Timeline(fps_num=10, tracks=[Track('video', 'V', [Clip(str(source), 0, 50)])])
+            worker = shorts_split.ShortsExportWorker(timeline, [(0, 5)], [str(target)], FFMPEG, canvas=(90, 160))
+            original = worker.media.run
+            def slow(args, text=False, timeout=None, on_progress=None):
+                arguments = list(map(str, args))
+                if '-/filter_complex' in arguments:
+                    arguments.insert(0, '-re')
+                return original(arguments, text=text, timeout=timeout, on_progress=on_progress)
+            worker.media.run = slow
+            cancelled = []
+            worker.cancelled.connect(lambda: cancelled.append(True))
+            worker.start()
+            deadline = __import__('time').monotonic() + 10
+            while not list(root.glob('01-short.part-*.mp4')) and __import__('time').monotonic() < deadline:
+                __import__('time').sleep(0.01)
+            worker.cancel()
+            self.assertTrue(worker.wait(60000))
+            app.processEvents()
+            self.assertEqual(cancelled, [True])
+            self.assertEqual(target.read_bytes(), b'previous Short')
+            self.assertEqual(list(root.glob('01-short.part-*.mp4')), [])
 
 
 class DialogTests(unittest.TestCase):
@@ -219,13 +283,21 @@ class WindowTests(unittest.TestCase):
     def test_button_starts_one_worker_for_all_parts(self):
         w = self.window
         started = []
-        with patch('akis.silence_cut.measure', return_value=[]),              patch('akis.shorts_dialog.ShortsDialog.exec', new=lambda dialog: 1),              patch('PySide6.QtWidgets.QFileDialog.getExistingDirectory', return_value=str(self.root)),              patch('akis.export_progress.space_problem', return_value=''),              patch.object(w, 'start_worker', side_effect=lambda: started.append(w.worker)):
+        with patch('akis.silence_cut.measure', return_value=[]), \
+             patch('akis.shorts_dialog.ShortsDialog.exec', new=lambda dialog: 1), \
+             patch('PySide6.QtWidgets.QFileDialog.getExistingDirectory', return_value=str(self.root)) as choose_folder, \
+             patch('akis.export_progress.space_problem', return_value=''), \
+             patch.object(w, 'start_worker', side_effect=lambda: started.append(w.worker)):
             w.export_shorts()
             analysis = started.pop(0)                       # the pauses are found off the window's thread first
             self.assertIsInstance(analysis, CallWorker)
             analysis.start()
             self.assertTrue(analysis.wait(10000))
-            app.processEvents()
+            deadline = time.monotonic() + 5
+            while len(started) < 1 and time.monotonic() < deadline:
+                app.processEvents()
+                time.sleep(.01)
+            self.assertEqual(choose_folder.call_args.args[3], QFileDialog.Option.DontUseNativeDialog)
         worker = started[0]
         self.assertIsInstance(worker, shorts_split.ShortsExportWorker)
         self.assertEqual(len(worker.parts), 3)

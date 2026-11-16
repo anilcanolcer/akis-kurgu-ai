@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from akis import project_service
 
@@ -34,6 +35,118 @@ class ProjectServiceTests(unittest.TestCase):
     def test_reject_future_format(self):
         with self.assertRaises(ValueError):
             project_service.migrate({'format': 'akis-kurgu-project', 'version': 99})
+
+    def test_failed_atomic_replace_preserves_previous_project(self):
+        with tempfile.TemporaryDirectory() as folder:
+            target = Path(folder) / 'project.akis.json'
+            target.write_bytes(b'previous project')
+            document = {'format': 'akis-kurgu-project', 'version': 1,
+                        'state': {'source': 'video.mp4', 'start': 0, 'end': 1}}
+            with patch('akis.project_service.os.replace', side_effect=PermissionError(13, 'Access denied')):
+                with self.assertRaises(PermissionError):
+                    project_service.save(target, document)
+            self.assertEqual(target.read_bytes(), b'previous project')
+            self.assertEqual(list(Path(folder).glob('*.tmp')), [])
+
+    def test_snapshot_failure_is_reported_after_main_project_is_saved(self):
+        from akis.timeline_model import Timeline
+        with tempfile.TemporaryDirectory() as folder:
+            target = Path(folder) / 'project.akis.json'
+            document = project_service.make_document({'source': 'video.mp4'}, Timeline(), {}, '')
+            real_save = project_service.save
+
+            def deny_snapshot(path, value):
+                if Path(path).parent.name == f'{target.name}.versions':
+                    raise PermissionError(13, 'Access denied')
+                return real_save(path, value)
+
+            with patch('akis.project_service.save', side_effect=deny_snapshot):
+                result = project_service.save_with_snapshot(target, document, snapshot=True)
+            self.assertFalse(result.snapshot_saved)
+            self.assertIsInstance(result.snapshot_error, PermissionError)
+            saved = project_service.load(target)
+            self.assertEqual(saved['state']['source'], 'video.mp4')
+            self.assertTrue(target.is_file())
+
+    def test_atomic_replace_retries_transient_windows_sharing_violation(self):
+        with tempfile.TemporaryDirectory() as folder:
+            target = Path(folder) / 'project.akis.json'
+            target.write_bytes(b'previous project')
+            document = {'format': 'akis-kurgu-project', 'version': 1,
+                        'state': {'source': 'video.mp4', 'start': 0, 'end': 1}}
+            real_replace = project_service.os.replace
+            calls = []
+
+            def sharing_lock_once(source, destination):
+                calls.append((source, destination))
+                if len(calls) < 3:
+                    error = PermissionError(13, 'Access denied', str(destination))
+                    error.winerror = 32
+                    raise error
+                return real_replace(source, destination)
+
+            with patch('akis.project_service.os.replace', side_effect=sharing_lock_once), \
+                 patch('akis.project_service.time.sleep') as sleep:
+                project_service.save(target, document)
+            self.assertEqual(len(calls), 3)
+            self.assertEqual([call.args[0] for call in sleep.call_args_list], [0.05, 0.1])
+            self.assertEqual(project_service.load(target)['state']['source'], 'video.mp4')
+
+    def test_atomic_replace_does_not_retry_persistent_access_denial(self):
+        with tempfile.TemporaryDirectory() as folder:
+            target = Path(folder) / 'project.akis.json'
+            target.write_bytes(b'previous project')
+            document = {'format': 'akis-kurgu-project', 'version': 1,
+                        'state': {'source': 'video.mp4', 'start': 0, 'end': 1}}
+            error = PermissionError(13, 'Access denied', str(target))
+            error.winerror = 5
+            with patch('akis.project_service.os.replace', side_effect=error) as replace, \
+                 patch('akis.project_service._is_transient_delete_share_lock', return_value=False), \
+                 patch('akis.project_service.time.sleep') as sleep:
+                with self.assertRaises(PermissionError):
+                    project_service.save(target, document)
+            replace.assert_called_once()
+            sleep.assert_not_called()
+            self.assertEqual(target.read_bytes(), b'previous project')
+
+    @unittest.skipUnless(__import__('sys').platform == 'win32', 'requires Windows file sharing semantics')
+    def test_atomic_replace_waits_for_a_real_temporary_delete_sharing_lock(self):
+        import ctypes
+        import threading
+        import time
+        from ctypes import wintypes
+
+        with tempfile.TemporaryDirectory() as folder:
+            target = Path(folder) / 'project.akis.json'
+            target.write_bytes(b'previous project')
+            document = {'format': 'akis-kurgu-project', 'version': 1,
+                        'state': {'source': 'video.mp4', 'start': 0, 'end': 1}}
+            kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+            kernel32.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+                                              wintypes.LPVOID, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+            kernel32.CreateFileW.restype = wintypes.HANDLE
+            kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+            kernel32.CloseHandle.restype = wintypes.BOOL
+            handle = kernel32.CreateFileW(str(target), 0x80000000, 0x1 | 0x2, None, 3, 0, None)
+            invalid = ctypes.c_void_p(-1).value
+            self.assertNotEqual(handle, invalid, f'CreateFileW failed: {ctypes.get_last_error()}')
+            released = threading.Event()
+
+            def unlock_after_scan():
+                time.sleep(0.12)
+                kernel32.CloseHandle(handle)
+                released.set()
+
+            thread = threading.Thread(target=unlock_after_scan, daemon=True)
+            thread.start()
+            try:
+                project_service.save(target, document)
+            finally:
+                if not released.is_set():
+                    kernel32.CloseHandle(handle)
+                thread.join(timeout=1)
+            self.assertTrue(released.is_set())
+            self.assertEqual(project_service.load(target)['state']['source'], 'video.mp4')
 
 
 def project_with_media(folder, names=('video.mp4',), outside=None):
