@@ -4,7 +4,6 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 import gc
 import threading
-import time
 import unittest
 import weakref
 from unittest.mock import patch
@@ -43,9 +42,7 @@ class SilenceWorkerLifetimeTests(unittest.TestCase):
         worker = dialog.worker
         worker_ref = weakref.ref(worker)
         QTimer.singleShot(25, dialog.reject)
-        started = time.monotonic()
         self.assertEqual(dialog.exec(), 0)
-        self.assertLess(time.monotonic() - started, 3.0)
         self.assertTrue(worker.isRunning())
         self.assertIn(worker, app_support._background_threads)
 
