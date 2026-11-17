@@ -65,6 +65,7 @@ Talking-head videos, tutorials, vlogs and Shorts take hours of repetitive work: 
 ### Timeline and manual editing
 
 - Multi-track timeline with video, audio, text and caption tracks; clips snap to nearby edges and can be dragged between tracks.
+- **＋ Media** imports PNG, JPG, JPEG and WebP photos as durable 5-second video clips. **＋ Music** adds audio to a compatible audio track; **Clip volume** applies to both preview and export.
 - **CapCut-style trimming:** trim handles on the selected clip, trim to the playhead (**Q** / **W**), and select any range by dragging on an empty spot to delete it from every track at once.
 - Split, ripple delete, per-clip volume and **clip speed** (captions follow the new speed), framing (fit, fill, blurred background).
 - An opening **title** typed in the Edit tab becomes a 3-second text clip at the start of the video.
@@ -102,6 +103,8 @@ Talking-head videos, tutorials, vlogs and Shorts take hours of repetitive work: 
 - In-app updates that verify the installer's SHA-256 checksum and restore the previous version if anything fails.
 - Proxy files in the background for smooth playback, chunked preview rendering for long edits, HDR (PQ/HLG) sources tone-mapped to SDR.
 
+**Version 0.6.4 reliability:** fixes cover source-file protection and playback-speed timing in Shorts, cancellation during batch silence analysis, portable project snapshots, background-worker lifetime, installer rollback, and protection of edits made while an AI request is running. [Read the 0.6.4 release notes](https://github.com/anilcanolcer/akis-kurgu-ai/releases/tag/v0.6.4).
+
 ## Screenshots
 
 | Light theme | Range selection and the Edit tab |
@@ -111,8 +114,10 @@ Talking-head videos, tutorials, vlogs and Shorts take hours of repetitive work: 
 | ![Template gallery with the details of the Reels / TikTok template](docs/screenshots/templates-en.png) | ![Recording dialog with a screen source selected](docs/screenshots/record-en.png) |
 | **Split into Shorts** | **Inspiration** |
 | ![Shorts dialog splitting a 41-second video into three parts with titles](docs/screenshots/shorts-en.png) | ![Inspiration gallery with an idea, its shot list and matching template](docs/screenshots/inspiration-en.png) |
+| **Photos and music** | **Story Studio** |
+| ![Photo and music clips on the timeline](docs/screenshots/media-en.png) | ![Story Studio scene workflow](docs/screenshots/story-en.png) |
 
-*Screenshots are taken from the real application (version 0.6.3). The sample clips are colour gradients generated with FFmpeg and the speech is a Windows text-to-speech voice.*
+*Screenshots show the real application with synthetic demo media and sample story text. The version badge is hidden in documentation images; screenshots are refreshed when the illustrated interface changes.*
 
 ## Installation
 
@@ -130,11 +135,11 @@ The installer is **not digitally signed yet**, so Windows SmartScreen or your se
 
 ## Getting started
 
-1. **Add video** (or drag a file onto the window). The first clip goes onto the Video track.
+1. Use **Add video** to open a video, or **＋ Media** to select a PNG, JPG, JPEG or WebP photo. Photos become 5-second clips on the Video track. Use **＋ Music** to add music to an audio track.
 2. Use the one-click tools in the **AI Edit** tab (*Remove silences*, *Remove retakes*, *Cut filler words*…) or edit by hand: select, drag, **Split**, trim with **Q** / **W**, select a range and press **Delete**.
 3. Transcribe with local Whisper in the **AI Edit** tab, pick a caption look and add the captions to the timeline.
 4. Set aspect ratio, colour and speed in the **Edit** tab, or start from **Templates** or **Inspiration**.
-5. **Export** an MP4, several formats at once, Shorts, or an FCPXML file. Save the project as `.akis.json`.
+5. Adjust clip volume as needed; it affects both preview and export. **Export** an MP4, several formats at once, Shorts, or an FCPXML file. Save the project as `.akis.json`.
 
 ## Keyboard shortcuts
 

@@ -65,6 +65,7 @@ Konuşma videoları, eğitimler, vloglar ve Shorts saatlerce tekrar eden iş ist
 ### Zaman çizelgesi ve elle kurgu
 
 - Video, ses, yazı ve altyazı izli çok izli zaman çizelgesi; klipler yakın kenarlara yapışır ve izler arasında sürüklenebilir.
+- **＋ Medya** ile PNG, JPG, JPEG ve WebP fotoğrafları kalıcı 5 saniyelik video klipleri olarak içe aktarın. **＋ Müzik** sesi uygun bir ses izine ekler; **Klip sesi** hem önizlemeye hem dışa aktarmaya uygulanır.
 - **CapCut tarzı kırpma:** seçili klipte kırpma tutamaçları, oynatma çizgisine göre kırpma (**Q** / **W**) ve boş bir yerden sürükleyerek aralık seçip tüm izlerden tek seferde silme.
 - Bölme, ripple silme, klip sesi ve **klip hızı** (altyazılar yeni hıza uyar), kadraj (sığdır, doldur, bulanık arka plan).
 - Düzenle sekmesine yazılan **başlık**, videonun başına 3 saniyelik bir yazı klibi olarak eklenir.
@@ -102,6 +103,8 @@ Konuşma videoları, eğitimler, vloglar ve Shorts saatlerce tekrar eden iş ist
 - Uygulama içinden güncelleme: kurucunun SHA-256 özeti doğrulanır, bir sorun olursa eski sürüm geri yüklenir.
 - Akıcı oynatma için arka planda proxy, uzun kurgularda parçalı önizleme, HDR (PQ/HLG) kaynaklarda SDR'ye ton eşleme.
 
+**0.6.4 sürümünde güvenilirlik:** Shorts oluştururken kaynak dosyaların korunması ve oynatma hızına göre süre hesabı, toplu işlemin sessizlik analizi sırasında iptali, taşınabilir proje anlık görüntüleri, arka plan görevlerinin yaşam döngüsü, kurulumun geri alınması ve AI yanıtı beklenirken yapılan düzenlemelerin korunması düzeltildi. [0.6.4 sürüm notlarını okuyun](https://github.com/anilcanolcer/akis-kurgu-ai/releases/tag/v0.6.4).
+
 ## Ekran görüntüleri
 
 | Açık tema | Aralık seçimi ve Düzenle sekmesi |
@@ -111,8 +114,10 @@ Konuşma videoları, eğitimler, vloglar ve Shorts saatlerce tekrar eden iş ist
 | ![İlham galerisi: fikir, çekim listesi ve uygun şablon](docs/screenshots/inspiration-tr.png) | ![Şablon galerisi ve Reels / TikTok şablonunun ayrıntıları](docs/screenshots/templates-tr.png) |
 | **Kayıt al** | **Shorts'a böl** |
 | ![Ekran kaynağı seçili kayıt penceresi](docs/screenshots/record-tr.png) | ![41 saniyelik videoyu başlıklı üç parçaya bölen Shorts penceresi](docs/screenshots/shorts-tr.png) |
+| **Fotoğraf ve müzik** | **Hikâye Stüdyosu** |
+| ![Zaman çizelgesinde fotoğraf ve müzik klipleri](docs/screenshots/media-tr.png) | ![Hikâye Stüdyosu sahne akışı](docs/screenshots/story-tr.png) |
 
-*Görüntüler uygulamanın gerçek arayüzünden alınmıştır (sürüm 0.6.3). Örnek klipler FFmpeg ile üretilmiş renk geçişleridir; konuşma Windows'un metinden seslendirme sesidir.*
+*Görüntüler gerçek uygulama arayüzünü, sentetik tanıtım medyasını ve örnek hikâye metnini gösterir. Belgeleme görsellerinde sürüm etiketi gizlenmiştir; görseller, gösterilen arayüz değiştiğinde yenilenir.*
 
 ## Kurulum
 
@@ -130,11 +135,11 @@ Kurucu **henüz dijital olarak imzalı değildir**; Windows SmartScreen ya da g�
 
 ## Hızlı başlangıç
 
-1. **Video ekle** ile dosya açın (ya da dosyayı pencereye sürükleyin). İlk klip Video izine yerleşir.
+1. **Video ekle** ile video, **＋ Medya** ile PNG, JPG, JPEG veya WebP fotoğraf seçin. Fotoğraflar Video izine 5 saniyelik klip olarak yerleşir. **＋ Müzik** ile müziği ses izine ekleyin.
 2. **AI Kurgu** sekmesindeki tek tık araçlarını (*Sessizlikleri çıkar*, *Tekrar çekimleri temizle*, *Dolgu sözcüklerini kes*…) kullanın ya da elle düzenleyin: seçin, sürükleyin, **Böl**, **Q** / **W** ile kırpın, bir aralık seçip **Delete**'e basın.
 3. **AI Kurgu** sekmesinde yerel Whisper ile dökümü alın, altyazı görünümünü seçin ve altyazıları zaman çizelgesine ekleyin.
 4. **Düzenle** sekmesinden oranı, rengi ve hızı ayarlayın ya da **Şablonlar** veya **İlham** ile başlayın.
-5. **Dışa aktar** ile MP4, aynı anda birkaç biçim, Shorts ya da FCPXML oluşturun. Projeyi `.akis.json` olarak kaydedin.
+5. Gerektiğinde klip sesini ayarlayın; bu ayar hem önizlemeye hem dışa aktarmaya uygulanır. **Dışa aktar** ile MP4, aynı anda birkaç biçim, Shorts ya da FCPXML oluşturun. Projeyi `.akis.json` olarak kaydedin.
 
 ## Klavye kısayolları
 
