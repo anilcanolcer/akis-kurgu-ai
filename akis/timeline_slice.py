@@ -19,6 +19,10 @@ def slice_timeline(timeline, start, end):
                 continue
             piece = deepcopy(clip)
             offset = a - clip.start
+            if piece.style.get('shape'):
+                piece.style = dict(piece.style,
+                                   _shape_offset=piece.style.get('_shape_offset', 0) + offset,
+                                   _shape_length=piece.style.get('_shape_length', clip.length))
             piece.start, piece.length = a - start, b - a
             if piece.source:
                 piece.source_in = clip.source_frame(a)
@@ -39,6 +43,20 @@ def picture_clips(timeline):
             for clip in track.clips]
 
 
+def transition_intervals(timeline):
+    """Sorted transition intervals, including the time the outgoing picture is held."""
+    from akis.timeline_render import transition_of
+    spans = []
+    for track in timeline.tracks:
+        if track.muted:
+            continue
+        for clip in track.clips:
+            found = transition_of(track, clip)
+            if found:
+                spans.append((clip.start, clip.start + found[1]))
+    return sorted(spans)
+
+
 def plan_ranges(timeline, limit, total):
     """[(start, end)] frames covering 0..total, each overlapped by at most `limit` picture clips where
     possible. Ranges start where a picture clip starts without a transition into it, so no transition
@@ -46,7 +64,9 @@ def plan_ranges(timeline, limit, total):
     clips = picture_clips(timeline)
     if len(clips) <= limit:
         return [(0, total)]
-    candidates = sorted({c.start for c in clips if 0 < c.start < total and not c.style.get('transition')})
+    entrances = transition_intervals(timeline)
+    candidates = sorted({c.start for c in clips if 0 < c.start < total
+                         and not any(a <= c.start < b for a, b in entrances)})
     count = lambda a, b: sum(1 for c in clips if c.start < b and c.end > a)
     ranges, cursor, last_good = [], 0, None
     for frame in candidates + [total]:

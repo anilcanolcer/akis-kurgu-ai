@@ -51,6 +51,39 @@ class WindowCase(unittest.TestCase):
 
 
 class AutosaveTests(WindowCase):
+    def test_second_editor_cannot_claim_or_delete_live_autosave(self):
+        self.load()
+        project = self.root / 'shared.akis.json'
+        self.save_as(project)
+        self.window.publish_title.setText('ilk pencere')
+        self.assertTrue(self.window.autosave_project())
+        saved = Path(self.window._autosave_file)
+        content = saved.read_bytes()
+        second = MainWindow()
+        try:
+            with patch.object(second, 'seek_timeline'), patch.object(second, 'ask_recovery') as ask:
+                self.assertTrue(second.open_project_file(str(project)))
+            ask.assert_not_called()
+            second.publish_title.setText('ikinci pencere')
+            self.assertFalse(second.autosave_project())
+        finally:
+            second._close_confirmed = True
+            second.close()
+        self.assertEqual(saved.read_bytes(), content)
+
+    def test_undo_to_saved_state_removes_recovery_immediately(self):
+        self.load()
+        self.save_as(self.root / 'undo.akis.json')
+        window = self.window
+        before = window.edit_snapshot()
+        window.publish_title.setText('geçici')
+        window.record_step(before)
+        self.assertTrue(window.autosave_project())
+        saved = Path(window._autosave_file)
+        self.assertTrue(window.undo())
+        self.assertFalse(window.has_unsaved_changes())
+        self.assertFalse(saved.exists())
+
     def test_autosave_only_with_unsaved_changes(self):
         self.load()
         project = self.root / 'a.akis.json'

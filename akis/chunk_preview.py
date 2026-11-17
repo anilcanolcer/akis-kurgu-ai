@@ -16,25 +16,10 @@ import json
 import os
 from pathlib import Path
 
-from akis.timeline_slice import picture_clips, plan_ranges, slice_timeline
+from akis.timeline_slice import picture_clips, plan_ranges, slice_timeline, transition_intervals
 
 CHUNK_SECONDS = 8.0      # shorter pieces redraw less after an edit, longer ones draw faster the first time
 KEEP_UNUSED = 40          # stored pieces no longer in the edit, kept for undo; older ones are deleted
-
-
-def _entrances(timeline):
-    """[(start, end)] frames of every video clip's transition into it (the outgoing picture is held over
-    the same frames), as the renderer draws them (timeline_render.transition_of)."""
-    from akis.timeline_render import transition_of
-    spans = []
-    for track in timeline.tracks:
-        if track.muted:
-            continue
-        for clip in track.clips:
-            found = transition_of(track, clip)
-            if found:
-                spans.append((clip.start, clip.start + found[1]))
-    return spans
 
 
 def chunk_bounds(timeline, total, limit, seconds=None):
@@ -42,7 +27,7 @@ def chunk_bounds(timeline, total, limit, seconds=None):
     entrance, and none holding more than `limit` picture clips (those are cut finer, as an export is)."""
     fps = timeline.fps_num / timeline.fps_den
     step = max(1, round((seconds or CHUNK_SECONDS) * fps))
-    entrances = _entrances(timeline)
+    entrances = transition_intervals(timeline)
     edges, frame = [0], step
     while frame < total:
         for a, b in entrances:

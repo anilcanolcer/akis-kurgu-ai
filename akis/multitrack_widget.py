@@ -1,4 +1,5 @@
 """Interactive frame-based timeline view."""
+from copy import deepcopy
 from PySide6.QtCore import Qt, Signal
 from akis.caption_service import snap_frame
 from akis.waveform_service import WaveformWorker, SAMPLE_RATE, WINDOW
@@ -36,6 +37,7 @@ class MultitrackWidget(QWidget):
         self.drag_mode = None
         self.drag_anchor = 0
         self.original = None
+        self.original_clip = None
         self.range = None               # (first frame, end frame) chosen by hand, or None
         self.setMinimumHeight(210)
         self.setMouseTracking(True)
@@ -264,6 +266,7 @@ class MultitrackWidget(QWidget):
                                   else 'trim_start' if abs(x - self.x_for(clip.start)) < 9 else 'move')
                 self.drag_anchor = frame
                 self.original = (clip.start, clip.length)
+                self.original_clip = deepcopy(clip.__dict__)
                 self.original_track = ti
                 self.edit_started.emit()
             elif x >= 100:
@@ -328,6 +331,10 @@ class MultitrackWidget(QWidget):
                     ti, track = over, self.model.tracks[over]
                     self.selected, self.selected_track = (over, clip.id), over
                     self.selection_changed.emit()
+        previous = None
+        if self.drag_mode in ('trim', 'trim_start'):
+            previous = deepcopy(clip.__dict__)
+            clip.__dict__.update(deepcopy(self.original_clip))
         try:
             if self.drag_mode == 'move':
                 track.move(clip.id, target)
@@ -336,7 +343,8 @@ class MultitrackWidget(QWidget):
             else:
                 track.trim_end(clip.id, clip.start + max(1, self.original[1] + delta))
         except ValueError:
-            pass
+            if previous is not None:
+                clip.__dict__.update(previous)
         self.update()
 
     def mouseReleaseEvent(self, event):
@@ -346,4 +354,5 @@ class MultitrackWidget(QWidget):
             if clip and ((clip.start, clip.length) != self.original or ti != getattr(self, 'original_track', ti)):
                 self.changed.emit()
         self.original = None
+        self.original_clip = None
         self.drag_mode = None

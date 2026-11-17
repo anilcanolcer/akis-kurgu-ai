@@ -177,6 +177,7 @@ class MainWindow(LayoutMixin, PlaybackMixin, TimelineEditMixin, ProjectMixin, As
         self._shutting_down = False  # set by closeEvent; late update signals are then ignored
         self._pending_project: dict | None = None
         self._autosave_file = ""  # last autosave/recovery file this window wrote
+        self._project_autosave_lock = None
         self._recovery_lock: QLockFile | None = None  # held while our untitled recovery file exists
         self._prompt_revision = None  # timeline_revision() when the running prompt edit started
         self.worker: QThread | None = None

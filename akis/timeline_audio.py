@@ -9,6 +9,7 @@ from PySide6.QtCore import QObject, QUrl, Signal
 from PySide6.QtMultimedia import QMediaPlayer
 
 from akis.timeline_service import audio_target, audio_targets
+from akis.frame_plan import audio_at
 
 MAX_EXTRA = 3   # other sounds played at once besides the main one
 
@@ -121,8 +122,9 @@ class TimelineAudio(QObject):
     def _sync_extra(self, timeline, frame, speed, force, master, target):
         wanted = {}
         if self.player_factory is not None and target is not None:
+            primary = audio_at(timeline, frame)
             others = [item for item in audio_targets(timeline, frame, speed)
-                      if not (item.source == target[0] and item.position == target[1])]
+                      if primary is None or item.track_index != primary.track_index]
             wanted = {item.track_index: item for item in others[:MAX_EXTRA]}
         for track_index in [index for index in self.extra if index not in wanted]:
             lane, output = self.extra.pop(track_index)

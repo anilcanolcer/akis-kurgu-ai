@@ -29,6 +29,18 @@ def edit(count=12, length=60, fade_every=3):
 
 
 class BoundTests(unittest.TestCase):
+    def test_cross_track_entrances_are_followed_in_time_order(self):
+        # Track order visits the later entrance first. Moving an edge past the earlier
+        # entrance must also move it past the overlapping later entrance.
+        late = Track('video', 'late', [Clip('a.mp4', 75, 50,
+                     style={'transition': 'fade', 'transition_frames': 20})])
+        early = Track('video', 'early', [Clip('b.mp4', 60, 50,
+                      style={'transition': 'fade', 'transition_frames': 20})])
+        timeline = Timeline(fps_num=10, tracks=[late, early])
+        bounds = chunk_preview.chunk_bounds(timeline, 125, 16, seconds=7)
+        self.assertEqual(bounds[0], (0, 95))
+        self.assertTrue(all(not (60 <= a < 95) for a, _ in bounds))
+
     def test_pieces_cover_the_edit_and_never_start_inside_an_entrance(self):
         timeline = edit()
         total = 12 * 60

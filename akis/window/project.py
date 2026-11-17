@@ -13,6 +13,7 @@ from akis.timeline_model import Timeline
 from akis import project_service
 from akis.media_service import MediaService
 from akis import timeline_service
+from PySide6.QtCore import QLockFile
 
 from PySide6.QtWidgets import QFileDialog, QListWidgetItem, QMessageBox
 
@@ -256,6 +257,7 @@ class ProjectMixin:
 
     def confirm_close(self) -> bool:
         """Ask before work is lost. A hidden window (tests, scripted runs) has nobody to ask."""
+        self.clear_clean_autosave()
         if self._close_confirmed or not self.isVisible() or not self.has_unsaved_changes():
             return True
         buttons = QMessageBox.StandardButton
@@ -281,7 +283,20 @@ class ProjectMixin:
 
     def open_project_file(self, path: str) -> bool:
         """Open a project file, offering its newer autosave (left by a crash) instead."""
-        autosave = Path(path + ".autosave")
+        autosave = Path(str(Path(path).resolve()) + '.autosave')
+        if not autosave.is_file():
+            return self.load_project_document(path, path)
+        lock = self.lock_project_autosave(str(autosave))
+        if lock is None:
+            # A live editor still owns these changes. Open the saved project without touching its recovery.
+            return self.load_project_document(path, path)
+        try:
+            return self.open_with_autosave(path, autosave, lock)
+        finally:
+            if self._project_autosave_lock != (str(autosave), lock):
+                lock.unlock()
+
+    def open_with_autosave(self, path: str, autosave: Path, lock: QLockFile) -> bool:
         load_from, recovered = path, False
         try:
             newer = autosave.is_file() and autosave.stat().st_mtime > Path(path).stat().st_mtime
@@ -303,6 +318,7 @@ class ProjectMixin:
         opened = self.load_project_document(load_from, path, recovered=recovered)
         if opened and recovered:
             self._autosave_file = str(autosave)  # ours now: removed on save, discard or clean close
+            self._project_autosave_lock = (str(autosave), lock)
         return opened
 
     def load_project_document(self, load_from: str, project_path: str, recovered: bool = False) -> bool:
@@ -514,22 +530,45 @@ class ProjectMixin:
         return path
 
     def autosave_path(self) -> str:
-        return self.project_path + ".autosave" if self.project_path else str(self.untitled_recovery_path())
+        return str(Path(self.project_path).resolve()) + '.autosave' if self.project_path else str(self.untitled_recovery_path())
+
+    def lock_project_autosave(self, path: str) -> QLockFile | None:
+        if self._project_autosave_lock and self._project_autosave_lock[0] == path:
+            return self._project_autosave_lock[1]
+        lock = QLockFile(path + '.lock')
+        lock.setStaleLockTime(0)  # a long edit is valid; Qt can still detect a dead local process
+        return lock if lock.tryLock(0) else None
+
+    def clear_clean_autosave(self) -> None:
+        if self._autosave_file and not self.has_unsaved_changes():
+            self.discard_autosave()
 
     def autosave_project(self) -> bool:
         """Write unsaved work where a crash can be recovered from. Returns whether a file was written."""
         if not self.has_unsaved_changes():  # also False when there is nothing to keep
+            self.discard_autosave()
             return False
+        lock = None
         try:
             path = self.autosave_path()
-            if self._autosave_file and self._autosave_file != path:
-                self.remove_file(Path(self._autosave_file))  # e.g. untitled recovery after the first save
+            if self.project_path:
+                lock = self.lock_project_autosave(path)
+                if lock is None:
+                    self.set_status(self.ui_text(
+                        'Otomatik kayıt yapılamadı: {error}', error=path + '.lock'))
+                    return False
             self.write_project(path, snapshot=False)
         except Exception as exc:
+            if lock is not None and self._project_autosave_lock != (path, lock):
+                lock.unlock()
             log.exception("Otomatik kayıt başarısız")
             self.set_status(self.ui_text('Otomatik kayıt yapılamadı: {error}', error=exc))
             return False
+        if self._autosave_file and self._autosave_file != path:
+            self.discard_autosave()
         self._autosave_file = path
+        if lock is not None:
+            self._project_autosave_lock = (path, lock)
         return True
 
     @staticmethod
@@ -541,13 +580,15 @@ class ProjectMixin:
 
     def discard_autosave(self, keep: str | None = None) -> None:
         """Remove this window's autosave/recovery file: the work is saved, discarded or the window closes."""
-        targets = {self._autosave_file} if self._autosave_file else set()
-        if self.project_path:
-            targets.add(self.project_path + ".autosave")
-        for target in targets:
-            if keep is None or os.path.normcase(os.path.abspath(target)) != os.path.normcase(os.path.abspath(keep)):
-                self.remove_file(Path(target))
+        target = self._autosave_file
+        if target and keep is not None and Path(target).resolve() == Path(keep).resolve():
+            return
+        if target:
+            self.remove_file(Path(target))
         self._autosave_file = ""
+        if self._project_autosave_lock is not None and self._project_autosave_lock[0] != keep:
+            self._project_autosave_lock[1].unlock()
+            self._project_autosave_lock = None
         if self._recovery_lock is not None:
             self.remove_file(app_support.recovery_dir() / f"recovery-{os.getpid()}.akis.json")
             self._recovery_lock.unlock()

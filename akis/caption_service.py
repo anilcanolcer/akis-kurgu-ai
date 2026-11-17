@@ -17,18 +17,21 @@ def caption_track(timeline, source, segments, look='klasik'):
 def _word_track(timeline, source, words, look):
     from akis import word_captions
     fps = timeline.fps_num / timeline.fps_den
-    video_track = next((t for t in timeline.tracks if t.kind == 'video'), None)
     track = Track('text', 'Altyazı / Captions')
-    for clip in sorted(video_track.clips if video_track else [], key=lambda c: c.start):
-        if clip.source != source:
+    spans = []
+    for video_track in timeline.tracks:
+        if video_track.kind != 'video' or video_track.muted:
             continue
-        for start, length, text, style in word_captions.caption_clips(clip, words, fps, look):
-            begin = max(start, max((c.end for c in track.clips), default=0))
-            if start + length - begin < 1:
-                continue
-            shift = begin - start
-            style = dict(style, words=[[max(0, a - shift), b - shift, t] for a, b, t in style['words'] if b - shift > 0])
-            track.add(Clip('', begin, start + length - begin, text=text, style=style))
+        for clip in video_track.clips:
+            if clip.source == source:
+                spans.extend(word_captions.caption_clips(clip, words, fps, look))
+    for start, length, text, style in sorted(spans, key=lambda span: span[0]):
+        begin = max(start, max((c.end for c in track.clips), default=0))
+        if start + length - begin < 1:
+            continue
+        shift = begin - start
+        style = dict(style, words=[[max(0, a - shift), b - shift, t] for a, b, t in style['words'] if b - shift > 0])
+        track.add(Clip('', begin, start + length - begin, text=text, style=style))
     if track.clips:
         timeline.tracks.append(track)
     return len(track.clips)

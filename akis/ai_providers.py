@@ -449,9 +449,6 @@ def request_plan(provider, key, model, prompt, frames, transport=None, instructi
     ends = None if deadline is None else time.monotonic() + deadline
     if provider not in PROVIDERS or not key or not model:
         raise ValueError('Sağlayıcı, API anahtarı ve model gereklidir.')
-    if transport is None:  # a real request: the sidebar lists what leaves the computer
-        from akis import privacy_log
-        privacy_log.note(provider, 'frames' if frames else 'text')
     encoded = [(_label(at), base64.b64encode(data).decode('ascii')) for at, data in frames]
     instruction = instruction or 'Kısa video kurgusunda uzman, ölçülü ve pratik bir Türkçe kreatif direktörsün.'
     headers = {'Content-Type': 'application/json'}
@@ -511,6 +508,8 @@ def request_plan(provider, key, model, prompt, frames, transport=None, instructi
                 if transport:
                     result = transport(url, headers, body)
                 else:
+                    from akis import privacy_log
+                    privacy_log.note(provider, 'frames' if frames else 'text')
                     result = post_json(provider, url, json.dumps(body).encode(), headers, timeout,
                                        retry_timeout=False, deadline=ends)
                 break
@@ -522,6 +521,8 @@ def request_plan(provider, key, model, prompt, frames, transport=None, instructi
     if transport:
         result = transport(url, headers, body)
     else:
+        from akis import privacy_log
+        privacy_log.note(provider, 'frames' if frames else 'text')
         result = post_json(provider, url, json.dumps(body).encode(), headers, timeout, retry_timeout=False,
                            deadline=ends)
     reader = {'OpenAI': _openai_text, 'Anthropic': _anthropic_text, 'xAI': _chat_text,
@@ -533,8 +534,6 @@ def transcribe(provider, key, model, audio, *, language=None, vocabulary=None):
     """language / vocabulary default to the editor's speech settings (akis.speech_settings)."""
     from akis import speech_settings
     language, vocabulary = speech_settings.language(language), speech_settings.vocabulary(vocabulary)
-    from akis import privacy_log
-    privacy_log.note(provider, 'audio')
     if provider == 'OpenAI':
         return _openai_transcribe(key, model, audio, language=language, prompt=vocabulary)
     data = audio.read_bytes()
@@ -556,6 +555,8 @@ def transcribe(provider, key, model, audio, *, language=None, vocabulary=None):
         url = 'https://api.x.ai/v1/stt'
     else:
         raise ValueError('Bu sağlayıcı için transkripsiyon desteklenmiyor.')
+    from akis import privacy_log
+    privacy_log.note(provider, 'audio')
     result = post_json(provider, url, body, headers, TRANSCRIBE_TIMEOUT)
     if provider == 'xAI':
         return _read_text(_stt_text, provider, result)
@@ -620,6 +621,8 @@ def _openai_transcribe(key, model, audio, client_factory=None, *, language='tr',
             options = {name: value for name, value in (('language', language), ('prompt', prompt)) if value}
             if model == 'whisper-1':  # the only OpenAI transcription model that gives timings
                 options.update(response_format='verbose_json', timestamp_granularities=['segment'])
+            from akis import privacy_log
+            privacy_log.note(provider, 'audio')
             result = client.audio.transcriptions.create(model=model, file=handle, **options)
     except openai.APITimeoutError as exc:
         raise RuntimeError(f'{provider} {TRANSCRIBE_TIMEOUT} saniyede yanıt vermedi. '

@@ -101,11 +101,13 @@ class StoryWorker(QThread):
 
     def call(self, fn, *args, **kwargs):
         """Run a blocking call on a daemon thread; return its result or raise its error, unless cancelled."""
+        self.check_cancelled()
         box = {}
         done = threading.Event()
 
         def target():
             try:
+                self.check_cancelled()
                 box['result'] = fn(*args, **kwargs)
             except BaseException as exc:  # handed to the worker thread below
                 box['error'] = exc

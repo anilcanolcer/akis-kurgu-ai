@@ -654,7 +654,16 @@ class StoryDialog(QDialog):
         key = self.need_key()
         if not key:
             return False
-        return self.start(TextWorker(job, key, self._transport), on_done)
+        requested_story = self._snapshot()
+
+        def apply_if_current(result):
+            if self._snapshot() != requested_story:
+                self.show_usage(result)
+                self.set_status('Hikâye işlem sırasında değiştirildi; düzenlemeleriniz korundu. Sonucu uygulamak için işlemi yeniden başlatın.')
+                return
+            on_done(result)
+
+        return self.start(TextWorker(job, key, self._transport), apply_if_current)
 
     def show_usage(self, result):
         self._last_usage_result = result

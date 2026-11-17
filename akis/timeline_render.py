@@ -275,7 +275,7 @@ class TimelineRenderer:
     def _trim(name, lead, duration):
         return f'{name}=start={lead:.9f}:duration={duration:.9f}' if lead else f'{name}=duration={duration:.9f}'
 
-    def _render(self, timeline, output, *, frame=None, on_progress=None, streams='both'):
+    def _render(self, timeline, output, *, frame=None, on_progress=None, streams='both', output_frames=None):
         """streams: 'both', 'video' (no sound) or 'audio' (the mix alone, no picture decoded)."""
         want_video, want_audio = streams != 'audio', frame is None and streams != 'video'
         total = duration_frames(timeline)
@@ -389,7 +389,7 @@ class TimelineRenderer:
                             raise FileNotFoundError(f'Medya bulunamadı: {clip.source}')
                         lead = self._open_input(args, clip.source, source_in, True)
                         delay = round(start * 1000)
-                        graph.append(f'[{index}:a]{self._trim("atrim", lead, length)},asetpts=PTS-STARTPTS,volume={clip.volume:.6f},adelay={delay}:all=1[a{index}]')
+                        graph.append(f'[{index}:a]{self._trim("atrim", lead, length * rate)},asetpts=PTS-STARTPTS{tempo},volume={clip.volume:.6f},adelay={delay}:all=1[a{index}]')
                         audio.append(f'[a{index}]')
                         music.append(f'[a{index}]')
                         index += 1
@@ -413,9 +413,10 @@ class TimelineRenderer:
                         draw_shape(clip.style, (self.width, self.height), zlib.crc32(clip.id.encode())).save(picture)
                         args += ['-loop', '1', '-framerate', f'{timeline.fps_num}/{timeline.fps_den}',
                                  '-t', f'{length - skip:.9f}', '-i', str(picture)]
-                        pop = min(0.2, length / 2)
-                        graph.append(f'[{index}:v]format=rgba,setpts=PTS+{skip:.9f}/TB,fade=t=in:st=0:d={pop:.9f}:alpha=1,'
-                                     f'setpts=PTS-{skip:.9f}/TB+{placed:.9f}/TB[v{layer}]')
+                        elapsed = skip + clip.style.get('_shape_offset', 0) / fps
+                        pop = min(0.2, clip.style.get('_shape_length', clip.length) / fps / 2)
+                        graph.append(f'[{index}:v]format=rgba,setpts=PTS+{elapsed:.9f}/TB,fade=t=in:st=0:d={pop:.9f}:alpha=1,'
+                                     f'setpts=PTS-{elapsed:.9f}/TB+{placed:.9f}/TB[v{layer}]')
                         graph.append(f'[{base}][v{layer}]overlay=eof_action=pass:enable=\'gte(t,{on:.9f})*lt(t,{off:.9f})\'[base{layer}]')
                         base = f'base{layer}'
                         index += 1
@@ -467,6 +468,10 @@ class TimelineRenderer:
             if speed != 1.0 and want_video:
                 graph.append(f'[{base}]setpts=PTS/{speed:.6f}[timed]')
                 base = 'timed'
+            if output_frames is not None and want_video:
+                # A cumulative rounded boundary can require one more frame than this part alone.
+                graph.append(f'[{base}]tpad=stop_mode=clone:stop_duration={1 / fps:.9f}[padded]')
+                base = 'padded'
             if audio and want_audio:
                 tempo = f',atempo={speed:.6f}' if speed != 1.0 else ''
                 # Sources are summed at full level (normalize=0 keeps a lone voice as loud as it was), so
@@ -495,7 +500,9 @@ class TimelineRenderer:
                 elif streams == 'video':
                     args += ['-an']
                 quality = ['-preset', 'ultrafast', '-crf', '24', '-g', '15'] if self.fast else []
-                if speed != 1.0:  # retimed frames would otherwise round up to an extra frame or two
+                if output_frames is not None:
+                    args += ['-frames:v', str(output_frames)]
+                elif speed != 1.0:  # retimed frames would otherwise round up to an extra frame or two
                     args += ['-t', f'{total / fps / speed:.9f}']
                 args += ['-r', f'{timeline.fps_num}/{timeline.fps_den}', '-c:v', 'libx264', *quality, '-pix_fmt', 'yuv420p', '-movflags', '+faststart', str(output)]
             if on_progress is None:
@@ -520,9 +527,14 @@ class TimelineRenderer:
         with tempfile.TemporaryDirectory(prefix='akis_ranges_') as tmp:
             parts, done = [], 0
             for index, (start, end) in enumerate(ranges):
+                # Round absolute boundaries, so rounding errors cannot accumulate across parts.
+                output_end = max(1, round(end / self.speed)) if end == total else round(end / self.speed)
+                frames = output_end - round(start / self.speed)
+                if frames <= 0:
+                    continue
                 part = Path(tmp) / f'v{index:04d}.mp4'
                 share = (end - start) / total * picture_share
-                self._render(slice_timeline(timeline, start, end), part, streams='video',
+                self._render(slice_timeline(timeline, start, end), part, streams='video', output_frames=frames,
                              on_progress=lambda f, done=done, share=share: report(done + f * share))
                 parts.append(part)
                 done += share
@@ -555,13 +567,17 @@ class TimelineRenderer:
         if total <= 0:
             raise ValueError('Timeline is empty')
         look = {'brightness': self.brightness, 'contrast': self.contrast, 'saturation': self.saturation,
-                'fast': self.fast, 'font': str(self.font)}
+                'fast': self.fast, 'font': str(self.font), 'speed': self.speed}
         bounds = chunk_preview.chunk_bounds(timeline, total, MAX_PICTURE_INPUTS)
         parts, used, drawn, reused, done = [], set(), 0, 0, 0
         picture_share = 0.9
         for start, end in bounds:
+            output_end = max(1, round(end / self.speed)) if end == total else round(end / self.speed)
+            frames = output_end - round(start / self.speed)
+            if frames <= 0:
+                continue
             part = slice_timeline(timeline, start, end)
-            key = chunk_preview.piece_key(part, (self.width, self.height), look)
+            key = chunk_preview.piece_key(part, (self.width, self.height), dict(look, output_frames=frames))
             stored = folder / f'{key}.mp4'
             share = (end - start) / total * picture_share
             if stored.is_file():
@@ -569,7 +585,7 @@ class TimelineRenderer:
                 os.utime(stored)        # recently used: kept longest by tidy()
             else:
                 drawing = folder / f'{key}.part.mp4'
-                self._render(part, drawing, streams='video',
+                self._render(part, drawing, streams='video', output_frames=frames,
                              on_progress=lambda f, done=done, share=share: report(done + f * share))
                 chunk_preview.store(drawing, stored)
                 drawn += 1

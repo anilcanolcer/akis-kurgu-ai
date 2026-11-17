@@ -972,6 +972,8 @@ STORY_EN = {
         'Wait for the current operation to finish first.',
     'Sonuç işlenemedi: {detail}':
         'Could not process result: {detail}',
+    'Hikâye işlem sırasında değiştirildi; düzenlemeleriniz korundu. Sonucu uygulamak için işlemi yeniden başlatın.':
+        'The story changed during generation; your edits were preserved. Run the operation again to apply a result.',
     'Hata: {detail}':
         'Error: {detail}',
     'İşlem iptal edildi; sonucu kullanılmayacak.':

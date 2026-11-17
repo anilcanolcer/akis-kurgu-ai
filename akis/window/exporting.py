@@ -32,10 +32,16 @@ from akis.app_support import APP_NAME, safe_filename
 class ExportMixin:
     """Exporting: one video, FCPXML, batches, Shorts, highlights, three formats, publish text."""
 
+    def ensure_export_timeline(self) -> bool:
+        if duration_frames(self.multitrack) > 0:
+            return True
+        QMessageBox.information(self, APP_NAME, self.ui_text('Zaman çizelgesinde video yok.'))
+        return False
+
     def export_video(self) -> None:
         if not self.can_start_work():
             return
-        if not self.ensure_video():
+        if not self.ensure_export_timeline():
             return
         try:
             canvas = self.export_canvas_size()
@@ -115,7 +121,7 @@ class ExportMixin:
 
     def export_fcpxml(self) -> None:
         """Write the cut as an FCPXML file for DaVinci Resolve / Final Cut Pro (akis.fcpxml_export)."""
-        if not self.ensure_video():
+        if not self.can_start_work() or not self.ensure_export_timeline():
             return
         try:
             canvas = self.export_canvas_size()
@@ -181,7 +187,7 @@ class ExportMixin:
 
     def export_shorts(self) -> None:
         """Divide the whole edit into consecutive vertical Shorts and export them all (akis.shorts_split)."""
-        if not self.can_start_work() or not self.ensure_video():
+        if not self.can_start_work() or not self.ensure_export_timeline():
             return
         fps = self.multitrack.fps_num / self.multitrack.fps_den
         total = duration_frames(self.multitrack) / fps
@@ -196,7 +202,7 @@ class ExportMixin:
 
     def find_highlights(self) -> None:
         """List the liveliest stretches of the edit and export the chosen ones as Shorts (akis.highlights)."""
-        if not self.can_start_work() or not self.ensure_video():
+        if not self.can_start_work() or not self.ensure_export_timeline():
             return
         if duration_frames(self.multitrack) / (self.multitrack.fps_num / self.multitrack.fps_den) < 60:
             QMessageBox.information(self, APP_NAME, self.ui_text('Öne çıkan anlar en az bir dakikalık videolarda aranır.'))
@@ -294,7 +300,7 @@ class ExportMixin:
 
     def export_three_formats(self) -> None:
         """The same edit as vertical, square and landscape files, one after the other (akis.multi_export)."""
-        if not self.can_start_work() or not self.ensure_video():
+        if not self.can_start_work() or not self.ensure_export_timeline():
             return
         findings = preflight.check(self.multitrack, say=self.ui_template)
         if findings and QMessageBox.question(self, APP_NAME, preflight.question(findings, self.ui_template),

@@ -117,6 +117,7 @@ class TimelineEditMixin:
         step = self._undo_stack.pop()
         self._redo_stack.append(step)
         self.apply_edit_snapshot(step['before'], self.snapshot_changes(step['before'], step['after']))
+        self.clear_clean_autosave()
         self.update_history_controls()
         self.set_status(self.ui_text('Son adım geri alındı.'))
         return True
@@ -128,6 +129,7 @@ class TimelineEditMixin:
         step = self._redo_stack.pop()
         self._undo_stack.append(step)
         self.apply_edit_snapshot(step['after'], self.snapshot_changes(step['before'], step['after']))
+        self.clear_clean_autosave()
         self.update_history_controls()
         self.set_status(self.ui_text('Adım yinelendi.'))
         return True

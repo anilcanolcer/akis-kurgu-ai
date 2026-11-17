@@ -19,6 +19,20 @@ FFMPEG = shutil.which('ffmpeg')
 
 
 class PlanTests(unittest.TestCase):
+    def test_other_track_cut_cannot_split_a_transition(self):
+        lower = [Track('video', f'lower{i}', [Clip('a.mp4', 10, 20)]) for i in range(15)]
+        upper = Track('video', 'upper', [Clip('a.mp4', 0, 10),
+                      Clip('b.mp4', 10, 20, style={'transition': 'fade', 'transition_frames': 5})])
+        ranges = plan_ranges(Timeline(fps_num=10, tracks=[*lower, upper]), 16, 30)
+        self.assertFalse(any(10 <= start < 15 for start, _ in ranges))
+
+    def test_sliced_shape_keeps_original_animation_time(self):
+        from akis.timeline_slice import slice_timeline
+        timeline = Timeline(fps_num=10, tracks=[Track('text', 'T', [Clip('', 0, 90, style={'shape': 'circle'})])])
+        part = slice_timeline(timeline, 80, 90).tracks[0].clips[0]
+        self.assertEqual(part.style['_shape_offset'], 80)
+        self.assertEqual(part.style['_shape_length'], 90)
+
     def test_ranges_cover_everything_and_respect_the_limit(self):
         clips = [Clip('a.mp4', i * 90, 90, source_in=i * 150) for i in range(120)]
         timeline = Timeline(fps_num=30, tracks=[Track('video', 'V', clips)])
@@ -99,6 +113,43 @@ class RenderTests(unittest.TestCase):
         self.assertEqual(seen, sorted(seen))
         self.assertEqual(seen[-1], 1.0)
         self.assertEqual(list(self.root.glob('ranged.part-*.mp4')), [])
+
+    def test_fractional_speed_rounds_global_boundaries_once(self):
+        timeline = Timeline(fps_num=10, tracks=[Track('video', 'V',
+                            [Clip(str(self.source), i, 1) for i in range(33)])])
+        with patch.object(timeline_render, 'MAX_PICTURE_INPUTS', 16):
+            output, _ = self.export('fractional.mp4', timeline, speed=1.5)
+        self.assertEqual(self.frames(output), 22)
+
+    def test_slow_audio_clip_plays_its_whole_timeline_length(self):
+        timeline = Timeline(fps_num=10, tracks=[Track('audio', 'M',
+                            [Clip(str(self.music), 0, 80, style={'speed': 0.5})])])
+        output = self.root / 'slow-audio.m4a'
+        TimelineRenderer(self.media, (160, 90))._render(timeline, output, streams='audio')
+        self.assertAlmostEqual(self.media.duration(output), 8.0, delta=0.1)
+
+    def test_shape_remains_visible_across_range_boundary(self):
+        clips = [Clip(str(self.source), i * 5, 5) for i in range(17)]
+        timeline = Timeline(fps_num=10, tracks=[Track('video', 'V', clips),
+                   Track('text', 'T', [Clip('', 0, 90, style={'shape': 'circle', 'color': 'red'})])])
+        one = self.root / 'shape-one.mp4'
+        ranged = self.root / 'shape-ranges.mp4'
+        renderer = TimelineRenderer(self.media, (160, 90))
+        renderer._render(timeline, one)
+        renderer.export(timeline, ranged)
+        from PIL import Image
+        frames = []
+        for index, path in enumerate((one, ranged)):
+            image = self.root / f'shape-boundary-{index}.png'
+            result = self.media.run(['-y', '-ss', '8', '-i', str(path), '-frames:v', '1', str(image)])
+            self.assertEqual(result.returncode, 0)
+            with Image.open(image) as loaded:
+                frames.append(loaded.convert('RGB'))
+        # Lossy re-encoding can alter edge pixels, but a restarted fade removes the entire shape.
+        red_counts = [sum(r > 150 and r > g * 1.5 and r > b * 1.5
+                          for r, g, b in image.getdata()) for image in frames]
+        self.assertGreater(red_counts[0], 100)
+        self.assertAlmostEqual(red_counts[0], red_counts[1], delta=40)
 
     def test_speed_and_a_silent_edit(self):
         with patch.object(timeline_render, 'MAX_PICTURE_INPUTS', 2):

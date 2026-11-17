@@ -2,11 +2,13 @@ import os
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 import json
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 from PySide6.QtWidgets import QApplication, QMessageBox
 from PySide6.QtCore import QPoint, Qt
+from PySide6.QtGui import QImage
 from PySide6.QtTest import QTest
 from akis.timeline_model import Timeline, Track, Clip
 from main import MainWindow
@@ -14,6 +16,46 @@ from main import MainWindow
 app = QApplication.instance() or QApplication([])
 
 class MainWindowFlowTests(unittest.TestCase):
+    def test_photo_only_project_exports_real_video(self):
+        from akis import app_support
+        from akis.media_service import MediaService
+
+        try:
+            ffmpeg = app_support.ffmpeg_path()
+        except RuntimeError:
+            self.skipTest('FFmpeg not available')
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            photo = root / 'photo.png'
+            output = root / 'export.mp4'
+            image = QImage(160, 90, QImage.Format.Format_RGB32)
+            image.fill(0x5798AA)
+            self.assertTrue(image.save(str(photo)))
+            window = MainWindow()
+            try:
+                with patch('akis.app_support.app_data_dir', return_value=root / 'data'), \
+                     patch.object(window.preview, 'request'), \
+                     patch.object(window.multitrack_view, 'refresh_waveforms'), \
+                     patch.object(window, 'export_canvas_size', return_value=(160, 90)), \
+                     patch('PySide6.QtWidgets.QFileDialog.getSaveFileName', return_value=(str(output), '')), \
+                     patch('PySide6.QtWidgets.QMessageBox.question', return_value=QMessageBox.StandardButton.No), \
+                     patch('PySide6.QtWidgets.QMessageBox.information') as info, \
+                     patch('PySide6.QtWidgets.QMessageBox.warning') as warning, \
+                     patch('PySide6.QtWidgets.QMessageBox.critical') as critical:
+                    self.assertTrue(window._import_media_path(str(photo)))
+                    self.assertFalse(window.state.source)
+                    window.export_video()
+                    deadline = time.monotonic() + 20
+                    while not info.called and not critical.called and time.monotonic() < deadline:
+                        QTest.qWait(20)
+                    critical.assert_not_called()
+                    warning.assert_not_called()
+                    self.assertTrue(output.is_file())
+                    self.assertAlmostEqual(MediaService(ffmpeg).duration(str(output)), 5, delta=0.1)
+            finally:
+                window._close_confirmed = True
+                window.close()
+
     def test_video_load_and_volume_use_timeline_audio(self):
         with tempfile.TemporaryDirectory() as tmp:
             video = Path(tmp) / 'demo.mp4'

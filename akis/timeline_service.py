@@ -150,9 +150,12 @@ def canvas_size(aspect, timeline, media):
     if aspect.startswith('4:5'):
         return 1080, 1350
     if aspect in ('Kaynak oranı', 'Source ratio'):
-        for track in timeline.tracks:
-            if track.kind == 'video' and track.clips:
-                return media.dimensions(track.clips[0].source)
+        for kind in ('video', 'overlay'):
+            for track in timeline.tracks:
+                if track.kind == kind:
+                    for clip in track.clips:
+                        if clip.source:
+                            return media.dimensions(clip.source)
         raise ValueError('Kaynak video bulunamadı.')
     return 1080, 1920
 
