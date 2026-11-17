@@ -176,7 +176,8 @@ class ProjectRecoveryTests(WindowCase):
 
     def test_accepting_loads_autosave_but_keeps_real_project_path(self):
         ask = self.reopen('open')
-        ask.assert_called_once_with(self.autosave)
+        # Windows may give TemporaryDirectory an 8.3 alias. Recovery uses the canonical path for locking.
+        ask.assert_called_once_with(self.autosave.resolve())
         w = self.window
         self.assertEqual(w.publish_title.text(), 'kurtarılacak')
         self.assertEqual(w.project_path, str(self.project))
