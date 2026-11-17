@@ -65,11 +65,64 @@ class AutosaveTests(WindowCase):
                 self.assertTrue(second.open_project_file(str(project)))
             ask.assert_not_called()
             second.publish_title.setText('ikinci pencere')
-            self.assertFalse(second.autosave_project())
+            self.assertTrue(second.autosave_project())
+            separate = Path(second._autosave_file)
+            self.assertEqual(separate.parent, self.recovery)
+            self.assertEqual(json.loads(separate.read_text(encoding='utf-8'))['publish']['title'], 'ikinci pencere')
         finally:
             second._close_confirmed = True
             second.close()
         self.assertEqual(saved.read_bytes(), content)
+        self.assertFalse(separate.exists())
+
+    def test_last_clip_deletion_can_be_saved_and_reopened(self):
+        window = self.window
+        window.show_timeline(Timeline(tracks=[Track('video', 'Video', [Clip(str(self.video), 0, 60)])]))
+        self.assertFalse(window.state.source)
+        project = self.root / 'media-only.akis.json'
+        self.save_as(project)
+        window.multitrack_view.selected = (0, window.multitrack.tracks[0].clips[0].id)
+        window.delete_clip()
+        self.assertTrue(window.has_unsaved_changes())
+        with patch.object(window, 'isVisible', return_value=True), \
+             patch('main.QMessageBox.question', return_value=QMessageBox.StandardButton.Cancel):
+            self.assertFalse(window.confirm_close())
+        self.assertTrue(window.autosave_project())
+        with patch('main.QMessageBox.information') as info:
+            window.save_project()
+        info.assert_not_called()
+        self.assertFalse(window.has_unsaved_changes())
+        self.assertTrue(window.open_project_file(str(project)))
+        self.assertFalse(any(track.clips for track in window.multitrack.tracks))
+
+    def test_unclaimed_autosave_survives_next_writer(self):
+        self.load()
+        project = self.root / 'shared.akis.json'
+        self.save_as(project)
+        self.window.publish_title.setText('ilk pencere')
+        self.assertTrue(self.window.autosave_project())
+        saved = Path(self.window._autosave_file)
+        content = saved.read_bytes()
+        second = MainWindow()
+        try:
+            with patch.object(second, 'seek_timeline'):
+                self.assertTrue(second.open_project_file(str(project)))
+            # Simulate the first editor exiting without the application's cleanup.
+            self.window._project_autosave_lock[1].unlock()
+            self.window._project_autosave_lock = None
+            self.window._autosave_file = ''
+            second.publish_title.setText('ikinci pencere')
+            self.assertTrue(second.autosave_project())
+            self.assertEqual(saved.read_bytes(), content)
+            separate = Path(second._autosave_file)
+            self.assertNotEqual(separate, saved)
+            self.assertEqual(json.loads(separate.read_text(encoding='utf-8'))['publish']['title'], 'ikinci pencere')
+            second.save_project()
+            self.assertTrue(saved.exists())
+            self.assertFalse(separate.exists())
+        finally:
+            second._close_confirmed = True
+            second.close()
 
     def test_undo_to_saved_state_removes_recovery_immediately(self):
         self.load()
@@ -201,15 +254,29 @@ class ProjectRecoveryTests(WindowCase):
         self.assertEqual(self.window.publish_title.text(), 'açık olan')  # nothing was loaded
         self.assertIn('kurtarma dosyası saklandı', self.window.status_label.text())
 
-    def test_older_autosave_is_not_offered(self):
+    def test_older_autosave_is_preserved_after_another_manual_save(self):
         future = time.time() + 60
         os.utime(self.project, (future, future))
-        ask = self.reopen('open')
-        ask.assert_not_called()
-        self.assertFalse(self.autosave.exists())
+        ask = self.reopen('later')
+        ask.assert_called_once_with(self.autosave.resolve())
+        self.assertTrue(self.autosave.exists())
 
 
 class UntitledRecoveryTests(WindowCase):
+    def test_empty_private_recovery_can_be_opened_and_saved_as(self):
+        self.recovery.mkdir()
+        orphan = self.recovery / 'recovery-9999999-private.akis.json'
+        project_service.save(orphan, self.window.project_document())
+        with patch.object(self.window, 'ask_recovery', return_value='open'):
+            self.assertTrue(self.window.offer_recovery())
+        self.assertFalse(orphan.exists())
+        self.assertFalse(self.window.has_content())
+        self.assertTrue(self.window.has_unsaved_changes())
+        project = self.root / 'recovered-empty.akis.json'
+        self.save_as(project)
+        self.assertTrue(project.is_file())
+        self.assertFalse(self.window.has_unsaved_changes())
+
     def orphan(self, pid=999_999_9, title='yetim'):
         self.recovery.mkdir(parents=True, exist_ok=True)
         timeline = Timeline(tracks=[Track('video', 'Video', [Clip(str(self.video), 0, 60)])])

@@ -8,6 +8,7 @@ import os
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
+from uuid import uuid4
 
 from akis.timeline_model import Timeline
 from akis import project_service
@@ -19,6 +20,8 @@ from PySide6.QtWidgets import QFileDialog, QListWidgetItem, QMessageBox
 
 from akis import app_support
 from akis.app_support import APP_NAME, EditState, RECOVERY_DETAIL, RECOVERY_QUESTION, VIDEO_EXTS, log, safe_filename
+
+RECOVERED_SIGNATURE = object()
 
 
 
@@ -187,7 +190,7 @@ class ProjectMixin:
         return project_service.save_with_snapshot(path, self.project_document(), snapshot)
 
     def save_project(self) -> None:
-        if not self.has_content():
+        if not self.can_save_project():
             QMessageBox.information(self, APP_NAME, self.ui_text("Kaydetmek için önce bir video veya medya ekleyin."))
             return
         if not self.project_path:
@@ -197,7 +200,7 @@ class ProjectMixin:
 
     def save_project_as(self) -> None:
         """Choose a new project file without changing the current project unless its save succeeds."""
-        if not self.has_content():
+        if not self.can_save_project():
             QMessageBox.information(self, APP_NAME, self.ui_text("Kaydetmek için önce bir video veya medya ekleyin."))
             return
         default = safe_filename(self.project_title.text()) + ".akis.json"
@@ -249,11 +252,15 @@ class ProjectMixin:
 
     def has_content(self) -> bool:
         """There is work to keep: a main video, or any clip on the timeline (media added with ＋ Medya or a
-        template's title before any video, text, ...). Save, autosave and the close prompt key off this."""
+        template's title before any video, text, ...)."""
         return bool(self.state.source) or any(track.clips for track in self.multitrack.tracks)
 
+    def can_save_project(self) -> bool:
+        # Removing the last clip is an edit in a saved or recovered project.
+        return bool(self.project_path) or self._saved_signature is RECOVERED_SIGNATURE or self.has_content()
+
     def has_unsaved_changes(self) -> bool:
-        return self.has_content() and self.project_signature() != self._saved_signature
+        return self.can_save_project() and self.project_signature() != self._saved_signature
 
     def confirm_close(self) -> bool:
         """Ask before work is lost. A hidden window (tests, scripted runs) has nobody to ask."""
@@ -282,7 +289,7 @@ class ProjectMixin:
         self.open_project_file(path)
 
     def open_project_file(self, path: str) -> bool:
-        """Open a project file, offering its newer autosave (left by a crash) instead."""
+        """Open a project file, offering its unclaimed recovery copy if one exists."""
         autosave = Path(str(Path(path).resolve()) + '.autosave')
         if not autosave.is_file():
             return self.load_project_document(path, path)
@@ -298,11 +305,8 @@ class ProjectMixin:
 
     def open_with_autosave(self, path: str, autosave: Path, lock: QLockFile) -> bool:
         load_from, recovered = path, False
-        try:
-            newer = autosave.is_file() and autosave.stat().st_mtime > Path(path).stat().st_mtime
-        except OSError:
-            newer = False
-        if newer:
+        # A later manual save may be from another window and need not include these edits.
+        if autosave.is_file():
             answer = self.ask_recovery(autosave)
             if answer == 'open':
                 load_from, recovered = str(autosave), True
@@ -313,8 +317,6 @@ class ProjectMixin:
                 return False
             else:
                 self.remove_file(autosave)
-        elif autosave.is_file():
-            self.remove_file(autosave)  # older than the project: the project was saved after it
         opened = self.load_project_document(load_from, path, recovered=recovered)
         if opened and recovered:
             self._autosave_file = str(autosave)  # ours now: removed on save, discard or clean close
@@ -348,7 +350,7 @@ class ProjectMixin:
         self.project_path = project_path
         self.project_title.setText(project_name(project_path))  # the project's own name, not its video's
         if recovered:
-            self._saved_signature = None  # recovered work is not in any saved file yet
+            self._saved_signature = RECOVERED_SIGNATURE
             self.set_status(self.ui_text('Kurtarılan çalışma açıldı; kalıcı olması için projeyi kaydedin.'))
         if missing:
             names = '\n'.join(f'• {item}' for item in missing)
@@ -518,18 +520,22 @@ class ProjectMixin:
                 if frames > 0:  # never shorter than what the clip already uses
                     clip.source_length = max(frames, clip.source_end)
 
-    def untitled_recovery_path(self) -> Path:
-        """This instance's recovery file for an untitled project, with its lock taken (one per process)."""
-        path = app_support.recovery_dir() / f"recovery-{os.getpid()}.akis.json"
-        if self._recovery_lock is None:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            lock = app_support.recovery_lock(path)
-            if not lock.tryLock(0):
-                raise OSError(f'Kurtarma dosyası kilitlenemedi: {lock.error()}')
-            self._recovery_lock = lock
+    def untitled_recovery_path(self, *, separate=False) -> Path:
+        """Reserve a startup recovery copy, optionally separate from the usual untitled copy."""
+        if self._recovery_lock is not None:
+            return self._recovery_lock[0]
+        suffix = f'-{uuid4().hex}' if separate else ''
+        path = app_support.recovery_dir() / f"recovery-{os.getpid()}{suffix}.akis.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        lock = app_support.recovery_lock(path)
+        if not lock.tryLock(0):
+            raise OSError(f'Kurtarma dosyası kilitlenemedi: {lock.error()}')
+        self._recovery_lock = (path, lock)
         return path
 
     def autosave_path(self) -> str:
+        if self._recovery_lock is not None:
+            return str(self._recovery_lock[0])
         return str(Path(self.project_path).resolve()) + '.autosave' if self.project_path else str(self.untitled_recovery_path())
 
     def lock_project_autosave(self, path: str) -> QLockFile | None:
@@ -551,12 +557,14 @@ class ProjectMixin:
         lock = None
         try:
             path = self.autosave_path()
-            if self.project_path:
+            if self.project_path and self._recovery_lock is None:
                 lock = self.lock_project_autosave(path)
-                if lock is None:
-                    self.set_status(self.ui_text(
-                        'Otomatik kayıt yapılamadı: {error}', error=path + '.lock'))
-                    return False
+                # Acquiring a stale lock does not confer ownership of the file left behind.
+                if lock is None or (self._project_autosave_lock != (path, lock) and Path(path).exists()):
+                    if lock is not None:
+                        lock.unlock()
+                        lock = None
+                    path = str(self.untitled_recovery_path(separate=True))
             self.write_project(path, snapshot=False)
         except Exception as exc:
             if lock is not None and self._project_autosave_lock != (path, lock):
@@ -565,7 +573,7 @@ class ProjectMixin:
             self.set_status(self.ui_text('Otomatik kayıt yapılamadı: {error}', error=exc))
             return False
         if self._autosave_file and self._autosave_file != path:
-            self.discard_autosave()
+            self.discard_autosave(keep=path)
         self._autosave_file = path
         if lock is not None:
             self._project_autosave_lock = (path, lock)
@@ -590,9 +598,12 @@ class ProjectMixin:
             self._project_autosave_lock[1].unlock()
             self._project_autosave_lock = None
         if self._recovery_lock is not None:
-            self.remove_file(app_support.recovery_dir() / f"recovery-{os.getpid()}.akis.json")
-            self._recovery_lock.unlock()
-            self._recovery_lock = None
+            path, lock = self._recovery_lock
+            if str(path) != keep:
+                if str(path) != target:
+                    self.remove_file(path)
+                lock.unlock()
+                self._recovery_lock = None
 
     def ask_recovery(self, path) -> str:
         """'open', 'later' (keep the file, ask again another time) or 'delete' for a recovery file."""
