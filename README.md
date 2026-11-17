@@ -56,7 +56,7 @@ Talking-head videos, tutorials, vlogs and Shorts take hours of repetitive work: 
 | **Remove silences** | Cuts the parts with no speech, without AI or internet. Shows how much shorter the video gets before anything changes. |
 | **Remove retakes** | When the same sentence was said several times, only the last attempt stays. |
 | **Cut filler words** | Finds and cuts hesitations such as "um", "uh" and their Turkish equivalents ("ııı", "eee", "şey"). |
-| **Separate speakers** | Marks speaker changes in interviews and conversations, or keeps a single speaker. Uses a small bundled voice model (WeSpeaker, CC BY 4.0). |
+| **Separate speakers** | Marks speaker changes in interviews and conversations, or keeps a single speaker. The WeSpeaker model (26.5 MB, CC BY 4.0) downloads on first use and runs locally afterward. If the download fails, separation falls back to a less capable pitch-based method. |
 | **Take the style of a sample video** | Measures a video's aspect ratio, framing, loudness, colour and tempo. Saves the visual and audio settings as a template; shows tempo as editing advice. |
 | **Cuts on the beat / punch-in on emphasis** | Moves cuts onto the music's beats; zooms in at loudness peaks in the source audio, which can include background music. |
 | **Highlights and Shorts** | Splits the best moments, or the whole edit, into vertical Shorts with a blurred background, a part number and a title card. |
@@ -244,7 +244,7 @@ Akış Kurgu AI needs no account, collects no telemetry or usage statistics and 
 
 - **Update check:** at startup the app reads release information from GitHub (`api.github.com`; if the rate limit is reached, the release page and checksum file on `github.com`). No personal data is sent. Downloading and installing happen only after you confirm.
 - **AI features:** only when you enter your own API key and start an AI action, your request, selected frames of the video and the transcript (if any) are sent to the provider you chose (OpenAI, Anthropic, xAI, Google Gemini or Cloudflare Workers AI). This data is subject to that provider's privacy terms. API keys are stored in the Windows Credential Manager.
-- **Model downloads:** the local Whisper model is downloaded from Hugging Face when you choose to download it.
+- **Model downloads:** the local Whisper model is downloaded from Hugging Face when you choose to download it. The 26.5 MB WeSpeaker model is also downloaded from Hugging Face on first use of **Separate speakers** and cached locally.
 
 Apart from these, the program does not transfer information to other systems unless the user or the person installing it specifically asks for it.
 

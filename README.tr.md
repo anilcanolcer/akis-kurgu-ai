@@ -56,7 +56,7 @@ Konuşma videoları, eğitimler, vloglar ve Shorts saatlerce tekrar eden iş ist
 | **Sessizlikleri çıkar** | Konuşma olmayan yerleri yapay zekâ ve internet kullanmadan keser. Videonun ne kadar kısalacağını önceden gösterir. |
 | **Tekrar çekimleri temizle** | Aynı cümle birkaç kez söylendiyse yalnızca son deneme kalır. |
 | **Dolgu sözcüklerini kes** | "ııı", "eee", "hmm", "şey" gibi duraklama sözcüklerini bulup keser. |
-| **Konuşmacıları ayır** | Röportaj ve sohbetlerde konuşmacı değişimlerini işaretler ya da yalnızca bir konuşmacıyı bırakır. Programla gelen küçük bir ses modeli kullanır (WeSpeaker, CC BY 4.0). |
+| **Konuşmacıları ayır** | Röportaj ve sohbetlerde konuşmacı değişimlerini işaretler ya da yalnızca bir konuşmacıyı bırakır. WeSpeaker modeli (26,5 MB, CC BY 4.0) ilk kullanımda indirilir, sonrasında yerel çalışır. İndirme başarısızsa daha sınırlı, ses perdesine dayalı yönteme geçilir. |
 | **Örnek videonun stilini al** | Beğendiğiniz videonun oranını, kadrajını, ses düzeyini, rengini ve temposunu ölçer. Görüntü ve ses ayarlarını şablon olarak kaydeder; tempoyu kurgu önerisi olarak gösterir. |
 | **Kesimleri ritme oturt / vurguda yakınlaştır** | Kesimleri müziğin vuruşlarına kaydırır; kaynak sesteki yüksek anlarda görüntüyü yakınlaştırır. Videoya gömülü arka plan müziği de bunu tetikleyebilir. |
 | **Öne çıkan anlar ve Shorts** | En canlı bölümleri ya da kurgunun tamamını; bulanık arka planlı, sıra numaralı ve başlık kartlı dikey Shorts videolarına böler. |
@@ -244,7 +244,7 @@ Akış Kurgu AI hesap gerektirmez, telemetri ya da kullanım istatistiği toplam
 
 - **Güncelleme denetimi:** açılışta GitHub'dan sürüm bilgisi okunur (`api.github.com`; istek sınırı dolmuşsa `github.com` üzerindeki sürüm sayfası ve özet dosyası). Size ait veri gönderilmez; indirme ve kurulum yalnızca siz onaylarsanız yapılır.
 - **AI özellikleri:** yalnızca kendi API anahtarınızı girip bir AI işlemi başlattığınızda; isteğiniz, videodan seçilen kareler ve varsa konuşma dökümü seçtiğiniz sağlayıcıya (OpenAI, Anthropic, xAI, Google Gemini ya da Cloudflare Workers AI) gönderilir. Bu veriler o sağlayıcının gizlilik koşullarına tabidir. API anahtarları Windows Kimlik Bilgileri Yöneticisi'nde saklanır.
-- **Model indirme:** yerel Whisper modeli, indirmeyi seçtiğinizde Hugging Face üzerinden indirilir.
+- **Model indirme:** yerel Whisper modeli, indirmeyi seçtiğinizde Hugging Face üzerinden indirilir. 26,5 MB WeSpeaker modeli de **Konuşmacıları ayır** ilk kullanıldığında Hugging Face üzerinden indirilip yerelde saklanır.
 
 Bunların dışında program, kullanıcı ya da programı kuran kişi özellikle istemedikçe başka sistemlere bilgi aktarmaz.
 
