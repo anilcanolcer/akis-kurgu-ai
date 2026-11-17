@@ -97,28 +97,33 @@ def media_paths(document):
     return paths
 
 
-def relative_media(document, folder):
+def relative_media(document, folder, *, media_root=None):
     """{stored path: path relative to folder} for media inside the project folder or below it.
 
     Kept beside the absolute paths (in a top-level key older versions ignore) so a project folder moved
-    together with its media still opens.
+    together with its media still opens. A snapshot is written inside a versions subfolder, but its
+    media root stays the original project folder; only media within that root get relative references.
     """
     folder = Path(folder).resolve()
+    root = Path(media_root).resolve() if media_root is not None else folder
     result = {}
     for path in media_paths(document):
         try:
-            relative = Path(path).resolve().relative_to(folder)
+            stored = Path(path)
+            source = (stored if stored.is_absolute() else root / stored).resolve()
+            source.relative_to(root)
+            relative = Path(os.path.relpath(source, folder))
         except (ValueError, OSError):
             continue
         result[path] = relative.as_posix()
     return result
 
 
-def save(path, document):
+def save(path, document, *, media_root=None):
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     data = migrate(document)
-    data['relative_media'] = relative_media(data, target.parent)
+    data['relative_media'] = relative_media(data, target.parent, media_root=media_root)
     name = None
     try:
         with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=target.parent,
@@ -185,7 +190,7 @@ def save_with_snapshot(path, document, snapshot=False, keep=KEEP_VERSIONS):
         versions = versions_folder(target)
         versions.mkdir(exist_ok=True)
         stamp = datetime.now().strftime('%Y%m%d-%H%M%S-%f')
-        save(versions / f'{stamp}.json', document)
+        save(versions / f'{stamp}.json', document, media_root=target.parent)
         prune_versions(target, keep)
     except OSError as exc:
         # The main project is already committed atomically. A protected/unwritable versions folder must

@@ -501,7 +501,8 @@ class StoryDialog(QDialog):
         bible.style = self.style.currentData()
         bible.pov = self.pov.currentData()
         bible.tense = self.tense.currentData()
-        bible.genre = self.genre.text().strip() or bible.genre
+        # An empty field is an intentional edit: preserve the author's ability to remove a genre.
+        bible.genre = self.genre.text().strip()
 
     def apply_bible_editor(self):
         data = ss.extract_json(self.bible_editor.toPlainText())
@@ -512,7 +513,7 @@ class StoryDialog(QDialog):
         merged = ss.bible_from_dict(data)
         for name in ('premise', 'style', 'pov', 'tense'):
             setattr(merged, name, getattr(self.state.bible, name))
-        merged.genre = self.genre.text().strip() or merged.genre
+        merged.genre = self.genre.text().strip()
         self.state.bible = merged
         self.set_status('Rehber güncellendi.')
         return True
@@ -558,7 +559,8 @@ class StoryDialog(QDialog):
         scene.motion_prompt = self.motion_prompt.toPlainText()
         item = self.scene_list.currentItem()
         if item is not None:
-            item.setText(f'{self.state.index_of(scene.id) + 1}. {scene.title or self.tr_('Adsız')}')
+            marks = ('▣' if scene.image_path else '') + ('▶' if scene.video_path else '')
+            item.setText(f'{self.state.index_of(scene.id) + 1}. {scene.title or self.tr_('Adsız')} {marks}'.strip())
 
     def show_media(self, scene):
         image = scene.image_path if scene else ''

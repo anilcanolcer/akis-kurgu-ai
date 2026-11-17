@@ -70,13 +70,15 @@ class ScreenRecorder:
         process, self.process = self.process, None
         if process is None:
             raise RuntimeError('Kayıt başlamadı.')
+        timed_out = False
         try:
-            process.communicate(input=b'q', timeout=timeout)
+            _, message = process.communicate(input=b'q', timeout=timeout)
         except subprocess.TimeoutExpired:
+            timed_out = True
             process.kill()
-            process.communicate()
-        if not self.output or not os.path.isfile(self.output) or os.path.getsize(self.output) == 0:
-            message = (process.stderr.read() if process.stderr and not process.stderr.closed else b'') or b''
+            _, message = process.communicate()
+        if timed_out or process.returncode != 0 or not self.output or not os.path.isfile(self.output) or os.path.getsize(self.output) == 0:
+            message = message or b''
             raise RuntimeError(message.decode('utf-8', 'replace').strip()[-400:] or 'Kayıt dosyası oluşmadı.')
         return self.output
 

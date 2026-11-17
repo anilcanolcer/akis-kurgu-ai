@@ -182,12 +182,17 @@ class ShortsExportWorker(QThread):
     def run(self):
         output = self.outputs[0] if self.outputs else ''
         try:
+            # A part can refer to media outside another part's slice. Validate the whole set before
+            # writing anything, so an earlier output cannot replace a later part's original source.
+            for output in self.outputs:
+                if output_overwrites_source(self.timeline, output):
+                    raise ValueError(self.say('Çıktı dosyası kaynak medyayla aynı olamaz.'))
             fps = self.timeline.fps_num / self.timeline.fps_den
             for index, ((start, end), output) in enumerate(zip(self.parts, self.outputs)):
                 part = slice_timeline(self.timeline, round(start * fps), round(end * fps))
                 prepare(part, index + 1, len(self.parts) if self.numbered else 1, framing=self.framing, card=self.card,
                         title=self.titles[index])
-                if output_overwrites_source(part, output):
+                if output_overwrites_source(self.timeline, output):
                     raise ValueError(self.say('Çıktı dosyası kaynak medyayla aynı olamaz.'))
                 renderer = TimelineRenderer(self.media, self.canvas, **self.adjustments)
                 renderer.export(part, output, on_progress=lambda f, index=index: self._report(index, f))

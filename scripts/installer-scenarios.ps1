@@ -127,6 +127,26 @@ function Get-Snapshot([string]$folder) {
     return ($lines -join "`n")
 }
 
+function Get-RegistrySnapshot {
+    if (-not (Test-Path -LiteralPath $testKey)) { return '<absent>' }
+    $keys = @((Get-Item -LiteralPath $testKey)) + @(Get-ChildItem -LiteralPath $testKey -Recurse)
+    $lines = foreach ($key in ($keys | Sort-Object Name)) {
+        "K $($key.Name)"
+        foreach ($name in ($key.GetValueNames() | Sort-Object)) {
+            $value = $key.GetValue($name, $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+            "$name $($key.GetValueKind($name)) $((ConvertTo-Json -InputObject $value -Compress -Depth 10))"
+        }
+    }
+    return ($lines -join "`n")
+}
+
+function Assert-RegistryClean {
+    $leftovers = @(Get-ChildItem -LiteralPath (Split-Path -Parent $testKey) | Where-Object {
+        $_.PSChildName -like 'AkisKurguAI-InstallerTest.stage-*' -or $_.PSChildName -like 'AkisKurguAI-InstallerTest.backup-*'
+    })
+    Assert ($leftovers.Count -eq 0) 'staged or backup uninstall registry entries left behind'
+}
+
 function Assert([bool]$condition, [string]$message) { if (-not $condition) { throw $message } }
 function Assert-Clean([string]$folder) {
     foreach ($name in 'AkisKurguAI.exe.old', '_internal.old', 'AkisKurguAI.exe.new') {
@@ -356,12 +376,77 @@ try {
             $shortcuts = Join-Path $WorkDir 'finish-fail\StartMenu'
             Remove-Item -LiteralPath $shortcuts -Recurse -Force
             Write-Text $shortcuts 'not a folder'
-            $before = (Get-Snapshot $folder) -split "`n" | Where-Object { $_ -notmatch 'Uninstall-Akis\.exe' }
+            $before = Get-Snapshot $folder
+            $registryBefore = Get-RegistrySnapshot
             $code = Invoke-Setup $new @('/UPDATE', '/S', "/DIR=`"$folder`"")
             Assert ($code -eq 13) "expected exit code 13, got $code"
-            $after = (Get-Snapshot $folder) -split "`n" | Where-Object { $_ -notmatch 'Uninstall-Akis\.exe' }
-            Assert (($after -join "`n") -eq ($before -join "`n")) 'old copy not restored exactly'
+            Assert ((Get-Snapshot $folder) -eq $before) 'old copy or uninstaller not restored exactly'
+            Assert ((Get-RegistrySnapshot) -eq $registryBefore) 'uninstall metadata changed'
+            Assert ((Get-Content -Raw -LiteralPath $shortcuts) -eq 'not a folder') 'shortcut blocker changed'
             Assert-Clean $folder
+            Assert-RegistryClean
+        }
+
+        foreach ($checkpoint in 'registry-rename', 'after-registry') {
+            Scenario "finishing failure at $checkpoint restores all existing files and registry values (exit 13)" {
+                $folder = Join-Path $WorkDir "finish-$checkpoint\App"
+                Install-Fresh $old $folder
+                Write-Text (Join-Path $folder 'user-project.keep') 'preserve'
+                $shortcuts = Join-Path $WorkDir "finish-$checkpoint\StartMenu"
+                Write-Text (Join-Path $shortcuts 'user-shortcut.keep') 'preserve'
+                # Include a previously absent owned value and opaque custom data to catch lossy snapshots.
+                Remove-ItemProperty -LiteralPath $testKey -Name NoRepair
+                New-ItemProperty -LiteralPath $testKey -Name CustomBinary -PropertyType Binary -Value ([byte[]](0, 1, 254, 255)) -Force | Out-Null
+                New-ItemProperty -LiteralPath $testKey -Name CustomExpanded -PropertyType ExpandString -Value '%TEMP%\custom' -Force | Out-Null
+                New-Item -Path (Join-Path $testKey 'CustomSubkey') -Force | Out-Null
+                New-ItemProperty -LiteralPath (Join-Path $testKey 'CustomSubkey') -Name Names -PropertyType MultiString -Value @('alpha', 'beta') -Force | Out-Null
+                $before = Get-Snapshot $folder
+                $shortcutsBefore = Get-Snapshot $shortcuts
+                $registryBefore = Get-RegistrySnapshot
+                $code = Invoke-Setup $new @('/S', "/TESTFAILFINISH=$checkpoint", "/D=$folder")
+                Assert ($code -eq 13) "expected exit code 13, got $code"
+                Assert ((Get-Snapshot $folder) -eq $before) 'application or uninstaller not restored exactly'
+                Assert ((Get-Snapshot $shortcuts) -eq $shortcutsBefore) 'previous shortcut or user file changed'
+                Assert ((Get-RegistrySnapshot) -eq $registryBefore) 'previous registry tree not restored exactly'
+                Assert-Clean $folder
+                Assert-RegistryClean
+            }
+        }
+
+        Scenario 'fresh finishing failure removes new metadata and shortcut, preserving user files (exit 13)' {
+            $folder = Join-Path $WorkDir 'finish-fresh\App'
+            Write-Text (Join-Path $folder 'user-project.keep') 'preserve'
+            $shortcuts = Join-Path $WorkDir 'finish-fresh\StartMenu'
+            Write-Text (Join-Path $shortcuts 'user-shortcut.keep') 'preserve'
+            Remove-Item -LiteralPath $testKey -Recurse -Force
+            $before = Get-Snapshot $folder
+            $shortcutsBefore = Get-Snapshot $shortcuts
+            $code = Invoke-Setup $new @('/S', '/TESTFAILFINISH=after-registry', "/D=$folder")
+            Assert ($code -eq 13) "expected exit code 13, got $code"
+            Assert ((Get-Snapshot $folder) -eq $before) 'new installer files remain or user files changed'
+            Assert ((Get-Snapshot $shortcuts) -eq $shortcutsBefore) 'new shortcut remains or user files changed'
+            Assert ((Get-RegistrySnapshot) -eq '<absent>') 'fresh uninstall registry entry remains'
+            Assert-Clean $folder
+            Assert-RegistryClean
+        }
+
+        Scenario 'locked previous uninstaller is preserved with all previous metadata (exit 13)' {
+            $folder = Join-Path $WorkDir 'finish-uninstaller-locked\App'
+            Install-Fresh $old $folder
+            $before = Get-Snapshot $folder
+            $registryBefore = Get-RegistrySnapshot
+            $shortcuts = Join-Path $WorkDir 'finish-uninstaller-locked\StartMenu'
+            $shortcutsBefore = Get-Snapshot $shortcuts
+            $handle = [IO.File]::Open((Join-Path $folder 'Uninstall-Akis.exe'), 'Open', 'Read', 'Read')
+            try {
+                $code = Invoke-Setup $new @('/S', "/D=$folder")
+            } finally { $handle.Dispose() }
+            Assert ($code -eq 13) "expected exit code 13, got $code"
+            Assert ((Get-Snapshot $folder) -eq $before) 'old application or uninstaller changed'
+            Assert ((Get-Snapshot $shortcuts) -eq $shortcutsBefore) 'previous shortcuts changed'
+            Assert ((Get-RegistrySnapshot) -eq $registryBefore) 'previous uninstall metadata changed'
+            Assert-Clean $folder
+            Assert-RegistryClean
         }
     }
 

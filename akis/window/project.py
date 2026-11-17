@@ -379,7 +379,8 @@ class ProjectMixin:
                 (self.ai_prompt, self.ai_prompt.toPlainText, self.ai_prompt.setPlainText),
                 (self.project_title, self.project_title.text, self.project_title.setText),
                 (self.project_subtitle, self.project_subtitle.text, self.project_subtitle.setText),
-                (self.apply_captions_button, self.apply_captions_button.isEnabled, self.apply_captions_button.setEnabled)]
+                (self.apply_captions_button, self.apply_captions_button.isEnabled, self.apply_captions_button.setEnabled)] + [
+                (box, box.isChecked, box.setChecked) for box, _name in self.audio_boxes()]
 
     def open_snapshot(self) -> dict:
         """Everything opening a project can replace, so a failed open can be undone exactly."""

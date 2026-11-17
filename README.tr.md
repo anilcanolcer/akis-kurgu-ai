@@ -176,10 +176,10 @@ AI özellikleri isteğe bağlıdır. AI sekmesinde sağlayıcıyı seçip **kend
 
 - Yalnızca Windows; macOS ve Linux desteklenmez.
 - Akıcı oynatma, arka plandaki proxy hazır olunca başlar; o zamana kadar önizleme kare kare ilerler.
+- Kare kare yedek önizleme aynı anda en fazla dört ses katmanını çalar; akıcı oynatma ve dışa aktarma tüm katmanları birleştirir.
 - Yerel Whisper dökümü ve Windows seslendirmesi başladıktan sonra iptal edilemez.
 - Henüz keyframe düzenleyici, dışa aktarma kuyruğu ve gelişmiş renk araçları yoktur.
 - Hesap eşitleme ya da sosyal platformlara doğrudan yayınlama yoktur.
-- Hikâye Stüdyosu şimdilik yalnızca Türkçedir; arayüzün geri kalanı İngilizceye çevrilmiştir.
 
 ## Kaynak koddan derleme
 

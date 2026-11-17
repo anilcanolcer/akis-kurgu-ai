@@ -6,7 +6,7 @@ from datetime import date
 from pathlib import Path
 
 from akis import gemini_api, story_service as ss
-from akis.ai_providers import ResponseTruncatedError
+from akis.ai_providers import ProviderHTTPError, ResponseTruncatedError
 
 
 def sample_state(scenes=0, words=50):
@@ -127,6 +127,30 @@ class ContextTests(unittest.TestCase):
         other = sample_state(scenes=1)
         with self.assertRaises(ResponseTruncatedError):  # JSON tasks cannot use half an answer
             ss.run_text_job(ss.visual_job(other, other.scenes[0].id), 'k', generate=generate)
+
+    def test_partial_fallback_scene_reports_the_model_that_answered(self):
+        state = sample_state()
+        job = ss.next_scene_job(state, quality='final')
+        replies = [
+            ProviderHTTPError('Gemini API hatası: HTTP 503 — busy', 503),
+            {'candidates': [{'finishReason': 'MAX_TOKENS',
+                             'content': {'parts': [{'text': 'Yarım sahne.'}]}}]},
+        ]
+
+        def transport(url, headers, body):
+            reply = replies.pop(0)
+            if isinstance(reply, BaseException):
+                raise reply
+            return reply
+
+        result = ss.run_text_job(job, 'k', transport=transport)
+        self.assertEqual(result.text, 'Yarım sahne.')
+        self.assertTrue(result.truncated)
+        self.assertTrue(result.fell_back)
+        self.assertEqual((result.model, result.requested_model), ('gemini-3.8-flash', 'gemini-4-argon'))
+        self.assertIn('gemini-4-argon', result.fallback_reason)
+        self.assertIn('gemini-3.8-flash', ss.usage_line(result))
+        self.assertIn('(yedek model;', ss.usage_line(result))
 
 
 class MemoryTests(unittest.TestCase):

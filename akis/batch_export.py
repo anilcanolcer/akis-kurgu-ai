@@ -50,7 +50,7 @@ def outputs_for(sources, folder):
     return outputs
 
 
-def build(source, media, *, cut_silences=False, template=None, measure=silence_cut.measure):
+def build(source, media, *, cut_silences=False, template=None, measure=None):
     """The timeline for one video, ready to export."""
     seconds = media.duration(source)
     rate = media.frame_rate(source) or (30, 1)
@@ -60,7 +60,14 @@ def build(source, media, *, cut_silences=False, template=None, measure=silence_c
     if cut_silences:
         sources = [{'path': source, 'duration': seconds}]
         segments = edit_plan.current_segments(timeline, sources)
-        levels = measure(media.executable, source)
+        if measure is None:
+            # Use the same process owner as probing/rendering so Cancel also stops this stage. The
+            # measurement helper accepts subprocess.run's full command; MediaService adds its own exe.
+            def run_measurement(command, **options):
+                return media.run(command[1:], timeout=options.get('timeout'))
+            levels = silence_cut.measure(media.executable, source, runner=run_measurement)
+        else:
+            levels = measure(media.executable, source)
         spans = silence_cut.silent_spans(levels, silence_cut.DEFAULT_THRESHOLD_DB, silence_cut.DEFAULT_MIN_SILENCE)
         kept, cuts = silence_cut.keep_segments(segments, {0: spans}, silence_cut.DEFAULT_MARGIN)
         if cuts:

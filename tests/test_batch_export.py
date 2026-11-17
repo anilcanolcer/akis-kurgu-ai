@@ -5,6 +5,7 @@ import shutil
 import hashlib
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -13,7 +14,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 
 from akis import batch_export, i18n
 from akis.batch_dialog import BatchDialog
-from akis.media_service import MediaService
+from akis.media_service import MediaService, RenderCancelled
 
 app = QApplication.instance() or QApplication([])
 FFMPEG = shutil.which('ffmpeg')
@@ -145,6 +146,49 @@ class BuildTests(unittest.TestCase):
         app.processEvents()
         self.assertEqual(cancelled, [True])
 
+    def test_cancel_stops_a_running_silence_measurement_before_export(self):
+        with tempfile.TemporaryDirectory() as folder:
+            worker = batch_export.BatchExportWorker([str(self.video)], folder, FFMPEG,
+                                                    aspect='Kaynak oranı', profile='Reels · 1080×1920',
+                                                    cut_silences=True)
+            target = Path(worker.outputs[0])
+            target.write_bytes(b'previous batch export')
+            original = worker.media.run
+
+            def realtime(args, **options):
+                arguments = list(map(str, args))
+                if arguments[-1] == 'pipe:1':
+                    arguments.insert(0, '-re')
+                return original(arguments, **options)
+
+            worker.media.run = realtime
+            cancelled, failed, reports = [], [], []
+            worker.cancelled.connect(lambda: cancelled.append(True))
+            worker.failed.connect(failed.append)
+            worker.completed.connect(reports.append)
+            worker.start()
+            process = None
+            try:
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline:
+                    with worker.media._lock:
+                        candidate = worker.media._process
+                    if candidate is not None and candidate.args[-1] == 'pipe:1':
+                        process = candidate
+                        break
+                    time.sleep(0.01)
+                self.assertIsNotNone(process, 'Silence measurement must use the worker-owned cancellable process')
+                worker.cancel()
+                self.assertTrue(worker.wait(3000))
+                self.assertIsNotNone(process.poll())
+            finally:
+                worker.cancel()
+                self.assertTrue(worker.wait(60000))
+            app.processEvents()
+            self.assertEqual((cancelled, failed, reports), ([True], [], []))
+            self.assertEqual(worker.results, [])
+            self.assertEqual(target.read_bytes(), b'previous batch export')
+
     def test_distinct_names_and_all_inputs_survive_in_place_batch(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
@@ -162,6 +206,28 @@ class BuildTests(unittest.TestCase):
             self.assertEqual([hashlib.sha256(path.read_bytes()).hexdigest() for path in inputs], before)
             self.assertEqual(len({output for _, output, _ in worker.results}), 3)
             self.assertTrue(all(output and Path(output).is_file() for _, output, _ in worker.results))
+
+
+class MeasurementTests(unittest.TestCase):
+    def test_measurement_preserves_render_cancelled(self):
+        media = MediaService('missing-ffmpeg')
+        with patch.object(media, 'duration', return_value=2.0), \
+             patch.object(media, 'frame_rate', return_value=(10, 1)), \
+             patch.object(media, 'run', side_effect=RenderCancelled('cancelled')):
+            with self.assertRaises(RenderCancelled):
+                batch_export.build('source.mp4', media, cut_silences=True)
+
+    def test_custom_measurement_keeps_its_two_argument_contract(self):
+        media = MediaService('fake-ffmpeg')
+        with patch.object(media, 'duration', return_value=2.0), \
+             patch.object(media, 'frame_rate', return_value=(10, 1)), \
+             patch.object(media, 'run') as run:
+            measured = []
+            timeline = batch_export.build('source.mp4', media, cut_silences=True,
+                                          measure=lambda executable, source: measured.append((executable, source)) or [])
+        self.assertEqual(measured, [('fake-ffmpeg', 'source.mp4')])
+        self.assertEqual(timeline.tracks[0].clips[0].length, 20)
+        run.assert_not_called()
 
 
 class OutputPlanningTests(unittest.TestCase):

@@ -311,6 +311,12 @@ class AssistantMixin:
         media = MediaService(app_support.ffmpeg_path())
         return [(path, media.duration(path)) for path in paths if Path(path).is_file()]
 
+    def prompt_edit_revision(self):
+        """All fields a prompt plan can replace, including edits made while it runs."""
+        snapshot = self.edit_snapshot()
+        snapshot['timeline'] = snapshot['timeline'].to_dict()
+        return snapshot
+
     def run_prompt_edit(self) -> None:
         if not self.can_start_work() or not self.ensure_video():
             return
@@ -331,7 +337,7 @@ class AssistantMixin:
             QMessageBox.warning(self, APP_NAME, 'Kurgulanacak video dosyası bulunamadı.')
             return
         transcripts = {self.caption_source: self.caption_segments} if self.caption_source and self.caption_segments else {}
-        self._prompt_revision = self.timeline_revision()
+        self._prompt_revision = self.prompt_edit_revision()
         self.begin_work("Prompt kurgusu başlatılıyor…")
         # The model sets colour/speed/aspect as absolute values, so it is told what they are now.
         settings = {'color': (self.brightness.value(), self.contrast.value(), self.saturation.value()),
@@ -350,9 +356,9 @@ class AssistantMixin:
         if self._shutting_down:  # a result that arrives while the window closes is dropped
             return
         started, self._prompt_revision = self._prompt_revision, None
-        if started is not None and started != self.timeline_revision():
+        if started is not None and started != self.prompt_edit_revision():
             # The plan was computed from the timeline as it was when the request started.
-            answer = QMessageBox.question(self, APP_NAME, STALE_PLAN_QUESTION,
+            answer = QMessageBox.question(self, APP_NAME, self.ui_text(STALE_PLAN_QUESTION),
                                           QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                                           QMessageBox.StandardButton.No)
             if answer != QMessageBox.StandardButton.Yes:

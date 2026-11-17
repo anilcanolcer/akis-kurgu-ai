@@ -45,7 +45,7 @@ RECOVERY_QUESTION = "Kurtarılmış çalışma bulundu ({when}). Açılsın mı?
 RECOVERY_DETAIL = ("“Sonra sor” şimdilik açmaz, dosyayı saklar ve daha sonra yeniden sorar. "
                    "“Sil” kurtarma dosyasını kalıcı olarak siler.")
 IDEA_REPLACES_PROMPT_QUESTION = "Kurgu isteği kutusunda yazdığınız bir metin var. Fikirle değiştirilsin mi?"
-STALE_PLAN_QUESTION = "Zaman çizelgesi bu sırada değişti. Plan yine de uygulansın mı?"
+STALE_PLAN_QUESTION = "Kurgu ayarları veya içerik bu sırada değişti. Plan yine de uygulansın mı?"
 UPDATE_REMIND_AFTER = 24 * 3600  # a postponed update is not offered again for this many seconds
 CANCEL_ON_CLOSE_QUESTION = "Devam eden işlem iptal edilip çıkılsın mı?"
 THREAD_STOP_WAIT_MS = 2000  # how long closing the window waits for a background thread

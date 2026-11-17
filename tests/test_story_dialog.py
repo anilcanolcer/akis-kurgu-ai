@@ -341,3 +341,31 @@ class StoryLanguageTests(unittest.TestCase):
         self.assertIn('(fallback model; provider reason)', dialog.usage_label.text())
         dialog.apply_language('tr')
         self.assertIn('120 girdi', dialog.usage_label.text())
+
+    def test_editing_scene_keeps_generated_media_markers(self):
+        from akis import story_service as ss
+        dialog = self.dialog('tr')
+        dialog.state.scenes = [ss.Scene(title='Kıyı', image_path='shore.png', video_path='shore.mp4')]
+        dialog.refresh_scene_list()
+        item = dialog.scene_list.currentItem()
+        self.assertTrue(item.text().endswith('▣▶'))
+
+        dialog.scene_title.setText('Gece kıyısı')  # textChanged calls store_scene()
+        self.assertTrue(item.text().endswith('▣▶'))
+        self.assertIn('Gece kıyısı', item.text())
+
+    def test_clearing_genre_is_saved_and_applied(self):
+        import tempfile
+        from pathlib import Path
+        from akis import story_service as ss
+        dialog = self.dialog('tr')
+        dialog.state.bible.genre = 'Dram'
+        dialog.refresh_bible_editor()
+        dialog.genre.clear()
+
+        self.assertTrue(dialog.apply_bible_editor())
+        self.assertEqual(dialog.state.bible.genre, '')
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'story.json'
+            self.assertTrue(dialog.save_story(str(path)))
+            self.assertEqual(ss.load_story(path).bible.genre, '')

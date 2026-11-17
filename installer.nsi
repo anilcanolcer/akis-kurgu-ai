@@ -39,17 +39,20 @@
 !ifndef UNINSTALL_KEY_NAME
   !define UNINSTALL_KEY_NAME "AkisKurguAI"
 !endif
-!define UNINSTALL_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${UNINSTALL_KEY_NAME}"
+!define UNINSTALL_PARENT "Software\Microsoft\Windows\CurrentVersion\Uninstall"
+!define UNINSTALL_KEY "${UNINSTALL_PARENT}\${UNINSTALL_KEY_NAME}"
 !define LEGACY_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\{3F3FE53D-553B-4D25-9169-4493F9AFD241}_is1"
 !ifdef TEST_USER_LEVEL
   RequestExecutionLevel user
   !define REG_ROOT HKCU
+  !define REG_ROOT_HANDLE 0x80000001
   !define SHELL_CONTEXT current
   !define SHORTCUT_DIR "$INSTDIR\..\StartMenu\${PRODUCT_NAME}"  ; beside the test folder, not the real Start Menu
   !define DESKTOP_LINK "$INSTDIR\..\Desktop\${DISPLAY_NAME}.lnk"
 !else
   RequestExecutionLevel admin
   !define REG_ROOT HKLM
+  !define REG_ROOT_HANDLE 0x80000002
   !define SHELL_CONTEXT all
   !define SHORTCUT_DIR "$SMPROGRAMS\${PRODUCT_NAME}"
   !define DESKTOP_LINK "$DESKTOP\${DISPLAY_NAME}.lnk"  ; the public desktop (shell context all)
@@ -90,6 +93,25 @@ Var Swapping       ; 1 while the old copy is aside and the new one is not commit
 Var RollbackFailed
 Var RecoverFailed
 Var Failed
+Var FinishActive
+Var UninstallerBackup
+Var ShortcutBackup
+Var MovedUninstaller
+Var MovedShortcut
+Var TouchedUninstaller
+Var TouchedShortcut
+Var CreatedShortcutDir
+Var RegistryParent
+Var RegistryStageName
+Var RegistryStageKey
+Var RegistryBackupName
+Var RegistryStageCreated
+Var RegistryMoved
+Var RegistryInstalled
+Var HadRegistry
+!ifdef TEST_USER_LEVEL
+  Var TestFinishFailure  ; test-only fault injection after metadata has actually been changed
+!endif
 
 !define MUI_CUSTOMFUNCTION_GUIINIT OnGuiInit
 !define MUI_PAGE_CUSTOMFUNCTION_PRE SkipPageInUpdateMode
@@ -162,7 +184,12 @@ Function .onInit
   StrCpy $Relaunch 0
   StrCpy $WaitSeconds 0
   StrCpy $Swapping 0
+  StrCpy $FinishActive 0
   ${GetParameters} $R0
+  !ifdef TEST_USER_LEVEL
+    ${GetOptions} $R0 "/TESTFAILFINISH=" $TestFinishFailure
+    ClearErrors
+  !endif
   ClearErrors
   ${GetOptions} $R0 "/UPDATE" $R1
   ${IfNot} ${Errors}
@@ -205,6 +232,199 @@ Function .onInit
   ${If} ${Errors}
     StrCpy $LegacyLog ""
   ${EndIf}
+  ClearErrors
+FunctionEnd
+
+; Move an existing installer-owned file to a unique neighbour. Never overwrite a pre-existing backup,
+; and refuse a directory at the file's path. Neighbouring backups also work with a custom install drive.
+!macro BACKUP_FINISH_FILE file parent backup moved
+  ${If} ${FileExists} "${file}\*.*"
+    StrCpy $Failed 1
+    Return
+  ${EndIf}
+  ${If} ${FileExists} "${file}"
+    ClearErrors
+    GetTempFileName ${backup} "${parent}"
+    ${If} ${Errors}
+      StrCpy $Failed 1
+      Return
+    ${EndIf}
+    Delete "${backup}"
+    ClearErrors
+    Rename "${file}" "${backup}"
+    ${If} ${Errors}
+      StrCpy $Failed 1
+      Return
+    ${EndIf}
+    StrCpy ${moved} 1
+  ${EndIf}
+!macroend
+
+; Stage the entire uninstall registry tree, preserving unknown values, types and subkeys. The live
+; entry is untouched until every finishing step succeeds. System is bundled with NSIS; these Unicode
+; registry APIs are available on every supported Windows version. All handles explicitly use view 64.
+Function PrepareFinish
+  StrCpy $FinishActive 1
+  StrCpy $MovedUninstaller 0
+  StrCpy $MovedShortcut 0
+  StrCpy $TouchedUninstaller 0
+  StrCpy $TouchedShortcut 0
+  StrCpy $CreatedShortcutDir 0
+  StrCpy $RegistryParent 0
+  StrCpy $RegistryStageCreated 0
+  StrCpy $RegistryMoved 0
+  StrCpy $RegistryInstalled 0
+  StrCpy $HadRegistry 0
+  StrCpy $Failed 0
+  SetShellVarContext ${SHELL_CONTEXT}
+  !insertmacro BACKUP_FINISH_FILE "$INSTDIR\Uninstall-Akis.exe" "$INSTDIR" $UninstallerBackup $MovedUninstaller
+  ${IfNot} ${FileExists} "${SHORTCUT_DIR}\*.*"
+    ClearErrors
+    CreateDirectory "${SHORTCUT_DIR}"
+    ${If} ${Errors}
+      StrCpy $Failed 1
+      Return
+    ${EndIf}
+    StrCpy $CreatedShortcutDir 1
+  ${EndIf}
+  !insertmacro BACKUP_FINISH_FILE "${SHORTCUT_DIR}\${PRODUCT_NAME}.lnk" "${SHORTCUT_DIR}" $ShortcutBackup $MovedShortcut
+
+  InitPluginsDir
+  ${GetFileName} "$PLUGINSDIR" $0
+  StrCpy $RegistryStageName "${UNINSTALL_KEY_NAME}.stage-$0"
+  StrCpy $RegistryStageKey "${UNINSTALL_PARENT}\$RegistryStageName"
+  StrCpy $RegistryBackupName "${UNINSTALL_KEY_NAME}.backup-$0"
+  ; KEY_READ | KEY_WRITE | DELETE | KEY_WOW64_64KEY
+  System::Call 'advapi32::RegCreateKeyExW(p ${REG_ROOT_HANDLE}, w "${UNINSTALL_PARENT}", i 0, p 0, i 0, i 0x3011f, p 0, *p .r0, p 0) i .r1'
+  ${If} $1 != 0
+    StrCpy $Failed 1
+    Return
+  ${EndIf}
+  StrCpy $RegistryParent $0
+  System::Call 'advapi32::RegCreateKeyExW(p $RegistryParent, w "$RegistryStageName", i 0, p 0, i 0, i 0xf013f, p 0, *p .r0, *i .r2) i .r1'
+  ${If} $1 != 0
+    StrCpy $Failed 1
+    Return
+  ${EndIf}
+  ${If} $2 != 1  ; REG_CREATED_NEW_KEY: never modify an unexpected existing staging key
+    System::Call 'advapi32::RegCloseKey(p r0)'
+    StrCpy $Failed 1
+    Return
+  ${EndIf}
+  StrCpy $RegistryStageCreated 1
+  StrCpy $3 $0
+  System::Call 'advapi32::RegOpenKeyExW(p $RegistryParent, w "${UNINSTALL_KEY_NAME}", i 0, i 0x20119, *p .r0) i .r1'
+  ${If} $1 == 0
+    StrCpy $HadRegistry 1
+    System::Call 'advapi32::RegCopyTreeW(p r0, p 0, p r3) i .r1'
+    System::Call 'advapi32::RegCloseKey(p r0)'
+    ${If} $1 != 0
+      StrCpy $Failed 1
+    ${EndIf}
+  ${ElseIf} $1 != 2  ; ERROR_FILE_NOT_FOUND is the only accepted absent-key result
+    StrCpy $Failed 1
+  ${EndIf}
+  System::Call 'advapi32::RegCloseKey(p r3)'
+FunctionEnd
+
+; Publish the staged entry only after the uninstaller and shortcut have been written. Keep the exact
+; old tree beside it until commit, so even a failure between the two renames can be undone.
+Function PublishFinishRegistry
+  ${If} $HadRegistry == 1
+    System::Call 'advapi32::RegRenameKey(p $RegistryParent, w "${UNINSTALL_KEY_NAME}", w "$RegistryBackupName") i .r0'
+    ${If} $0 != 0
+      StrCpy $Failed 1
+      Return
+    ${EndIf}
+    StrCpy $RegistryMoved 1
+    !ifdef TEST_USER_LEVEL
+      ${If} $TestFinishFailure == "registry-rename"
+        StrCpy $Failed 1
+        Return
+      ${EndIf}
+    !endif
+  ${EndIf}
+  System::Call 'advapi32::RegRenameKey(p $RegistryParent, w "$RegistryStageName", w "${UNINSTALL_KEY_NAME}") i .r0'
+  ${If} $0 != 0
+    StrCpy $Failed 1
+    Return
+  ${EndIf}
+  StrCpy $RegistryStageCreated 0
+  StrCpy $RegistryInstalled 1
+  !ifdef TEST_USER_LEVEL
+    ${If} $TestFinishFailure == "after-registry"
+      StrCpy $Failed 1
+    ${EndIf}
+  !endif
+FunctionEnd
+
+!macro RESTORE_FINISH_FILE file backup moved touched
+  ${If} ${touched} == 1
+    ClearErrors
+    Delete "${file}"
+    ${If} ${Errors}
+      StrCpy $RollbackFailed 1
+    ${EndIf}
+  ${EndIf}
+  ${If} ${moved} == 1
+    ClearErrors
+    Rename "${backup}" "${file}"
+    ${If} ${Errors}
+      StrCpy $RollbackFailed 1  ; keep the backup if restoration failed
+    ${EndIf}
+  ${EndIf}
+!macroend
+
+Function RollbackFinish
+  ${If} $FinishActive == 1
+    !insertmacro RESTORE_FINISH_FILE "$INSTDIR\Uninstall-Akis.exe" $UninstallerBackup $MovedUninstaller $TouchedUninstaller
+    !insertmacro RESTORE_FINISH_FILE "${SHORTCUT_DIR}\${PRODUCT_NAME}.lnk" $ShortcutBackup $MovedShortcut $TouchedShortcut
+    ${If} $CreatedShortcutDir == 1
+      RMDir "${SHORTCUT_DIR}"  ; never remove other files that appeared in the folder
+    ${EndIf}
+    SetRegView 64
+    ${If} $RegistryInstalled == 1
+      ClearErrors
+      DeleteRegKey ${REG_ROOT} "${UNINSTALL_KEY}"
+      ${If} ${Errors}
+        StrCpy $RollbackFailed 1
+      ${EndIf}
+    ${EndIf}
+    ${If} $RegistryMoved == 1
+      System::Call 'advapi32::RegRenameKey(p $RegistryParent, w "$RegistryBackupName", w "${UNINSTALL_KEY_NAME}") i .r0'
+      ${If} $0 != 0
+        StrCpy $RollbackFailed 1
+      ${EndIf}
+    ${EndIf}
+    ${If} $RegistryStageCreated == 1
+      ClearErrors
+      DeleteRegKey ${REG_ROOT} "$RegistryStageKey"
+      ${If} ${Errors}
+        StrCpy $RollbackFailed 1
+      ${EndIf}
+    ${EndIf}
+    ${If} $RegistryParent != 0
+      System::Call 'advapi32::RegCloseKey(p $RegistryParent)'
+    ${EndIf}
+    StrCpy $FinishActive 0
+  ${EndIf}
+FunctionEnd
+
+Function CommitFinish
+  ${If} $MovedUninstaller == 1
+    Delete "$UninstallerBackup"
+  ${EndIf}
+  ${If} $MovedShortcut == 1
+    Delete "$ShortcutBackup"
+  ${EndIf}
+  SetRegView 64
+  ${If} $RegistryMoved == 1
+    DeleteRegKey ${REG_ROOT} "${UNINSTALL_PARENT}\$RegistryBackupName"
+  ${EndIf}
+  ${If} $RegistryParent != 0
+    System::Call 'advapi32::RegCloseKey(p $RegistryParent)'
+  ${EndIf}
+  StrCpy $FinishActive 0
   ClearErrors
 FunctionEnd
 
@@ -309,6 +529,7 @@ Function Rollback
         StrCpy $RollbackFailed 1
       ${EndIf}
     ${EndIf}
+    Call RollbackFinish
     StrCpy $Swapping 0
   ${EndIf}
   ClearErrors
@@ -439,34 +660,42 @@ Section "Install"
     !insertmacro FAIL ${ERR_EXTRACT} "files could not be written; the previous version was restored" "Yeni dosyalar yazılamadı (disk dolu olabilir). Önceki sürüm geri yüklendi."
   ${EndIf}
 
-  ; 5. Uninstaller, registry and shortcut. The size (KB) counts only the new copy: the .old copies are
-  ;    still present here.
+  ; 5. Uninstaller, registry and shortcut form one transaction with the application files. Preserve the
+  ;    old files, stage the full registry tree, and publish it only after the new shortcut succeeds.
+  Call PrepareFinish
+  ${If} $Failed == 0
+  ; The size (KB) counts only the new copy: the .old copies are still present here.
   ${GetSize} "$INSTDIR\_internal" "/S=0K" $2 $3 $4
   ${GetSize} "$INSTDIR" "/M=AkisKurguAI.exe /S=0K /G=0" $3 $4 $5
   IntOp $2 $2 + $3
-  StrCpy $Failed 0
+  StrCpy $TouchedUninstaller 1
   ClearErrors
   WriteUninstaller "$INSTDIR\Uninstall-Akis.exe"
   SetRegView 64
-  WriteRegStr ${REG_ROOT} "${UNINSTALL_KEY}" "DisplayName" "${DISPLAY_NAME}"
-  WriteRegStr ${REG_ROOT} "${UNINSTALL_KEY}" "DisplayVersion" "${PRODUCT_VERSION}"
-  WriteRegStr ${REG_ROOT} "${UNINSTALL_KEY}" "UninstallString" '"$INSTDIR\Uninstall-Akis.exe"'
-  WriteRegStr ${REG_ROOT} "${UNINSTALL_KEY}" "InstallLocation" "$INSTDIR"
-  WriteRegStr ${REG_ROOT} "${UNINSTALL_KEY}" "DisplayIcon" "$INSTDIR\AkisKurguAI.exe"
-  WriteRegStr ${REG_ROOT} "${UNINSTALL_KEY}" "Publisher" "Anılcan Ölçer"
-  WriteRegStr ${REG_ROOT} "${UNINSTALL_KEY}" "URLInfoAbout" "https://github.com/anilcanolcer/akis-kurgu-ai"
-  WriteRegDWORD ${REG_ROOT} "${UNINSTALL_KEY}" "EstimatedSize" $2
-  WriteRegDWORD ${REG_ROOT} "${UNINSTALL_KEY}" "NoModify" 1
-  WriteRegDWORD ${REG_ROOT} "${UNINSTALL_KEY}" "NoRepair" 1
+  WriteRegStr ${REG_ROOT} "$RegistryStageKey" "DisplayName" "${DISPLAY_NAME}"
+  WriteRegStr ${REG_ROOT} "$RegistryStageKey" "DisplayVersion" "${PRODUCT_VERSION}"
+  WriteRegStr ${REG_ROOT} "$RegistryStageKey" "UninstallString" '"$INSTDIR\Uninstall-Akis.exe"'
+  WriteRegStr ${REG_ROOT} "$RegistryStageKey" "InstallLocation" "$INSTDIR"
+  WriteRegStr ${REG_ROOT} "$RegistryStageKey" "DisplayIcon" "$INSTDIR\AkisKurguAI.exe"
+  WriteRegStr ${REG_ROOT} "$RegistryStageKey" "Publisher" "Anılcan Ölçer"
+  WriteRegStr ${REG_ROOT} "$RegistryStageKey" "URLInfoAbout" "https://github.com/anilcanolcer/akis-kurgu-ai"
+  WriteRegDWORD ${REG_ROOT} "$RegistryStageKey" "EstimatedSize" $2
+  WriteRegDWORD ${REG_ROOT} "$RegistryStageKey" "NoModify" 1
+  WriteRegDWORD ${REG_ROOT} "$RegistryStageKey" "NoRepair" 1
   ${If} ${Errors}
     StrCpy $Failed 1
   ${EndIf}
-  SetShellVarContext ${SHELL_CONTEXT}
-  CreateDirectory "${SHORTCUT_DIR}"
+  ${EndIf}
+  ${If} $Failed == 0
+  StrCpy $TouchedShortcut 1
   ClearErrors
   CreateShortcut "${SHORTCUT_DIR}\${PRODUCT_NAME}.lnk" "$INSTDIR\AkisKurguAI.exe"
   ${If} ${Errors}
     StrCpy $Failed 1
+  ${EndIf}
+  ${EndIf}
+  ${If} $Failed == 0
+    Call PublishFinishRegistry
   ${EndIf}
   ${If} $Failed == 1
     Call Rollback
@@ -487,6 +716,7 @@ Section "Install"
   !endif
   StrCpy $LogText "NSIS installation completed."
   Call WriteLogLine
+  Call CommitFinish
   RMDir /r "$INSTDIR\_internal.old"
   Delete "$INSTDIR\AkisKurguAI.exe.old"
   ClearErrors

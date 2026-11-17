@@ -176,10 +176,10 @@ AI features are optional. Choose a provider in the AI tab and enter **your own A
 
 - Windows only; macOS and Linux are not supported.
 - Smooth playback starts once the background proxy is ready; until then the preview steps frame by frame.
+- Frame-by-frame fallback previews play at most four simultaneous sound layers; smooth playback and export mix all layers.
 - A local Whisper transcription or Windows voice-over cannot be cancelled once started.
 - No keyframe editor, export queue or advanced colour grading yet.
 - No account sync or direct publishing to social platforms.
-- Story Studio is in Turkish only for now; the rest of the interface is translated into English.
 
 ## Building from source
 

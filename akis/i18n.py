@@ -1288,6 +1288,8 @@ def story_text(source, code):
 EN_UI.update({
     'Seçilen mikrofon ekran kaydı için bulunamadı; başka bir mikrofon seçin veya mikrofonsuz kaydedin.':
         'The selected microphone could not be found for screen recording; choose another microphone or record without one.',
+    'Kurgu ayarları veya içerik bu sırada değişti. Plan yine de uygulansın mı?':
+        'The edit settings or content changed while the request was running. Apply the plan anyway?',
     '＋ Müzik':
         '＋ Music',
     'Ses dosyası seçip zaman çizelgesinin ses izine ekler.':

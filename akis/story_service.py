@@ -545,7 +545,15 @@ def run_text_job(job, key, *, transport=None, generate=None):
                         fallbacks=job.fallbacks, transport=transport)
     except ResponseTruncatedError as exc:
         if job.kind in ('scene', 'continue', 'rewrite') and exc.partial.strip():
-            return gemini_api.TextResult(exc.partial, job.model, {}, 'MAX_TOKENS', True, job.model)
+            return gemini_api.TextResult(
+                exc.partial,
+                getattr(exc, 'model', job.model),
+                {},
+                'MAX_TOKENS',
+                True,
+                getattr(exc, 'requested_model', job.model),
+                getattr(exc, 'fallback_reason', ''),
+            )
         raise
 
 

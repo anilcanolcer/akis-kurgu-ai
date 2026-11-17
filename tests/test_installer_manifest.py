@@ -19,7 +19,7 @@ NSI = (ROOT / 'installer.nsi').read_text(encoding='utf-8-sig').replace('\r\n', '
 
 def block(start, end='SectionEnd'):
     """Text of installer.nsi from the line starting `start` up to the next `end` line."""
-    match = re.search(rf'^{re.escape(start)}.*?^{re.escape(end)}', NSI, re.M | re.S)
+    match = re.search(rf'^{re.escape(start)}(?=\s|$).*?^{re.escape(end)}(?=\s|$)', NSI, re.M | re.S)
     if match is None:
         raise AssertionError(f'{start!r} not found in installer.nsi')
     return match.group(0)
@@ -139,6 +139,44 @@ class InstallerScriptTests(unittest.TestCase):
         self.assertLess(lib, exe)  # exe last, and only when _internal came back
         self.assertIn('$RollbackFailed == 0', rollback[lib:exe])
         self.assertIn('Call Rollback', block('Function .onInstFailed', 'FunctionEnd'))
+
+    def test_finishing_files_and_full_registry_tree_are_transactional(self):
+        section = code_lines(block('Section "Install"'))
+        finish = section[section.index('Call PrepareFinish'):]
+        steps = [finish.index(text) for text in (
+            'Call PrepareFinish', 'WriteUninstaller', 'WriteRegStr', 'CreateShortcut',
+            'Call PublishFinishRegistry', 'Call Rollback', 'Call CommitFinish',
+        )]
+        self.assertEqual(steps, sorted(steps))
+        # Registry writes go to a staging key; a late failure cannot leave a mixture of versions.
+        writes = [line for line in finish.splitlines() if line.strip().startswith(('WriteRegStr', 'WriteRegDWORD'))]
+        self.assertTrue(writes)
+        self.assertTrue(all('"$RegistryStageKey"' in line for line in writes))
+        prepare = code_lines(block('Function PrepareFinish', 'FunctionEnd'))
+        self.assertIn('RegCopyTreeW', prepare)  # preserves every value type and custom subkeys
+        self.assertIn('BACKUP_FINISH_FILE "$INSTDIR\\Uninstall-Akis.exe"', prepare)
+        self.assertIn('BACKUP_FINISH_FILE "${SHORTCUT_DIR}\\${PRODUCT_NAME}.lnk"', prepare)
+        publish = code_lines(block('Function PublishFinishRegistry', 'FunctionEnd'))
+        old = publish.index('w "${UNINSTALL_KEY_NAME}", w "$RegistryBackupName"')
+        new = publish.index('w "$RegistryStageName", w "${UNINSTALL_KEY_NAME}"')
+        self.assertLess(old, new)
+        rollback = code_lines(block('Function RollbackFinish', 'FunctionEnd'))
+        self.assertIn('RESTORE_FINISH_FILE "$INSTDIR\\Uninstall-Akis.exe"', rollback)
+        self.assertIn('RESTORE_FINISH_FILE "${SHORTCUT_DIR}\\${PRODUCT_NAME}.lnk"', rollback)
+        self.assertIn('w "$RegistryBackupName", w "${UNINSTALL_KEY_NAME}"', rollback)
+        self.assertIn('DeleteRegKey ${REG_ROOT} "$RegistryStageKey"', rollback)
+        self.assertNotIn('RMDir /r', rollback)  # preserve unrelated shortcut-folder contents
+        self.assertIn('Call RollbackFinish', block('Function Rollback', 'FunctionEnd'))
+
+    def test_finish_backups_never_overwrite_an_existing_path(self):
+        backup = code_lines(block('!macro BACKUP_FINISH_FILE', '!macroend'))
+        self.assertIn('GetTempFileName ${backup} "${parent}"', backup)
+        self.assertLess(backup.index('"${file}\\*.*"'), backup.index('Rename "${file}"'))
+        self.assertIn('Return', backup[:backup.index('Rename "${file}"')])
+        restore = code_lines(block('!macro RESTORE_FINISH_FILE', '!macroend'))
+        self.assertIn('${If} ${touched} == 1', restore)
+        self.assertIn('${If} ${moved} == 1', restore)
+        self.assertNotIn('Delete "${backup}"', restore)  # retain the only old copy on rollback failure
 
     def test_recovery_restores_exe_only_after_internal(self):
         recover = block('Function RecoverInterrupted', 'FunctionEnd')

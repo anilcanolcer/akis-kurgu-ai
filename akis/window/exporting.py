@@ -250,12 +250,17 @@ class ExportMixin:
 
     def choose_shorts(self, pauses, total) -> None:
         fps = self.multitrack.fps_num / self.multitrack.fps_den
+        speed = self.state.speed
         said = shorts_split.spoken_on_timeline(self.multitrack, self.caption_source, self.caption_segments) \
             if self.caption_source and self.caption_segments else []
-        dialog = ShortsDialog(self, total=total, pauses=pauses, said=said, language=self.ui_language())
+        # The dialog's duration limit describes the finished video. Plan in playback seconds, then
+        # turn the selected ranges back into timeline seconds for slicing every track together.
+        dialog = ShortsDialog(self, total=total / speed, pauses=[pause / speed for pause in pauses],
+                              said=[(second / speed, text) for second, text in said], language=self.ui_language())
         if not dialog.exec():
             return
         parts, framing, card, titles = dialog.selection()
+        parts = [(start * speed, end * speed) for start, end in parts]
         folder = QFileDialog.getExistingDirectory(self, self.ui_text('Kaydedilecek klasör'),
                                                   str(Path.home() / "Videos"), QFileDialog.Option.DontUseNativeDialog)
         if not folder:
@@ -268,7 +273,7 @@ class ExportMixin:
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
             return
-        needed = export_progress.estimated_bytes(shorts_split.CANVAS, fps, total / self.state.speed)
+        needed = export_progress.estimated_bytes(shorts_split.CANVAS, fps, total / speed)
         problem = export_progress.space_problem(outputs[0], needed, say=self.ui_template)
         if problem and QMessageBox.question(self, APP_NAME, problem + '\n\n' + self.ui_text('Yine de devam edilsin mi?'),
                                             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,

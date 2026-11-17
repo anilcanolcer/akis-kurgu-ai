@@ -579,7 +579,9 @@ class TimelineEditMixin:
         if ok:
             with self.history_step():
                 timeline_service.set_clip_volume(self.multitrack, self.multitrack_view.selected, value / 100)
-            self.sync_timeline_audio(force=True)
+            # A proxy is a pre-mixed render of the old volume. Seeking runs the usual edit refresh,
+            # which stops that proxy when its signature no longer matches the timeline.
+            self.seek_timeline(self.timeline_frame)
             self.set_status(self.ui_text('Klip sesi: %{value}', value=value))
 
     def set_clip_speed(self):

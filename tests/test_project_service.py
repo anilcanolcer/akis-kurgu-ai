@@ -55,10 +55,10 @@ class ProjectServiceTests(unittest.TestCase):
             document = project_service.make_document({'source': 'video.mp4'}, Timeline(), {}, '')
             real_save = project_service.save
 
-            def deny_snapshot(path, value):
+            def deny_snapshot(path, value, **options):
                 if Path(path).parent.name == f'{target.name}.versions':
                     raise PermissionError(13, 'Access denied')
-                return real_save(path, value)
+                return real_save(path, value, **options)
 
             with patch('akis.project_service.save', side_effect=deny_snapshot):
                 result = project_service.save_with_snapshot(target, document, snapshot=True)
@@ -198,6 +198,43 @@ class PortabilityTests(unittest.TestCase):
         self.assertEqual(source, expected[0])
         self.assertEqual(loaded['state']['source'], expected[0])
         self.assertEqual([c['source'] for c in loaded['timeline']['tracks'][0]['clips']], expected)
+
+    def test_snapshot_keeps_project_media_relative_to_its_versions_folder(self):
+        document, paths = project_with_media(self.root / 'old', ('a.mp4', 'b.mp4'))
+        outside = self.root / 'outside.mp4'
+        outside.touch()
+        document['timeline']['tracks'].append({'kind': 'audio', 'name': 'Outside',
+                                               'clips': [{'source': str(outside), 'start': 0, 'length': 30}]})
+        target = self.root / 'old' / 'demo.akis.json'
+        project_service.save_with_snapshot(target, document, snapshot=True)
+        version = next(project_service.versions_folder(target).glob('*.json'))
+        stored = project_service.load(version)
+        self.assertEqual(stored['relative_media'], {paths[0]: '../media/a.mp4', paths[1]: '../media/b.mp4'})
+        self.assertNotIn('relative_media', document)
+        (self.root / 'old').rename(self.root / 'new')
+        moved_version = self.root / 'new' / version.parent.name / version.name
+        loaded, source, missing = project_service.load_project(moved_version)
+        expected = [str((self.root / 'new' / 'media' / name).resolve()) for name in ('a.mp4', 'b.mp4')]
+        self.assertEqual(source, expected[0])
+        self.assertEqual(missing, [])
+        self.assertEqual([clip['source'] for clip in loaded['timeline']['tracks'][0]['clips']], expected)
+        self.assertEqual(loaded['timeline']['tracks'][-1]['clips'][0]['source'], str(outside))
+
+    def test_snapshot_resolves_legacy_relative_media_from_the_project_folder(self):
+        from akis.timeline_model import Clip, Timeline, Track
+        root = self.root / 'old'
+        root.mkdir()
+        (root / 'video.mp4').touch()
+        document = project_service.make_document({'source': 'video.mp4'},
+                                                Timeline(tracks=[Track('video', 'V', [Clip('video.mp4', 0, 30)])]), {}, '')
+        target = root / 'demo.akis.json'
+        project_service.save_with_snapshot(target, document, snapshot=True)
+        version = next(project_service.versions_folder(target).glob('*.json'))
+        root.rename(self.root / 'new')
+        loaded, source, missing = project_service.load_project(self.root / 'new' / version.parent.name / version.name)
+        self.assertEqual(source, str((self.root / 'new' / 'video.mp4').resolve()))
+        self.assertEqual(loaded['timeline']['tracks'][0]['clips'][0]['source'], source)
+        self.assertEqual(missing, [])
 
     def test_missing_main_source_falls_back_to_timeline_video_and_lists_missing(self):
         gone = self.root / 'gone.mp4'

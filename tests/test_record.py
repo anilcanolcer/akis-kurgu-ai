@@ -59,6 +59,7 @@ class RecorderTests(unittest.TestCase):
             sent = []
 
             class Process:
+                returncode = 0
                 stderr = SimpleNamespace(closed=False, read=lambda: b'device busy')
 
                 def poll(self):
@@ -82,6 +83,33 @@ class RecorderTests(unittest.TestCase):
                 recorder.stop()
             with self.assertRaises(RuntimeError):
                 recorder.stop()                                   # nothing running any more
+
+    def test_failed_or_killed_recording_does_not_accept_a_partial_file(self):
+        import subprocess
+        for timed_out in (False, True):
+            with self.subTest(timed_out=timed_out), tempfile.TemporaryDirectory() as tmp:
+                out = Path(tmp) / 'partial.mp4'
+                out.write_bytes(b'incomplete mp4')
+
+                class Process:
+                    returncode = 1
+                    killed = False
+
+                    def communicate(self, input=None, timeout=None):
+                        if timed_out and not self.killed:
+                            raise subprocess.TimeoutExpired('ffmpeg', timeout)
+                        return b'', b'Could not finalize recording'
+
+                    def kill(self):
+                        self.killed = True
+
+                process = Process()
+                recorder = screen_record.ScreenRecorder('ffmpeg')
+                recorder.process, recorder.output = process, str(out)
+                with self.assertRaisesRegex(RuntimeError, 'Could not finalize recording'):
+                    recorder.stop()
+                self.assertEqual(process.killed, timed_out)
+                self.assertIsNone(recorder.process)
 
     @unittest.skipUnless(FFMPEG and os.environ.get('AKIS_REAL_SCREEN') == '1', 'gerçek ekran kaydı için AKIS_REAL_SCREEN=1')
     def test_a_real_short_screen_recording(self):

@@ -135,10 +135,10 @@ class MainWindowFlowTests(unittest.TestCase):
             window.multitrack_view.set_model(window.multitrack)
             real_save = project_service.save
 
-            def deny_snapshot(path, document):
+            def deny_snapshot(path, document, **options):
                 if Path(path).parent.name == f'{target.name}.versions':
                     raise PermissionError(13, 'Access denied')
-                return real_save(path, document)
+                return real_save(path, document, **options)
 
             with patch('PySide6.QtWidgets.QFileDialog.getSaveFileName', return_value=(str(target), '')) as chooser, \
                  patch('akis.project_service.save', side_effect=deny_snapshot), \

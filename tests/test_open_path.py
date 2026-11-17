@@ -12,6 +12,7 @@ from PySide6.QtWidgets import QApplication
 
 import main
 from main import MainWindow, startup_file
+from akis import project_service
 
 app = QApplication.instance() or QApplication([])
 
@@ -70,6 +71,25 @@ class WindowTests(unittest.TestCase):
             self.assertFalse(w.open_path(str(project)))
         opened.assert_not_called()
         self.assertEqual(w.brightness.value(), 9)
+
+    def test_failed_project_open_restores_the_audio_controls_and_settings(self):
+        w = self.window
+        self.assertTrue(w.open_path(str(self.video())))
+        w.loudness.setChecked(True)
+        w.music_duck.setChecked(True)
+        before = [(box.isChecked(), getattr(w.state, name)) for box, name in w.audio_boxes()]
+        source = str(self.video('other.mp4'))
+        document = w.project_document()
+        document['state'].update(source=source, speed='invalid', audio_level=False,
+                                 audio_denoise=True, audio_duck=False)
+        document['timeline']['tracks'][0]['clips'][0]['source'] = source
+        project = self.root / 'broken.akis.json'
+        project_service.save(project, document)
+        with patch.object(w, 'confirm_close', return_value=True), patch('main.QMessageBox.critical') as critical:
+            self.assertFalse(w.open_path(str(project)))
+        critical.assert_called_once()
+        self.assertEqual([(box.isChecked(), getattr(w.state, name)) for box, name in w.audio_boxes()], before)
+        self.assertEqual(w.render_adjustments()['audio'], ('duck', 'level'))
 
     def test_missing_and_unsupported_files_only_say_so(self):
         w = self.window

@@ -126,6 +126,17 @@ class TextTests(unittest.TestCase):
         self.assertEqual(result.model, 'gemini-3.6-flash')
         self.assertIn('ücretsiz', result.fallback_reason)
 
+    def test_truncated_fallback_keeps_actual_model_and_fallback_reason(self):
+        partial = {'candidates': [{'finishReason': 'MAX_TOKENS',
+                                   'content': {'parts': [{'text': 'A partial scene.'}]}}]}
+        rec = Recorder(ProviderHTTPError('Gemini API hatası: HTTP 503 — busy', 503), partial)
+        with self.assertRaises(ResponseTruncatedError) as ctx:
+            g.generate_text(KEY, 'gemini-4-argon', 'x', transport=rec)
+        self.assertEqual(ctx.exception.partial, 'A partial scene.')
+        self.assertEqual(ctx.exception.model, 'gemini-3.8-flash')
+        self.assertEqual(ctx.exception.requested_model, 'gemini-4-argon')
+        self.assertIn('gemini-4-argon', ctx.exception.fallback_reason)
+
     def test_no_fallback_for_blocked_or_auth_or_when_disabled(self):
         rec = Recorder({'candidates': [{'finishReason': 'SAFETY'}]})
         with self.assertRaises(ResponseBlockedError):

@@ -358,7 +358,7 @@ class StalePlanTests(WindowCase):
     def run_prompt(self, change, answer):
         self.load()
         w = self.window
-        w._prompt_revision = w.timeline_revision()
+        w._prompt_revision = w.prompt_edit_revision()
         if change:
             w.multitrack.tracks[2].add(Clip('', 0, 10, text='kullanıcı'))
         result = Timeline(tracks=[Track('video', 'Video', [Clip(str(self.video), 0, 15)])])
@@ -385,6 +385,28 @@ class StalePlanTests(WindowCase):
         ask.assert_called_once()
         self.assertIs(self.window.multitrack, result)
         self.assertEqual(len(self.window._undo_stack), 1)
+
+    def test_publish_text_and_color_edits_are_kept_when_stale_plan_is_declined(self):
+        self.load()
+        w = self.window
+        for field in ('title', 'caption', 'tags', 'color'):
+            with self.subTest(field=field):
+                w._prompt_revision = w.prompt_edit_revision()
+                if field == 'title':
+                    w.publish_title.setText('My edited title')
+                elif field == 'caption':
+                    w.publish_caption.setPlainText('My edited caption')
+                elif field == 'tags':
+                    w.publish_tags.setPlainText('#mytag')
+                else:
+                    w.brightness.setValue(w.brightness.value() + 1)
+                edited = w.prompt_edit_revision()
+                with patch('main.QMessageBox.question', return_value=NO) as ask, \
+                     patch('akis.edit_plan.apply_plan') as apply:
+                    w.on_prompt_edit({'title': 'AI replacement'}, [(str(self.video), 2.0)])
+                ask.assert_called_once()
+                apply.assert_not_called()
+                self.assertEqual(w.prompt_edit_revision(), edited)
 
 
 class OverwritePromptTests(WindowCase):

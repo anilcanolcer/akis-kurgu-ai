@@ -139,6 +139,58 @@ class SliceTests(unittest.TestCase):
         self.assertEqual([round(p, 1) for p in found], [2.5, 12.5])
 
 
+class OutputSafetyTests(unittest.TestCase):
+    def test_output_cannot_overwrite_media_used_only_in_a_later_part(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            first, later = root / 'source.mp4', root / '01-title.mp4'
+            first.write_bytes(b'first source')
+            later.write_bytes(b'later source')
+            timeline = Timeline(fps_num=10, tracks=[Track('video', 'V', [
+                Clip(str(first), 0, 10), Clip(str(later), 10, 10)])])
+            worker = shorts_split.ShortsExportWorker(timeline, [(0, 1), (1, 2)],
+                                                     [str(later), str(root / '02-title.mp4')], 'ffmpeg')
+            failures, completed = [], []
+            worker.failed.connect(failures.append)
+            worker.completed.connect(completed.append)
+            with patch('akis.shorts_split.TimelineRenderer') as renderer:
+                renderer.return_value.export.side_effect = lambda _part, output, **_kw: Path(output).write_bytes(b'rendered')
+                worker.run()
+            self.assertEqual(later.read_bytes(), b'later source')
+            renderer.assert_not_called()
+            self.assertEqual(completed, [])
+            self.assertEqual(len(failures), 1)
+            self.assertIn(str(later), failures[0])
+
+    def test_all_outputs_are_checked_before_any_part_is_written(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            first, later = root / 'source.mp4', root / 'later.mp4'
+            first.write_bytes(b'first source')
+            later.write_bytes(b'later source')
+            alias = root / '02-title.mp4'
+            try:
+                os.link(first, alias)
+            except OSError as exc:
+                self.skipTest(str(exc))
+            output = root / '01-title.mp4'
+            timeline = Timeline(fps_num=10, tracks=[Track('video', 'V', [
+                Clip(str(first), 0, 10), Clip(str(later), 10, 10)])])
+            worker = shorts_split.ShortsExportWorker(timeline, [(0, 1), (1, 2)],
+                                                     [str(output), str(alias)], 'ffmpeg')
+            failures = []
+            worker.failed.connect(failures.append)
+            with patch('akis.shorts_split.TimelineRenderer') as renderer:
+                renderer.return_value.export.side_effect = lambda _part, target, **_kw: Path(target).write_bytes(b'rendered')
+                worker.run()
+            self.assertFalse(output.exists())
+            self.assertEqual(first.read_bytes(), b'first source')
+            self.assertEqual(alias.read_bytes(), b'first source')
+            renderer.assert_not_called()
+            self.assertEqual(len(failures), 1)
+            self.assertIn(str(alias), failures[0])
+
+
 @unittest.skipUnless(FFMPEG, 'ffmpeg gerekli')
 class RealRunTests(unittest.TestCase):
     def make_source(self, root):

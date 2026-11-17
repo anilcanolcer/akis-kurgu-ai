@@ -316,7 +316,15 @@ def generate_text(key, model, prompt, *, system_instruction=None, history=(), th
                 raise
             reasons.append(_fallback_reason(candidate, exc))
             continue
-        parsed = parse_text(result, candidate)
+        try:
+            parsed = parse_text(result, candidate)
+        except ResponseTruncatedError as exc:
+            # Preserve model attribution for the partial answer too. Story Studio may keep that
+            # partial text, so its usage line must still name the model that actually returned it.
+            exc.model = candidate
+            exc.requested_model = model
+            exc.fallback_reason = '; '.join(reasons)
+            raise
         parsed.requested_model = model
         parsed.fallback_reason = '; '.join(reasons)
         return parsed
