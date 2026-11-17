@@ -1,6 +1,6 @@
 """Windows CI smoke test: update an installed copy with the real installer, the way the app does it.
 
-Usage: python update_smoke.py <installer> <installed folder>
+Usage (from the repository root): python -m scripts.update_smoke <installer> <installed folder>
 The installer runs in its update mode (/UPDATE): it waits for the app's files, swaps them with rollback,
 writes the log line and restarts the app. /S keeps it unattended on the runner.
 """

@@ -190,7 +190,7 @@ class MainWindow(LayoutMixin, PlaybackMixin, TimelineEditMixin, ProjectMixin, As
         available = QApplication.primaryScreen().availableGeometry()
         self.resize(min(1500, available.width()), min(920, available.height()))
         self.setAcceptDrops(True)
-        self.setWindowIcon(QIcon(str(app_support.runtime_file('app.ico'))))
+        self.setWindowIcon(QIcon(str(app_support.runtime_file('assets/branding/app.ico'))))
 
         self.preview_audio_output = QAudioOutput()
         self.preview_audio_output.setVolume(0.8)

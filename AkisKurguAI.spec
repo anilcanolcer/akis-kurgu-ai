@@ -51,7 +51,9 @@ a = Analysis(
     [str(project_dir / "main.py")],
     pathex=[str(project_dir)],
     binaries=[(ffmpeg, ".")] + extra_binaries,
-    datas=[(str(project_dir / "app.ico"), ".")] + licence_datas + extra_datas,
+    datas=[
+        (str(project_dir / "assets" / "branding" / "app.ico"), "assets/branding"),
+    ] + licence_datas + extra_datas,
     hiddenimports=[
         "keyring.backends.Windows",
         "openai",
@@ -76,7 +78,7 @@ exe = EXE(
     [],
     exclude_binaries=True,
     name="AkisKurguAI",
-    icon=str(project_dir / "app.ico"),
+    icon=str(project_dir / "assets" / "branding" / "app.ico"),
     version=version_info,
     debug=False,
     bootloader_ignore_signals=False,

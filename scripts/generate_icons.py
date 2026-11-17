@@ -1,6 +1,6 @@
 """Generate logo.png and the Windows icon (app.ico) from logo.svg, the single source of the mark.
 
-Usage: python generate_icons.py   (needs PySide6 and Pillow, both in requirements.txt)
+Usage: python scripts/generate_icons.py   (needs PySide6 and Pillow, both in requirements.txt)
 """
 import io
 import os
@@ -13,7 +13,8 @@ from PySide6.QtCore import QBuffer, QRectF, Qt
 from PySide6.QtGui import QGuiApplication, QImage, QPainter
 from PySide6.QtSvg import QSvgRenderer
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
+ASSET_DIR = ROOT / 'assets' / 'branding'
 ICON_SIZES = (16, 24, 32, 48, 64, 128, 256)
 
 
@@ -33,12 +34,12 @@ def render(renderer, size):
 
 def main():
     app = QGuiApplication.instance() or QGuiApplication([])
-    renderer = QSvgRenderer(str(ROOT / 'logo.svg'))
+    renderer = QSvgRenderer(str(ASSET_DIR / 'logo.svg'))
     if not renderer.isValid():
         raise SystemExit('logo.svg could not be read')
-    render(renderer, 512).save(ROOT / 'logo.png')
+    render(renderer, 512).save(ASSET_DIR / 'logo.png')
     frames = [render(renderer, size) for size in ICON_SIZES]
-    frames[-1].save(ROOT / 'app.ico', format='ICO', sizes=[(size, size) for size in ICON_SIZES],
+    frames[-1].save(ASSET_DIR / 'app.ico', format='ICO', sizes=[(size, size) for size in ICON_SIZES],
                     append_images=frames[:-1])
     del app
 

@@ -219,6 +219,7 @@ GitHub Actions runs the tests, starts the packaged app, and checks installing, u
 | Path | Contents |
 | --- | --- |
 | `main.py` | Application entry point and the main window |
+| `assets/branding/` | Application icon and logo sources; regenerated with `python scripts/generate_icons.py` |
 | `akis/window/` | Window parts: layout, project, playback, timeline editing, AI assistant, export, updates |
 | `akis/timeline_model.py`, `akis/timeline_service.py` | Frame-based clips and tracks; editing operations |
 | `akis/timeline_render.py`, `akis/render_worker.py`, `akis/media_service.py` | Composition shared by preview and export; the FFmpeg boundary |
@@ -227,7 +228,7 @@ GitHub Actions runs the tests, starts the packaged app, and checks installing, u
 | `akis/ai_providers.py`, `akis/edit_plan.py`, `akis/story_service.py` | AI providers, prompt edit plans, Story Studio |
 | `akis/project_service.py` | Project file format and saving |
 | `tests/` | Unit, UI and FFmpeg tests |
-| `installer.nsi`, `AkisKurguAI.spec`, `scripts/` | Packaging and installer |
+| `installer.nsi`, `AkisKurguAI.spec`, `scripts/` | Packaging, installer and maintenance tools; the update smoke check runs with `python -m scripts.update_smoke` |
 
 ## Contributing
 

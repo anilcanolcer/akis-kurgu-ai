@@ -77,7 +77,7 @@ BrandingText "Akış Kurgu AI ${PRODUCT_VERSION}"
 OutFile "${OUTPUT_FILE}"
 InstallDir "$PROGRAMFILES64\AkisKurguAI"
 SetCompressor /SOLID lzma
-Icon "app.ico"
+Icon "assets\branding\app.ico"
 
 Var UpdateMode     ; 1: /UPDATE (or legacy /VERYSILENT): only the progress page, no prompts, auto close
 Var Relaunch       ; 1: /UPDATE from the app: wait for it to exit, start it again afterwards, report failures

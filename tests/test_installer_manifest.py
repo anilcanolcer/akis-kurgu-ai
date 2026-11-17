@@ -312,7 +312,7 @@ class InstallerScriptTests(unittest.TestCase):
     def test_ci_runs_the_update_scenarios(self):
         workflow = (ROOT / '.github' / 'workflows' / 'windows-build.yml').read_text(encoding='utf-8')
         self.assertIn('scripts/installer-scenarios.ps1 -MakeNsis', workflow)
-        self.assertIn('python update_smoke.py', workflow)
+        self.assertIn('python -m scripts.update_smoke', workflow)
 
 
 if __name__ == '__main__':

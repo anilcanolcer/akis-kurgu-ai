@@ -107,7 +107,7 @@ jobs:
           $destination = Join-Path $env:RUNNER_TEMP 'AkisInstallerTest'
           $setup = (Resolve-Path 'dist/AkisKurguAI-Setup.exe').Path
           $env:QT_QPA_PLATFORM = 'offscreen'
-          python update_smoke.py $setup $destination
+          python -m scripts.update_smoke $setup $destination
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Start-Sleep -Seconds 3
           Get-Process AkisKurguAI -ErrorAction SilentlyContinue | Stop-Process -Force

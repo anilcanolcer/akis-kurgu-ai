@@ -219,6 +219,7 @@ GitHub Actions her gönderimde testleri çalıştırır, paketlenmiş uygulamay�
 | Yol | İçerik |
 | --- | --- |
 | `main.py` | Uygulamanın giriş noktası ve ana pencere |
+| `assets/branding/` | Uygulama simgesi ve logo kaynakları; `python scripts/generate_icons.py` ile yeniden üretilir |
 | `akis/window/` | Pencere bölümleri: yerleşim, proje, oynatma, zaman çizelgesi düzenleme, AI yardımcısı, dışa aktarma, güncelleme |
 | `akis/timeline_model.py`, `akis/timeline_service.py` | Kare tabanlı klip ve izler; düzenleme işlemleri |
 | `akis/timeline_render.py`, `akis/render_worker.py`, `akis/media_service.py` | Önizleme ve dışa aktarmanın ortak kompozisyonu; FFmpeg sınırı |
@@ -227,7 +228,7 @@ GitHub Actions her gönderimde testleri çalıştırır, paketlenmiş uygulamay�
 | `akis/ai_providers.py`, `akis/edit_plan.py`, `akis/story_service.py` | AI sağlayıcıları, prompt kurgu planları, Hikâye Stüdyosu |
 | `akis/project_service.py` | Proje dosyası biçimi ve kayıt |
 | `tests/` | Birim, arayüz ve FFmpeg testleri |
-| `installer.nsi`, `AkisKurguAI.spec`, `scripts/` | Paketleme ve kurucu |
+| `installer.nsi`, `AkisKurguAI.spec`, `scripts/` | Paketleme, kurucu ve bakım araçları; güncelleme kontrolü `python -m scripts.update_smoke` ile çalıştırılır |
 
 ## Katkıda bulunma
 
