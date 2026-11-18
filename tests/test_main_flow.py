@@ -34,7 +34,7 @@ class MainWindowFlowTests(unittest.TestCase):
             window = MainWindow()
             try:
                 with patch('akis.app_support.app_data_dir', return_value=root / 'data'), \
-                     patch.object(window.preview, 'request'), \
+                     patch.object(window, 'seek_timeline'), \
                      patch.object(window.multitrack_view, 'refresh_waveforms'), \
                      patch.object(window, 'export_canvas_size', return_value=(160, 90)), \
                      patch('PySide6.QtWidgets.QFileDialog.getSaveFileName', return_value=(str(output), '')), \
@@ -46,10 +46,12 @@ class MainWindowFlowTests(unittest.TestCase):
                     self.assertFalse(window.state.source)
                     window.export_video()
                     deadline = time.monotonic() + 20
-                    while not info.called and not critical.called and time.monotonic() < deadline:
+                    while (window._workers or not (info.called or critical.called)) and time.monotonic() < deadline:
                         QTest.qWait(20)
+                    self.assertFalse(window._workers, 'Export worker did not finish')
                     critical.assert_not_called()
                     warning.assert_not_called()
+                    info.assert_called_once()
                     self.assertTrue(output.is_file())
                     self.assertAlmostEqual(MediaService(ffmpeg).duration(str(output)), 5, delta=0.1)
             finally:
