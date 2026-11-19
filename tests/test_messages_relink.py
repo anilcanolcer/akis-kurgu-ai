@@ -154,7 +154,8 @@ class ProjectMediaTests(unittest.TestCase):
         warning.assert_not_called()
         rebuilt = next(c for t in other.multitrack.tracks for c in t.clips)
         self.assertTrue(Path(rebuilt.source).is_file())
-        self.assertEqual(Path(rebuilt.style['still_image']), moved / 'kapak.png')
+        # samefile: CI's temp folder has a short (RUNNER~1) and a long name for the same place.
+        self.assertTrue(os.path.samefile(rebuilt.style['still_image'], moved / 'kapak.png'))
         self.assertTrue(other.has_unsaved_changes())
 
     def test_moved_media_is_located_and_others_follow_from_its_folder(self):
@@ -183,8 +184,8 @@ class ProjectMediaTests(unittest.TestCase):
             self.assertTrue(other.open_project_file(str(project)))
         self.assertEqual(chooser.call_count, 1)  # b.wav was found beside a.wav
         warning.assert_not_called()
-        sources = sorted(Path(c.source) for t in other.multitrack.tracks for c in t.clips if c.source)
-        self.assertEqual(sources, [moved / 'a.wav', moved / 'b.wav'])
+        sources = sorted(Path(c.source).resolve() for t in other.multitrack.tracks for c in t.clips if c.source)
+        self.assertEqual(sources, [(moved / 'a.wav').resolve(), (moved / 'b.wav').resolve()])
         self.assertTrue(other.has_unsaved_changes())
 
     def test_declining_to_locate_opens_with_the_missing_list(self):
