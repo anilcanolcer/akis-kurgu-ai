@@ -124,6 +124,27 @@ class ProjectMediaTests(unittest.TestCase):
         self.addCleanup(close)
         return window, stack
 
+    def leave_first_computer(self, window):
+        """Close the first editor and delete its app data (the converted photo stays behind on that PC).
+
+        The closed window's thumbnail, waveform and preview readers may still hold the converted clip
+        open for a moment; Windows refuses to delete an open file, so wait for them instead of failing.
+        """
+        from PySide6.QtTest import QTest
+        window._close_confirmed = True
+        window.close()
+        folder = self.tmp / 'pc1'
+        for _ in range(100):
+            QTest.qWait(100)  # also lets the closed window's readers finish
+            if not folder.exists():
+                return
+            try:
+                shutil.rmtree(folder)
+                return
+            except PermissionError:
+                continue
+        shutil.rmtree(folder)
+
     def make_project(self):
         folder = self.tmp / 'Proje'
         folder.mkdir()
@@ -147,7 +168,7 @@ class ProjectMediaTests(unittest.TestCase):
         moved = self.tmp / 'Baska' / 'Proje'
         shutil.copytree(folder, moved)
         shutil.rmtree(folder)
-        shutil.rmtree(self.tmp / 'pc1')  # the converted copy stayed on the first computer
+        self.leave_first_computer(window)  # the converted copy stayed on the first computer
         other, _ = self.window('pc2')  # another computer: its app data has no converted copy
         with patch('PySide6.QtWidgets.QMessageBox.warning') as warning:
             self.assertTrue(other.open_project_file(str(moved / 'p.akis.json')))
@@ -172,6 +193,7 @@ class ProjectMediaTests(unittest.TestCase):
             self.assertTrue(window._import_media_path(str(path), forced_kind='audio'))
         window.write_project(str(project))
         stack.stop()
+        self.leave_first_computer(window)  # closed first: its waveform reader may still hold a.wav open
         moved = self.tmp / 'Yeni'
         shutil.move(str(folder), str(moved))
 
@@ -189,9 +211,9 @@ class ProjectMediaTests(unittest.TestCase):
         self.assertTrue(other.has_unsaved_changes())
 
     def test_declining_to_locate_opens_with_the_missing_list(self):
-        folder, _ = self.make_project()
+        folder, first = self.make_project()
         (folder / 'kapak.png').unlink()
-        shutil.rmtree(self.tmp / 'pc1')
+        self.leave_first_computer(first)
         other, _ = self.window('pc2')
         other.show()
         with patch('PySide6.QtWidgets.QMessageBox.question', return_value=QMessageBox.StandardButton.No), \

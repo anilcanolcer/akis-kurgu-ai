@@ -152,7 +152,9 @@ class WindowTests(unittest.TestCase):
             w.separate_speakers()
             started[0].start()
             self.assertTrue(started[0].wait(20000))
-            deadline = time.monotonic() + 2
+            # The result reaches the window through the event loop; on a busy machine (a full local run)
+            # 2 s was sometimes not enough, and the late result then opened a real dialog during cleanup.
+            deadline = time.monotonic() + 20
             while not shown and time.monotonic() < deadline:
                 app.processEvents()
                 time.sleep(0.01)
