@@ -103,7 +103,7 @@ Konuşma videoları, eğitimler, vloglar ve Shorts saatlerce tekrar eden iş ist
 - Uygulama içinden güncelleme: kurucunun SHA-256 özeti doğrulanır, bir sorun olursa eski sürüm geri yüklenir.
 - Akıcı oynatma için arka planda proxy, uzun kurgularda parçalı önizleme, HDR (PQ/HLG) kaynaklarda SDR'ye ton eşleme.
 
-**0.6.6 sürümünde:** Hata ve uyarı iletileri İngilizce arayüzde İngilizce görünür. Proje açılırken taşınan medyanın yeni yeri sorulur ve aynı klasördeki diğer dosyalar adlarından bulunur. Fotoğraflar proje klasörüyle taşınır ve başka bir bilgisayarda yeniden oluşturulur; birbirine değen kliplerde sağ kırpma tutamağı doğru klibi kırpar. [0.6.6 sürüm notlarını okuyun](https://github.com/anilcanolcer/akis-kurgu-ai/releases/tag/v0.6.6).
+**0.6.7 sürümünde:** Uzun videolarda oynatma hemen başlar (akıcı önizleme hazır olana kadar kare kare ve sesli), “Tekrarları kes” tek parça gelen konuşma metnindeki tekrarları da bulur ve durum iletileri İngilizce arayüzde İngilizce görünür. [0.6.7 sürüm notlarını okuyun](https://github.com/anilcanolcer/akis-kurgu-ai/releases/tag/v0.6.7).
 
 ## Ekran görüntüleri
 
@@ -180,7 +180,7 @@ AI özellikleri isteğe bağlıdır. AI sekmesinde sağlayıcıyı seçip **kend
 ## Bilinen sınırlamalar
 
 - Yalnızca Windows; macOS ve Linux desteklenmez.
-- Akıcı oynatma, arka plandaki proxy hazır olunca başlar; o zamana kadar önizleme kare kare ilerler.
+- Akıcı oynatma, arka plandaki proxy hazır olunca başlar; o zamana kadar oynatma kare kare ve sesli sürer, ardından aynı yerden akıcı devam eder.
 - Kare kare yedek önizleme aynı anda en fazla dört ses katmanını çalar; akıcı oynatma ve dışa aktarma tüm katmanları birleştirir.
 - Yerel Whisper dökümü ve Windows seslendirmesi başladıktan sonra iptal edilemez.
 - Henüz keyframe düzenleyici, dışa aktarma kuyruğu ve gelişmiş renk araçları yoktur.

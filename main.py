@@ -432,6 +432,8 @@ class MainWindow(LayoutMixin, PlaybackMixin, TimelineEditMixin, ProjectMixin, As
         self.cancel_button.setEnabled(False)
 
     def set_status(self, text: str) -> None:
+        # Workers report progress in Turkish; a known sentence or template follows the UI language here.
+        text = messages.message(text, self.ui_language())
         self.status_label.setText(text)
         self.status_label.setToolTip(text)
 

@@ -115,6 +115,32 @@ EN_MESSAGES = {
         'SHA-256 verification of the update file failed; the file may have changed after it was downloaded. '
         'The installer was not started; download the update again.',
     'Kurulum için izin verilmedi; güncelleme kurulmadı.': 'Permission to install was not given; the update was not installed.',
+    # Progress and results the window shows in its status bar
+    'Videodan temsilci kareler seçiliyor…': 'Choosing representative frames from the video…',
+    'Ses parçası hazırlanıyor…': 'Preparing the audio…',
+    'Video çözümleniyor ({a}/{b}): ses, sahne ve kareler…': 'Analysing video ({a}/{b}): sound, scenes and frames…',
+    'AI kurgu kararlarını veriyor…': 'The AI is making the edit decisions…',
+    'AI kurgu planı hazırlanıyor…': 'The AI is preparing the edit plan…',
+    'Konuşma yerel Whisper ile çözümleniyor…': 'Transcribing speech with local Whisper…',
+    'Yerel model yükleniyor ve konuşma çözümleniyor…': 'Loading the local model and transcribing speech…',
+    'Ses önizlemesi: {a}': 'Audio preview: {a}',
+    'Ses önizlemesi kullanılamıyor: Qt medya arka ucu yüklenemedi.':
+        'Audio preview is unavailable: the Qt media backend could not be loaded.',
+    'AI analizi başlatılıyor…': 'Starting the AI analysis…',
+    'Prompt kurgusu başlatılıyor…': 'Starting the prompt edit…',
+    'AI kurgusu uygulandı. Beğenmezseniz geri alabilir veya yeni bir istek yazabilirsiniz.':
+        'The AI edit was applied. If you do not like it, undo it or write a new request.',
+    'Öneriler hazır; birini seçip işaret olarak uygulayabilirsiniz.':
+        'Suggestions are ready; choose one to apply it as markers.',
+    'Ses hazırlanıyor…': 'Preparing audio…',
+    'Windows sesi oluşturuluyor…': 'Creating the Windows voice-over…',
+    'Türkçe konuşma metni hazır.': 'The transcript is ready.',
+    'AI planı uygulanmadı; zaman çizelgesindeki değişiklikleriniz korundu.':
+        'The AI plan was not applied; your changes on the timeline were kept.',
+    'AI planı uygulanmadı.': 'The AI plan was not applied.',
+    'Kurgu planı uygulanamadı: {a}': 'The edit plan could not be applied: {a}',
+    'Akıcı önizleme hazırlanıyor; bu sırada kare kare oynatılıyor…':
+        'Preparing smooth playback; playing frame by frame meanwhile…',
     'Kurulum iptal edildi; önceki sürüm değişmedi.': 'The installation was cancelled; the previous version is unchanged.',
     'Kurulum yarıda kesildi.': 'The installation was interrupted.',
     'Uygulama dosyaları kullanımda olduğu için hiçbir dosya değiştirilmedi.':

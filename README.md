@@ -103,7 +103,7 @@ Talking-head videos, tutorials, vlogs and Shorts take hours of repetitive work: 
 - In-app updates that verify the installer's SHA-256 checksum and restore the previous version if anything fails.
 - Proxy files in the background for smooth playback, chunked preview rendering for long edits, HDR (PQ/HLG) sources tone-mapped to SDR.
 
-**Version 0.6.6:** error and warning messages follow the English interface. Projects ask where moved media is now and find the other files of the same folder by name, photos move with the project folder and are rebuilt on another computer, and the right trim handle of touching clips trims the correct clip. [Read the 0.6.6 release notes](https://github.com/anilcanolcer/akis-kurgu-ai/releases/tag/v0.6.6).
+**Version 0.6.7:** playback starts at once on long videos (frame by frame with sound until smooth playback is ready), “Remove retakes” finds repeated sentences inside one long transcript segment, and status messages follow the English interface. [Read the 0.6.7 release notes](https://github.com/anilcanolcer/akis-kurgu-ai/releases/tag/v0.6.7).
 
 ## Screenshots
 
@@ -180,7 +180,7 @@ AI features are optional. Choose a provider in the AI tab and enter **your own A
 ## Known limitations
 
 - Windows only; macOS and Linux are not supported.
-- Smooth playback starts once the background proxy is ready; until then the preview steps frame by frame.
+- Smooth playback starts once the background proxy is ready; until then playback runs frame by frame with sound and then continues smoothly from the same point.
 - Frame-by-frame fallback previews play at most four simultaneous sound layers; smooth playback and export mix all layers.
 - A local Whisper transcription or Windows voice-over cannot be cancelled once started.
 - No keyframe editor, export queue or advanced colour grading yet.

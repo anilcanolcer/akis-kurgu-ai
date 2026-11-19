@@ -41,15 +41,27 @@ class PlaybackMixin:
                 if self.proxy.is_ready(self.proxy_signature()):
                     self.proxy.play(self.timeline_frame, self.state.speed, self.master_volume)
                 else:
+                    # A long edit takes minutes to render smoothly. Meanwhile play frame by frame, with
+                    # sound, and hand over to the smooth copy where the playhead is once it is ready.
                     self._play_when_ready = True
-                    self.set_status(self.ui_text('Akıcı önizleme hazırlanıyor…'))
+                    self.set_status(self.ui_text('Akıcı önizleme hazırlanıyor; bu sırada kare kare oynatılıyor…'))
                     self.progress.show()
                     self.prepare_proxy()
+                    self.start_frame_playback()
                 return
-            self.playback_clock.start(self.timeline_frame, self.state.speed)
-            self.play_timer.start(15)
-            self.sync_timeline_audio(force=True)
-            self.play_button.setText('❚❚')
+            self.start_frame_playback()
+
+    def start_frame_playback(self) -> None:
+        """Play by stepping through still frames on a clock (the preview when no smooth copy is ready)."""
+        self.playback_clock.start(self.timeline_frame, self.state.speed)
+        self.play_timer.start(15)
+        self.sync_timeline_audio(force=True)
+        self.play_button.setText('❚❚')
+
+    def stop_frame_playback(self) -> None:
+        self.play_timer.stop()
+        self.playback_clock.stop()
+        self.timeline_audio.stop()
 
     def proxy_signature(self):
         """Signature of the current edit for the proxy, or None when no canvas size can be worked out."""
@@ -86,6 +98,7 @@ class PlaybackMixin:
         if self.proxy.is_ready(self.proxy_signature()):
             if self._play_when_ready:
                 self._play_when_ready = False
+                self.stop_frame_playback()  # the frame-by-frame stand-in hands over where it has got to
                 self.hide_progress_if_idle()
                 self.set_status(self.ui_text('Oynatılıyor.'))
                 self.proxy.play(self.timeline_frame, self.state.speed, self.master_volume)
@@ -104,6 +117,8 @@ class PlaybackMixin:
 
     def stop_proxy_playback(self, refresh=True):
         was_active = self._play_when_ready or self.proxy.playing
+        if self._play_when_ready:
+            self.stop_frame_playback()  # playing frame by frame while the smooth copy was prepared
         self._play_when_ready = False
         self.proxy.pause()
         self.hide_progress_if_idle()
@@ -193,10 +208,12 @@ class PlaybackMixin:
         total = duration_frames(self.multitrack)
         frame = self.playback_clock.position(self.multitrack)
         if total <= 0 or frame >= total:
-            self.play_timer.stop()
-            self.playback_clock.stop()
-            self.timeline_audio.stop()
+            self.stop_frame_playback()
             self.play_button.setText('▶')
+            if self._play_when_ready:  # the end came first: a smooth copy finished later must not start
+                self._play_when_ready = False
+                self.hide_progress_if_idle()
+                self.set_status(self.ui_text('Duraklatıldı.'))
             if total:
                 self.seek_timeline(total - 1, from_clock=True)
         elif frame != self.timeline_frame:

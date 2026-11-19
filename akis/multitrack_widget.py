@@ -296,7 +296,6 @@ class MultitrackWidget(QWidget):
         x, y = event.position().x(), event.position().y()
         ti = int((y - 30) // 43)
         if x >= 100 and y >= 30 and 0 <= ti < len(self.model.tracks):
-            frame = self.frame_for(x)
             clip = self.clip_at(self.model.tracks[ti], x)
             if clip:
                 self.drag_mode = None

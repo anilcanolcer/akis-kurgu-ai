@@ -32,9 +32,42 @@ def _is_retake(first, second):
     return SequenceMatcher(None, [w[:STEM] for w in a], [w[:STEM] for w in b]).ratio() >= SIMILAR
 
 
+PAUSE = 0.6             # seconds of silence between words that end a sentence
+SENTENCE_END = ('.', '!', '?', '…')
+
+
+def sentences(segments, pause=PAUSE):
+    """The transcript as sentences: segments split where their words pause or a sentence ends.
+
+    Whisper may return a whole talk as one segment (the small models, speech without punctuation); a
+    retake inside it could then never be compared with anything. Segments without word timings stay as
+    they are.
+    """
+    result = []
+    for segment in segments:
+        words_ = [w for w in (segment.get('words') or []) if str(w.get('text', '')).strip()]
+        if not words_:
+            result.append(segment)
+            continue
+        piece = [words_[0]]
+        for word in words_[1:]:
+            ends = str(piece[-1]['text']).strip().endswith(SENTENCE_END)
+            if ends or float(word['start']) - float(piece[-1]['end']) >= pause:
+                result.append(_joined(piece))
+                piece = []
+            piece.append(word)
+        result.append(_joined(piece))
+    return result
+
+
+def _joined(words_):
+    return {'start': float(words_[0]['start']), 'end': float(words_[-1]['end']),
+            'text': ' '.join(str(w['text']).strip() for w in words_)}
+
+
 def find(segments):
     """[(cut start, cut end, removed text, kept text)] in source seconds, in order, never overlapping."""
-    items = sorted((float(s['start']), float(s['end']), str(s['text']).strip()) for s in segments
+    items = sorted((float(s['start']), float(s['end']), str(s['text']).strip()) for s in sentences(segments)
                    if str(s.get('text', '')).strip() and float(s['end']) > float(s['start']))
     found, index = [], 0
     while index < len(items):

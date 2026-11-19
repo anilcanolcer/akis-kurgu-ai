@@ -161,9 +161,30 @@ def partial_output_path(output):
     return target.with_name(f'{stem}{marker}{suffix}')
 
 
+_ERROR_WORDS = ('error', 'denied', 'permission', 'invalid', 'no such', 'failed', 'not permitted', 'cannot',
+                'could not', 'unable', 'no space', 'hata', 'bulunamad')
+
+
+def error_lines(detail, limit=4):
+    """The lines of an FFmpeg log that say what went wrong, without the stream listing before them.
+
+    FFmpeg prints its whole input description (encoder, streams, metadata) ahead of the error; shown to
+    the user, the cause ("Permission denied") was lost at the bottom of ten lines of noise. A short
+    message (an application error, one or two lines) is kept whole.
+    """
+    lines = [line.strip() for line in str(detail).splitlines() if line.strip()]
+    if len(lines) <= 3:
+        return '\n'.join(lines)
+    chosen = []
+    for line in lines:
+        if any(word in line.casefold() for word in _ERROR_WORDS) and line not in chosen:
+            chosen.append(line)
+    return '\n'.join(chosen[-limit:] if chosen else lines[-limit:])
+
+
 def export_failure(message, output, say=str):
     """Add the selected destination to an export error, with a hint for write-permission failures."""
-    detail = str(message).strip() or 'Bilinmeyen FFmpeg hatası.'
+    detail = error_lines(str(message).strip()) or 'Bilinmeyen FFmpeg hatası.'
     target = str(output)
     lines = [say('Hedef dosya: {path}').format(path=target), detail]
     folded = detail.casefold()

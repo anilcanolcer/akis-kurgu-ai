@@ -302,7 +302,6 @@ EN_UI = {
     '{name} uygulandı; medyayı izlere ekleyin.': '{name} applied; add your media to the tracks.',
     # The start panel of an empty project (akis.start_panel).
     'Üç adımda ilk videonuz': 'Your first video in three steps',
-    'Video ekleyin': 'Add your video',
     'Bilgisayarınızdan bir video seçin ya da pencereye sürükleyin.': 'Choose a video from your computer or drop it on the window.',
     'Video seç': 'Choose video',
     'Nasıl kurgulanacağını seçin': 'Choose how to edit it',
@@ -1366,4 +1365,7 @@ _EN_SINGULAR.update({
     '{count} media files used in the project were not found:\n{names}\n\nIf they were moved, do you want to show where they are now?':
         '{count} media file used in the project was not found:\n{names}\n\nIf it was moved, do you want to show where it is now?',
 })
+TR_UI.update({english: turkish for turkish, english in EN_UI.items()})
+
+EN_UI.update({'Seslendirmeyi kaydet': 'Save the voice-over'})
 TR_UI.update({english: turkish for turkish, english in EN_UI.items()})

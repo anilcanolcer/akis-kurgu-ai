@@ -501,7 +501,7 @@ class AssistantMixin:
         if not text:
             self.set_status(self.ui_text('Önce seslendirme metni girin.'))
             return
-        chosen, _ = QFileDialog.getSaveFileName(self, 'Seslendirmeyi kaydet', '', 'WAV (*.wav)')
+        chosen, _ = QFileDialog.getSaveFileName(self, self.ui_text('Seslendirmeyi kaydet'), '', 'WAV (*.wav)')
         if not chosen:
             return
         path = chosen if chosen.lower().endswith('.wav') else chosen + '.wav'
