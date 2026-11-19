@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QWidget
 
 from akis.theme import color
 from akis import i18n
+from akis.timeline_service import clip_display_name
 
 
 class MultitrackWidget(QWidget):
@@ -184,7 +185,9 @@ class MultitrackWidget(QWidget):
                             p.drawLine(px, y + 21 - height, px, y + 21 + height)
                 p.setPen(color('clip_text'))
                 tag = f'{clip.speed:g}× ' if clip.source and clip.speed != 1.0 else ''
-                p.drawText(left + 5, y + 25, tag + (clip.text or {'circle': '◯ daire', 'arrow': '➜ ok'}.get(clip.style.get('shape')) or clip.source.replace('\\', '/').split('/')[-1])[:max(0, (right-left) // 7)])
+                shape = {'circle': '◯ daire', 'arrow': '➜ ok'}.get(clip.style.get('shape'))
+                label = clip.text or (i18n.translate(shape, self.language) if shape else clip_display_name(clip))
+                p.drawText(left + 5, y + 25, (tag + label)[:max(0, (right-left) // 7)])
                 if self.selected == (ti, clip.id):
                     # Trim handles on the chosen clip, as in CapCut: drag either one to trim.
                     p.setPen(Qt.PenStyle.NoPen)
@@ -226,6 +229,17 @@ class MultitrackWidget(QWidget):
             self.range_changed.emit()
             self.update()
 
+    def clip_at(self, track, x):
+        """The clip of `track` drawn under pixel x, or None.
+
+        Decided on the pixel, not on the rounded frame: at the boundary of two touching clips the
+        rounded frame already belongs to the next clip a few pixels before its drawn edge, so grabbing
+        a clip's right handle there used to trim the neighbour's start instead.
+        """
+        if x < 100:
+            return None
+        return next((c for c in track.clips if self.x_for(c.start) <= x < self.x_for(c.end)), None)
+
     def _edge_at(self, x, y):
         """'start' or 'end' when (x, y) is on a clip's edge (where a drag trims), else None."""
         ti = int((y - 30) // 43)
@@ -257,7 +271,7 @@ class MultitrackWidget(QWidget):
         if 0 <= ti < len(self.model.tracks):
             self.selected_track = ti
             track = self.model.tracks[ti]
-            clip = next((c for c in track.clips if c.start <= frame < c.end), None) if x >= 100 else None
+            clip = self.clip_at(track, x)
             self.selected = (ti, clip.id) if clip else None
             self.selection_changed.emit()
             if clip:
@@ -283,7 +297,7 @@ class MultitrackWidget(QWidget):
         ti = int((y - 30) // 43)
         if x >= 100 and y >= 30 and 0 <= ti < len(self.model.tracks):
             frame = self.frame_for(x)
-            clip = next((c for c in self.model.tracks[ti].clips if c.start <= frame < c.end), None)
+            clip = self.clip_at(self.model.tracks[ti], x)
             if clip:
                 self.drag_mode = None
                 self.selected, self.selected_track = (ti, clip.id), ti

@@ -87,7 +87,8 @@ class WorkBeforeVideoTests(WindowCase):
         self.assertEqual(Path(clip.source).parent, self.root / 'app-data' / 'stills')
         self.assertEqual(clip.length, 150)  # five seconds at the default 30 fps
         self.assertIn(str(image), w.media_bin.paths)  # keep the selected photo discoverable
-        self.assertIn(clip.source, w.media_bin.paths)
+        self.assertNotIn(clip.source, w.media_bin.paths)  # not its converted copy, which the user never chose
+        self.assertEqual(clip.style['still_image'], str(image))
         self.assertIn('*.png', choose.call_args.args[3])
         self.assertIn('*.flac', choose.call_args.args[3])
         convert_args = convert.call_args.args[0]

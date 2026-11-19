@@ -97,36 +97,36 @@ class InstallerScriptTests(unittest.TestCase):
             'Call TryMoveAside',
             'File /r',
             'File "/oname=AkisKurguAI.exe.new"',
-            'Rename "$INSTDIR\AkisKurguAI.exe.new" "$INSTDIR\AkisKurguAI.exe"',
+            'Rename "$INSTDIR\\AkisKurguAI.exe.new" "$INSTDIR\\AkisKurguAI.exe"',
             'WriteUninstaller',
             'WriteRegStr',
             'CreateShortcut',
             'NSIS installation completed.',
-            'RMDir /r "$INSTDIR\_internal.old"',
-            'Delete "$INSTDIR\AkisKurguAI.exe.old"',
+            'RMDir /r "$INSTDIR\\_internal.old"',
+            'Delete "$INSTDIR\\AkisKurguAI.exe.old"',
         )]
         self.assertEqual(order, sorted(order))
-        self.assertEqual(section.count('RMDir /r "$INSTDIR\_internal.old"'), 1)
+        self.assertEqual(section.count('RMDir /r "$INSTDIR\\_internal.old"'), 1)
         self.assertIn('SetOverwrite try', section)
         self.assertNotIn('SetOverwrite on', section)
         aside = code_lines(block('Function TryMoveAside', 'FunctionEnd'))
         steps = [aside.index(text) for text in (
-            'CHECK_NOT_RUNNING "$INSTDIR\AkisKurguAI.exe"',
-            'Rename "$INSTDIR\AkisKurguAI.exe" "$INSTDIR\AkisKurguAI.exe.old"',
-            'Rename "$INSTDIR\_internal" "$INSTDIR\_internal.old"',
+            'CHECK_NOT_RUNNING "$INSTDIR\\AkisKurguAI.exe"',
+            'Rename "$INSTDIR\\AkisKurguAI.exe" "$INSTDIR\\AkisKurguAI.exe.old"',
+            'Rename "$INSTDIR\\_internal" "$INSTDIR\\_internal.old"',
         )]
         self.assertEqual(steps, sorted(steps))
 
     def test_failed_move_aside_is_undone_before_reporting_in_use(self):
         aside = block('Function TryMoveAside', 'FunctionEnd')
-        refused = aside[aside.index('Rename "$INSTDIR\_internal" "$INSTDIR\_internal.old"'):]
+        refused = aside[aside.index('Rename "$INSTDIR\\_internal" "$INSTDIR\\_internal.old"'):]
         refused = refused[:refused.index('StrCpy $MovedLib 1')]
-        self.assertLess(refused.index('Rename "$INSTDIR\AkisKurguAI.exe.old" "$INSTDIR\AkisKurguAI.exe"'),
+        self.assertLess(refused.index('Rename "$INSTDIR\\AkisKurguAI.exe.old" "$INSTDIR\\AkisKurguAI.exe"'),
                         refused.index('StrCpy $Failed 1'))
 
     def test_update_mode_waits_and_restarts_the_app_unelevated(self):
         self.assertIn('"/WAIT="', NSI)
-        self.assertIn('$WINDIR\explorer.exe" "$INSTDIR\AkisKurguAI.exe"', NSI)
+        self.assertIn('$WINDIR\\explorer.exe" "$INSTDIR\\AkisKurguAI.exe"', NSI)
         self.assertIn('VIProductVersion', NSI)
 
     def test_errors_roll_back_to_the_old_copy(self):

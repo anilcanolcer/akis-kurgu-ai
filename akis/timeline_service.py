@@ -73,6 +73,17 @@ def split_selected(timeline, selection, frame):
     return track.split(clip.id, frame)
 
 
+# style key of a clip made from a photo (＋ Medya): the photo's own path. The clip's source is the
+# five-second video converted from it in app data (window.timeline_edit.convert_still_to_clip).
+STILL_IMAGE = 'still_image'
+
+
+def clip_display_name(clip):
+    """The file name a clip shows: the photo's for a converted photo, else its source's."""
+    path = clip.style.get(STILL_IMAGE) or clip.source
+    return str(path).replace('\\', '/').split('/')[-1]
+
+
 def append_media(timeline, track_index, path, seconds):
     track = timeline.tracks[track_index]
     if track.kind not in ('video', 'audio', 'overlay'):

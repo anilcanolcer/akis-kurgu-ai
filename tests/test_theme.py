@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from PySide6.QtCore import QEvent
 from PySide6.QtWidgets import QApplication
 
 from akis import start_panel, template_dialog, theme
@@ -69,6 +70,11 @@ class PaletteTests(unittest.TestCase):
 class WindowTests(unittest.TestCase):
     def setUp(self):
         from main import MainWindow
+        # Earlier test modules leave closed windows behind. Restyling the application restyles every one
+        # of them, which took many minutes in a full local run; only this test's window is needed.
+        for widget in app.topLevelWidgets():
+            widget.deleteLater()
+        QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         patch('akis.app_support.recovery_dir', return_value=Path(self.tmp.name) / 'recovery').start()

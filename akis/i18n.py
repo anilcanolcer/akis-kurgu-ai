@@ -1328,3 +1328,42 @@ EN_UI.update({
     'Analiz işlemi sonuç vermeden kapandı.': 'Analysis finished without a result.',
 })
 TR_UI.update({english: turkish for turkish, english in EN_UI.items()})
+
+# Messages the window used to show in Turkish only, and finding moved media when a project opens.
+EN_UI.update({
+    'Desteklenen bir video dosyası seçin.': 'Choose a supported video file.',
+    'Proje açılamadı: {error}': 'The project could not be opened: {error}',
+    'Dışa aktarma boyutu belirlenemedi: {error}': 'The export size could not be determined: {error}',
+    'Çıktı yolu kaynak medya ile aynı olamaz; başka bir dosya adı seçin.':
+        'The output cannot be the same file as the source media; choose another file name.',
+    '“{name}” zaten var. Üzerine yazılsın mı?': '“{name}” already exists. Replace it?',
+    'Önce videoyu nasıl kurgulamak istediğinizi yazın.': 'First write how you want the video edited.',
+    'Video okunamadı: {error}': 'The video could not be read: {error}',
+    'Kurgulanacak video dosyası bulunamadı.': 'No video file to edit was found.',
+    '{provider} için API anahtarı ve modeli girin.': 'Enter the API key and model for {provider}.',
+    '“{name}” izi ve içindeki {count} klip silinsin mi? Ctrl+Z ile geri alabilirsiniz.':
+        'Delete the track “{name}” and the {count} clips on it? You can undo it with Ctrl+Z.',
+    'Beklenmeyen bir hata oluştu: {error}': 'An unexpected error occurred: {error}',
+    'Ayrıntılar günlük dosyasına yazıldı:\n{path}': 'Details were written to the log file:\n{path}',
+    '{count} medya dosyası yeni yerinden bağlandı; kalıcı olması için projeyi kaydedin.':
+        '{count} media files were linked from their new location; save the project to keep this.',
+    'Projede kullanılan şu medya dosyaları bulunamadı:\n{names}\n\n'
+    'Proje açıldı; bu dosyaları kullanan klipler önizlemede ve dışa aktarmada eksik kalabilir.':
+        'These media files used in the project were not found:\n{names}\n\n'
+        'The project was opened; clips that use them may be missing from the preview and the export.',
+    'Projede kullanılan {count} medya dosyası bulunamadı:\n{names}\n\nTaşındılarsa yeni yerlerini göstermek ister misiniz?':
+        '{count} media files used in the project were not found:\n{names}\n\nIf they were moved, do you want to show where they are now?',
+    '“{name}” dosyasını bulun': 'Locate “{name}”',
+    'Akış projesi (*.akis.json);;JSON (*.json)': 'Akış project (*.akis.json);;JSON (*.json)',
+    '◯ daire': '◯ circle',
+    '➜ ok': '➜ arrow',
+})
+_EN_SINGULAR.update({
+    'Delete the track “{name}” and the {count} clips on it? You can undo it with Ctrl+Z.':
+        'Delete the track “{name}” and the {count} clip on it? You can undo it with Ctrl+Z.',
+    '{count} media files were linked from their new location; save the project to keep this.':
+        '{count} media file was linked from its new location; save the project to keep this.',
+    '{count} media files used in the project were not found:\n{names}\n\nIf they were moved, do you want to show where they are now?':
+        '{count} media file used in the project was not found:\n{names}\n\nIf it was moved, do you want to show where it is now?',
+})
+TR_UI.update({english: turkish for turkish, english in EN_UI.items()})

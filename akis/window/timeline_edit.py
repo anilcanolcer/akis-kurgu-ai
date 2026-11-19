@@ -27,6 +27,7 @@ from PySide6.QtWidgets import QFileDialog, QInputDialog, QMessageBox
 from PySide6.QtCore import QTimer
 
 from akis import app_support
+from akis import i18n
 from akis.i18n import decimal
 from akis.app_support import APP_NAME, UNDO_LIMIT, format_time, log
 
@@ -108,7 +109,24 @@ class TimelineEditMixin:
             self.publish_caption.setPlainText(caption)
             self.publish_tags.setPlainText(tags)
         if 'timeline' in keys:
+            selected = self.multitrack_view.selected
             self.show_timeline(copy.deepcopy(snapshot['timeline']), frame=self.timeline_frame)
+            self.reselect_clip(selected)
+
+    def reselect_clip(self, selected) -> None:
+        """Select the clip with the id of `selected` (track, id) again when it is still on the timeline.
+
+        Undo and redo rebuild the timeline, which clears the selection; keeping it lets the user go on
+        with the same clip (volume, speed, split) as CapCut does.
+        """
+        if not selected:
+            return
+        for index, track in enumerate(self.multitrack.tracks):
+            if any(clip.id == selected[1] for clip in track.clips):
+                self.multitrack_view.selected = (index, selected[1])
+                self.multitrack_view.selected_track = index
+                self.multitrack_view.update()
+                return
 
     def undo(self) -> bool:
         if not self._undo_stack:
@@ -245,8 +263,9 @@ class TimelineEditMixin:
             return
         track = self.multitrack.tracks[index]
         if track.clips and QMessageBox.question(
-                self, APP_NAME, f'“{track.name}” izi ve içindeki {len(track.clips)} klip silinsin mi? '
-                                'Ctrl+Z ile geri alabilirsiniz.',
+                self, APP_NAME, self.ui_text('“{name}” izi ve içindeki {count} klip silinsin mi? Ctrl+Z ile geri alabilirsiniz.',
+                                             name=i18n.track_label(track.name, self.ui_language()),
+                                             count=len(track.clips)),
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
             return
@@ -427,12 +446,16 @@ class TimelineEditMixin:
             with self.history_step():
                 track_index, clip = timeline_service.append_media_to_kind(
                     self.multitrack, kind, path, seconds, preferred_track=preferred_track)
+                if converted_still:
+                    # The clip plays the converted video in app data; the photo itself is what the user
+                    # added. Kept on the clip so the project shows its name, carries it when the project
+                    # folder moves (relative_media) and rebuilds the clip on another computer.
+                    clip.style[timeline_service.STILL_IMAGE] = original_path
         except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as exc:
             QMessageBox.warning(self, APP_NAME, self.ui_text('Medya eklenemedi: {error}', error=exc))
             return False
 
-        self.media_bin.add(original_path)
-        self.media_bin.add(path)
+        self.media_bin.add(original_path)  # the photo, not its converted copy: adding it again reuses the copy
         self.refresh_media_bin()
         self.multitrack_view.refresh_waveforms()
         self.update_timeline_scroll()
@@ -635,7 +658,7 @@ class TimelineEditMixin:
         try:
             sources = [{'path': path, 'duration': seconds} for path, seconds in self.edit_sources()]
         except (ValueError, RuntimeError, OSError) as exc:
-            QMessageBox.warning(self, APP_NAME, f'Video okunamadı: {exc}')
+            QMessageBox.warning(self, APP_NAME, self.ui_text('Video okunamadı: {error}', error=exc))
             return
         segments = edit_plan.current_segments(self.multitrack, sources)
         if not segments:
@@ -671,7 +694,7 @@ class TimelineEditMixin:
         try:
             sources = [{'path': path, 'duration': seconds} for path, seconds in self.edit_sources()]
         except (ValueError, RuntimeError, OSError) as exc:
-            QMessageBox.warning(self, APP_NAME, f'Video okunamadı: {exc}')
+            QMessageBox.warning(self, APP_NAME, self.ui_text('Video okunamadı: {error}', error=exc))
             return
         index = next((i for i, source in enumerate(sources) if source['path'] == self.caption_source), None)
         segments = edit_plan.current_segments(self.multitrack, sources)
@@ -797,7 +820,7 @@ class TimelineEditMixin:
         try:
             sources = [{'path': path, 'duration': seconds} for path, seconds in self.edit_sources()]
         except (ValueError, RuntimeError, OSError) as exc:
-            QMessageBox.warning(self, APP_NAME, f'Video okunamadı: {exc}')
+            QMessageBox.warning(self, APP_NAME, self.ui_text('Video okunamadı: {error}', error=exc))
             return
         index = next((i for i, item in enumerate(sources) if item['path'] == source), None)
         segments = edit_plan.current_segments(self.multitrack, sources)
@@ -823,7 +846,7 @@ class TimelineEditMixin:
         try:
             sources = [{'path': path, 'duration': seconds} for path, seconds in self.edit_sources()]
         except (ValueError, RuntimeError, OSError) as exc:
-            QMessageBox.warning(self, APP_NAME, f'Video okunamadı: {exc}')
+            QMessageBox.warning(self, APP_NAME, self.ui_text('Video okunamadı: {error}', error=exc))
             return
         index = {source['path']: i for i, source in enumerate(sources)}
         segments = edit_plan.current_segments(self.multitrack, sources)
@@ -858,7 +881,7 @@ class TimelineEditMixin:
         try:
             sources = [{'path': path, 'duration': seconds} for path, seconds in self.edit_sources()]
         except (ValueError, RuntimeError, OSError) as exc:
-            QMessageBox.warning(self, APP_NAME, f'Video okunamadı: {exc}')
+            QMessageBox.warning(self, APP_NAME, self.ui_text('Video okunamadı: {error}', error=exc))
             return
         segments = edit_plan.current_segments(self.multitrack, sources)
         if len(segments) < 2:

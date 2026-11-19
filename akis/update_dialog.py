@@ -2,7 +2,7 @@
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QProgressBar, QPushButton, QVBoxLayout
 
-from akis import i18n
+from akis import i18n, messages
 
 MB = 1024 * 1024
 
@@ -92,7 +92,8 @@ class UpdateProgressDialog(QDialog):
     def show_failed(self, message: str) -> None:
         self.bar.setRange(0, 100)
         self.bar.setValue(0)
-        self.status.setText(self.text('Güncelleme indirilemedi: {message}', message=message))
+        self.status.setText(self.text('Güncelleme indirilemedi: {message}',
+                                      message=messages.message(message, self.language)))
         self.detail.setText(self.text('Uygulama değişmedi; çalışmaya devam edebilirsiniz.'))
         self.cancel_button.hide()
         self.retry_button.show()

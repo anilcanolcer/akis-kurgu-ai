@@ -5,6 +5,7 @@ import copy
 import hashlib
 import json
 import os
+import subprocess
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
@@ -21,7 +22,10 @@ from PySide6.QtWidgets import QFileDialog, QListWidgetItem, QMessageBox
 from akis import app_support
 from akis.app_support import APP_NAME, EditState, RECOVERY_DETAIL, RECOVERY_QUESTION, VIDEO_EXTS, log, safe_filename
 
+from akis.window.timeline_edit import MEDIA_FILE_FILTER, STILL_IMAGE_EXTS
+
 RECOVERED_SIGNATURE = object()
+RELINKED_SIGNATURE = object()  # opened with media located anew: unsaved until the project is saved
 
 
 
@@ -79,7 +83,7 @@ class ProjectMixin:
             return self.load_video(path)
         file = Path(path)
         if file.suffix.lower() not in VIDEO_EXTS or not file.is_file():
-            QMessageBox.warning(self, APP_NAME, 'Desteklenen bir video dosyası seçin.')
+            QMessageBox.warning(self, APP_NAME, self.ui_text('Desteklenen bir video dosyası seçin.'))
             return False
         try:
             seconds = MediaService(app_support.ffmpeg_path()).duration(str(file))
@@ -103,7 +107,7 @@ class ProjectMixin:
             return False
         file = Path(path)
         if file.suffix.lower() not in VIDEO_EXTS or not file.is_file():
-            QMessageBox.warning(self, APP_NAME, "Desteklenen bir video dosyası seçin.")
+            QMessageBox.warning(self, APP_NAME, self.ui_text('Desteklenen bir video dosyası seçin.'))
             return False
         try:
             media = MediaService(app_support.ffmpeg_path())
@@ -282,7 +286,7 @@ class ProjectMixin:
         if not self.can_start_work() or not self.confirm_close():
             return
         path, _ = QFileDialog.getOpenFileName(
-            self, "Proje aç", "", "Akış projesi (*.akis.json);;JSON (*.json)"
+            self, self.ui_text("Proje aç"), "", self.ui_text("Akış projesi (*.akis.json);;JSON (*.json)")
         )
         if not path:
             return
@@ -330,7 +334,8 @@ class ProjectMixin:
         # the new project while project_path still names the old file, and Save/autosave would overwrite it.
         snapshot = self.open_snapshot()
         try:
-            document, source_path, missing = project_service.load_project(load_from)
+            replacements = self.locate_missing_media(load_from)
+            document, source_path, missing = project_service.load_project(load_from, replacements)
             if source_path:
                 self._pending_project = document
                 loaded = self.load_video(source_path)
@@ -339,7 +344,7 @@ class ProjectMixin:
         except Exception as exc:
             log.exception("Proje açılamadı: %s", load_from)
             self.restore_open_snapshot(snapshot)
-            QMessageBox.critical(self, APP_NAME, f'Proje açılamadı: {exc}')
+            QMessageBox.critical(self, APP_NAME, self.ui_text('Proje açılamadı: {error}', error=exc))
             self.set_status(self.ui_text('Proje açılamadı; önceki çalışma olduğu gibi korundu.'))
             return False
         if not loaded:  # load_video refused the source and already told the user why
@@ -352,11 +357,79 @@ class ProjectMixin:
         if recovered:
             self._saved_signature = RECOVERED_SIGNATURE
             self.set_status(self.ui_text('Kurtarılan çalışma açıldı; kalıcı olması için projeyi kaydedin.'))
+        elif replacements:
+            # The window now refers to the located files, the file on disk still to the old paths.
+            self._saved_signature = RELINKED_SIGNATURE
+            self.set_status(self.ui_text('{count} medya dosyası yeni yerinden bağlandı; kalıcı olması için projeyi '
+                                         'kaydedin.', count=len(replacements)))
         if missing:
             names = '\n'.join(f'• {item}' for item in missing)
-            QMessageBox.warning(self, APP_NAME, f'Projede kullanılan şu medya dosyaları bulunamadı:\n{names}\n\n'
-                                                'Proje açıldı; bu dosyaları kullanan klipler önizlemede ve dışa aktarmada eksik kalabilir.')
+            QMessageBox.warning(self, APP_NAME, self.ui_text(
+                'Projede kullanılan şu medya dosyaları bulunamadı:\n{names}\n\n'
+                'Proje açıldı; bu dosyaları kullanan klipler önizlemede ve dışa aktarmada eksik kalabilir.', names=names))
         return True
+
+    def locate_missing_media(self, path: str) -> dict:
+        """{stored path: file now} for the project's media that are not where the project says.
+
+        A photo clip whose converted copy is gone (another computer, cleared app data) is rebuilt from the
+        photo when the photo can be found. For the rest the user is asked once whether to show where the
+        files are now; each located file also finds the other missing files with the same name in its
+        folder (a folder moved or copied as a whole). Hidden windows (tests, scripted runs) ask nobody.
+        """
+        try:
+            missing = project_service.missing_media(path)
+            document = project_service.load(path) if missing else None
+        except (OSError, ValueError, TypeError, KeyError):
+            return {}  # an unreadable project: load_project reports why, with the usual message
+        if not missing:
+            return {}
+        folder = Path(path).parent
+        relative = document.get('relative_media') if isinstance(document.get('relative_media'), dict) else {}
+        photos = project_service.still_images(document)
+        found = {}
+        for stored in missing:
+            image = photos.get(stored)
+            located = project_service.resolve_media(image, folder, relative) if image else None
+            if located:
+                rebuilt = self.rebuild_still(located)
+                if rebuilt:
+                    found[stored] = rebuilt
+        left = [stored for stored in missing if stored not in found]
+        if not left or not self.isVisible():
+            return found
+        names = '\n'.join(f'• {project_service.media_name(stored)}' for stored in left[:12]) + \
+            ('\n…' if len(left) > 12 else '')
+        buttons = QMessageBox.StandardButton
+        if QMessageBox.question(self, APP_NAME, self.ui_text(
+                'Projede kullanılan {count} medya dosyası bulunamadı:\n{names}\n\nTaşındılarsa yeni yerlerini göstermek '
+                'ister misiniz?', count=len(left), names=names), buttons.Yes | buttons.No, buttons.Yes) != buttons.Yes:
+            return found
+        for stored in left:
+            if stored in found:
+                continue
+            name = project_service.media_name(stored)
+            chosen, _ = QFileDialog.getOpenFileName(self, self.ui_text('“{name}” dosyasını bulun', name=name), str(folder),
+                                                    self.ui_text(MEDIA_FILE_FILTER))
+            if not chosen:
+                break  # cancelling stops the search; what is still missing is listed after opening
+            if stored in photos and Path(chosen).suffix.lower() in STILL_IMAGE_EXTS:
+                chosen = self.rebuild_still(chosen)
+                if not chosen:
+                    continue
+            found[stored] = chosen
+            for other, path_now in project_service.find_moved(
+                    [item for item in left if item not in found and item not in photos], Path(chosen).parent).items():
+                found[other] = path_now
+        return found
+
+    def rebuild_still(self, image: str) -> str | None:
+        """The five-second clip of a photo (made again when needed), or None when it cannot be made."""
+        try:
+            return self.convert_still_to_clip(MediaService(app_support.ffmpeg_path()), image)
+        except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as exc:
+            log.warning("Fotoğraf klibi yeniden oluşturulamadı (%s): %s", image, exc)
+            return None
 
     def load_sourceless_project(self, document: dict, project_path: str) -> bool:
         """Open a project that has no main video yet (only ＋ Medya clips, text, a template...)."""

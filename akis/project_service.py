@@ -7,7 +7,7 @@ import tempfile
 import time
 from dataclasses import dataclass
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 from akis.timeline_model import Timeline
 
@@ -97,6 +97,21 @@ def media_paths(document):
     return paths
 
 
+STILL_IMAGE = 'still_image'  # same key as timeline_service.STILL_IMAGE (kept import-free here)
+
+
+def still_images(document):
+    """{clip source: photo path} for clips converted from a photo (＋ Medya), in timeline order."""
+    found = {}
+    for track in document.get('timeline', {}).get('tracks', []):
+        for clip in track.get('clips', []):
+            style = clip.get('style') or {}
+            image = style.get(STILL_IMAGE) if isinstance(style, dict) else None
+            if clip.get('source') and isinstance(image, str) and image:
+                found.setdefault(clip['source'], image)
+    return found
+
+
 def relative_media(document, folder, *, media_root=None):
     """{stored path: path relative to folder} for media inside the project folder or below it.
 
@@ -107,7 +122,7 @@ def relative_media(document, folder, *, media_root=None):
     folder = Path(folder).resolve()
     root = Path(media_root).resolve() if media_root is not None else folder
     result = {}
-    for path in media_paths(document):
+    for path in media_paths(document) + [image for image in still_images(document).values()]:
         try:
             stored = Path(path)
             source = (stored if stored.is_absolute() else root / stored).resolve()
@@ -230,20 +245,49 @@ def resolve_media(path, folder, relative):
     return None
 
 
-def load_project(path):
+def missing_media(path):
+    """The media paths of the project file at `path` that cannot be found (as stored, in order)."""
+    document = load(path)
+    folder = Path(path).parent
+    relative = document.get('relative_media') or {}
+    if not isinstance(relative, dict):
+        relative = {}
+    return [stored for stored in media_paths(document) if resolve_media(stored, folder, relative) is None]
+
+
+def media_name(stored):
+    """The file name of a stored media path, whichever separator the saving computer used."""
+    return PureWindowsPath(str(stored)).name
+
+
+def find_moved(missing, folder):
+    """{stored: path} for the missing media whose file name exists in `folder` (moved together)."""
+    found = {}
+    folder = Path(folder)
+    for stored in missing:
+        candidate = folder / media_name(stored)
+        if candidate.is_file():
+            found[stored] = str(candidate)
+    return found
+
+
+def load_project(path, replacements=None):
     """(document, main source, missing media) with media paths resolved against the project's folder.
 
     The main source may be missing when the timeline still has a usable video: that video becomes the
-    source. Media that cannot be found are listed instead of failing the open.
+    source. Media that cannot be found are listed instead of failing the open. `replacements` maps a
+    stored path to the file the user located for it (a moved or renamed file); it wins over the stored
+    path, and the document then refers to the new file.
     """
     document = load(path)
     folder = Path(path).parent
     relative = document.get('relative_media') or {}
     if not isinstance(relative, dict):
         relative = {}
+    replacements = {stored: str(new) for stored, new in (replacements or {}).items() if Path(new).is_file()}
     resolved, missing = {}, []
     for stored in media_paths(document):
-        found = resolve_media(stored, folder, relative)
+        found = replacements.get(stored) or resolve_media(stored, folder, relative)
         if found is None:
             missing.append(stored)
         else:
@@ -252,6 +296,12 @@ def load_project(path):
     timeline = document.get('timeline', {})
     for track in timeline.get('tracks', []):
         for clip in track.get('clips', []):
+            style = clip.get('style') if isinstance(clip.get('style'), dict) else {}
+            image = style.get(STILL_IMAGE)
+            if isinstance(image, str) and image:
+                located = resolve_media(image, folder, relative)
+                if located:
+                    style[STILL_IMAGE] = located
             if clip.get('source') in resolved:
                 clip['source'] = resolved[clip['source']]
     source = state.get('source', '')

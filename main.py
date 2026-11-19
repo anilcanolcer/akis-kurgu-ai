@@ -24,6 +24,7 @@ from akis.update_dialog import UpdateProgressDialog
 from akis.media_bin import MediaBin
 from akis import ai_providers, update_service
 from akis import i18n
+from akis import messages
 from akis import shortcuts
 from akis import speech_settings
 from akis import privacy_log
@@ -88,6 +89,9 @@ from PySide6.QtWidgets import (
 )
 
 
+# ui_text fields that carry an application message (often an exception's text) rather than user content.
+MESSAGE_FIELDS = frozenset(('error', 'message', 'reason', 'detail'))
+
 _log_handler: logging.Handler | None = None
 _crash_log = None
 
@@ -132,9 +136,12 @@ class ExceptionHook:
             return
         self._active = True
         try:
-            text = f"Beklenmeyen bir hata oluştu: {exc}"
+            # The hook has no window of its own; it speaks the language of the open editor, if any.
+            code = next((widget.ui_language() for widget in QApplication.topLevelWidgets()
+                         if isinstance(widget, MainWindow)), "tr")
+            text = i18n.translate("Beklenmeyen bir hata oluştu: {error}", code).format(error=messages.message(exc, code))
             if self.log_path:
-                text += f"\n\nAyrıntılar günlük dosyasına yazıldı:\n{self.log_path}"
+                text += "\n\n" + i18n.translate("Ayrıntılar günlük dosyasına yazıldı:\n{path}", code).format(path=self.log_path)
             QMessageBox.critical(None, APP_NAME, text)
         except Exception:
             log.exception("Hata iletisi gösterilemedi")
@@ -353,7 +360,7 @@ class MainWindow(LayoutMixin, PlaybackMixin, TimelineEditMixin, ProjectMixin, As
             return
         self.progress.hide()
         self.set_status(self.ui_text("İşlem tamamlanamadı."))
-        QMessageBox.critical(self, APP_NAME, message)
+        QMessageBox.critical(self, APP_NAME, self.ui_message(message))
 
     def on_worker_cancelled(self) -> None:
         self._prompt_revision = None
@@ -386,8 +393,20 @@ class MainWindow(LayoutMixin, PlaybackMixin, TimelineEditMixin, ProjectMixin, As
         return i18n.translate(template, self.ui_language())
 
     def ui_text(self, template: str, **values) -> str:
-        """A whole-string translation of `template` into the current UI language, then filled in."""
-        return i18n.translate(template, self.ui_language()).format(**values)
+        """A whole-string translation of `template` into the current UI language, then filled in.
+
+        Filled-in errors (an exception, or the error/message/reason/detail field) are application messages
+        in Turkish; they follow the UI language too (akis.messages). Other values are shown as they are.
+        """
+        code = self.ui_language()
+        values = {key: messages.message(value, code)
+                  if isinstance(value, BaseException) or key in MESSAGE_FIELDS else value
+                  for key, value in values.items()}
+        return i18n.translate(template, code).format(**values)
+
+    def ui_message(self, text) -> str:
+        """An application message (often str(exception)) in the current UI language."""
+        return messages.message(text, self.ui_language())
 
 
     @staticmethod

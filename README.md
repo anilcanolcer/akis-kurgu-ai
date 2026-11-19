@@ -103,7 +103,7 @@ Talking-head videos, tutorials, vlogs and Shorts take hours of repetitive work: 
 - In-app updates that verify the installer's SHA-256 checksum and restore the previous version if anything fails.
 - Proxy files in the background for smooth playback, chunked preview rendering for long edits, HDR (PQ/HLG) sources tone-mapped to SDR.
 
-**Version 0.6.5 reliability:** media-only projects can export without a separate main video. Saved projects stay saveable after the last clip is removed, and two editors keep separate recovery copies. This release also improves clip-speed rendering, multi-track captions, timeline trimming, and protection of edits made while a Story Studio request is running. [Read the 0.6.5 release notes](https://github.com/anilcanolcer/akis-kurgu-ai/releases/tag/v0.6.5).
+**Version 0.6.6:** error and warning messages follow the English interface. Projects ask where moved media is now and find the other files of the same folder by name, photos move with the project folder and are rebuilt on another computer, and the right trim handle of touching clips trims the correct clip. [Read the 0.6.6 release notes](https://github.com/anilcanolcer/akis-kurgu-ai/releases/tag/v0.6.6).
 
 ## Screenshots
 

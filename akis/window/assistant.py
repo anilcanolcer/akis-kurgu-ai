@@ -322,7 +322,7 @@ class AssistantMixin:
             return
         request = self.ai_prompt.toPlainText().strip()
         if not request:
-            QMessageBox.information(self, APP_NAME, "Önce videoyu nasıl kurgulamak istediğinizi yazın.")
+            QMessageBox.information(self, APP_NAME, self.ui_text('Önce videoyu nasıl kurgulamak istediğinizi yazın.'))
             return
         credentials = self.api_credentials()
         if not credentials:
@@ -331,10 +331,10 @@ class AssistantMixin:
         try:
             sources = self.edit_sources()
         except (ValueError, RuntimeError, OSError) as exc:
-            QMessageBox.warning(self, APP_NAME, f'Video okunamadı: {exc}')
+            QMessageBox.warning(self, APP_NAME, self.ui_text('Video okunamadı: {error}', error=exc))
             return
         if not sources:
-            QMessageBox.warning(self, APP_NAME, 'Kurgulanacak video dosyası bulunamadı.')
+            QMessageBox.warning(self, APP_NAME, self.ui_text('Kurgulanacak video dosyası bulunamadı.'))
             return
         transcripts = {self.caption_source: self.caption_segments} if self.caption_source and self.caption_segments else {}
         self._prompt_revision = self.prompt_edit_revision()
@@ -452,7 +452,7 @@ class AssistantMixin:
                     except Exception:
                         key = ''
             if not key or not self.transcript_model.currentText().strip():
-                QMessageBox.information(self, APP_NAME, f'{provider} için API anahtarı ve modeli girin.')
+                QMessageBox.information(self, APP_NAME, self.ui_text('{provider} için API anahtarı ve modeli girin.', provider=provider))
                 return
             self.worker = TranscriptWorker(key, self.state.source, app_support.ffmpeg_path(), self.transcript_model.currentText().strip(), provider)
             source = self.state.source

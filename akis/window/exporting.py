@@ -46,7 +46,7 @@ class ExportMixin:
         try:
             canvas = self.export_canvas_size()
         except (ValueError, RuntimeError, OSError) as exc:  # e.g. "Kaynak oranı" with no usable video clip
-            QMessageBox.warning(self, APP_NAME, f'Dışa aktarma boyutu belirlenemedi: {exc}')
+            QMessageBox.warning(self, APP_NAME, self.ui_text('Dışa aktarma boyutu belirlenemedi: {error}', error=exc))
             self.set_status(self.ui_text('Dışa aktarma başlatılamadı.'))
             return
         findings = preflight.check(self.multitrack, say=self.ui_template)
@@ -63,7 +63,7 @@ class ExportMixin:
         if not self.confirm_overwrite(chosen, path):
             return
         if timeline_service.output_overwrites_source(self.multitrack, path, (self.state.source,)):
-            QMessageBox.warning(self, APP_NAME, 'Çıktı yolu kaynak medya ile aynı olamaz; başka bir dosya adı seçin.')
+            QMessageBox.warning(self, APP_NAME, self.ui_text('Çıktı yolu kaynak medya ile aynı olamaz; başka bir dosya adı seçin.'))
             return
         fps = self.multitrack.fps_num / self.multitrack.fps_den
         seconds = duration_frames(self.multitrack) / fps / self.state.speed
@@ -114,7 +114,7 @@ class ExportMixin:
         """The file dialog only confirmed overwriting `chosen`; ask again when the final name differs and exists."""
         if os.path.normcase(os.path.abspath(chosen)) == os.path.normcase(os.path.abspath(path)) or not Path(path).exists():
             return True
-        answer = QMessageBox.question(self, APP_NAME, f'“{Path(path).name}” zaten var. Üzerine yazılsın mı?',
+        answer = QMessageBox.question(self, APP_NAME, self.ui_text('“{name}” zaten var. Üzerine yazılsın mı?', name=Path(path).name),
                                       QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                                       QMessageBox.StandardButton.No)
         return answer == QMessageBox.StandardButton.Yes
@@ -316,7 +316,7 @@ class ExportMixin:
         outputs = multi_export.targets(app_support.normalize_export_path(chosen))
         for _, _, path in outputs:
             if timeline_service.output_overwrites_source(self.multitrack, path, (self.state.source,)):
-                QMessageBox.warning(self, APP_NAME, 'Çıktı yolu kaynak medya ile aynı olamaz; başka bir dosya adı seçin.')
+                QMessageBox.warning(self, APP_NAME, self.ui_text('Çıktı yolu kaynak medya ile aynı olamaz; başka bir dosya adı seçin.'))
                 return
         existing = [Path(path).name for _, _, path in outputs if Path(path).exists()]
         if existing and QMessageBox.question(
