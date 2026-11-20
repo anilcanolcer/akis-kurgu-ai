@@ -246,6 +246,12 @@ def resolve_media(path, folder, relative):
         except (OSError, ValueError):
             continue
         if resolved.is_file():
+            # Keep the saved spelling (e.g. a Windows short path) when it names the same file.
+            try:
+                if stored.is_absolute() and stored.samefile(resolved):
+                    return str(stored)
+            except OSError:
+                pass
             return str(resolved)
     return str(stored) if stored.is_absolute() and stored.is_file() else None
 
