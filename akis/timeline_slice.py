@@ -5,7 +5,7 @@ in ranges so ffmpeg never holds hundreds of decoders at once (see TimelineRender
 """
 from copy import deepcopy
 
-from akis.timeline_model import Timeline, Track, cut_words
+from akis.timeline_model import Timeline, Track, cut_words, with_phase
 
 
 def slice_timeline(timeline, start, end):
@@ -24,8 +24,9 @@ def slice_timeline(timeline, start, end):
                                    _shape_offset=piece.style.get('_shape_offset', 0) + offset,
                                    _shape_length=piece.style.get('_shape_length', clip.length))
             piece.start, piece.length = a - start, b - a
-            if piece.source:
-                piece.source_in = clip.source_frame(a)
+            if piece.source:   # where the cut falls in the source, between two frames at a fractional speed
+                piece.source_in, phase = clip.source_at(a)
+                piece.style = with_phase(piece.style, phase)
             if offset and piece.keyframes:
                 piece.keyframes = {k: [dict(p, frame=p['frame'] - offset) for p in v if p['frame'] >= offset]
                                    for k, v in piece.keyframes.items()}

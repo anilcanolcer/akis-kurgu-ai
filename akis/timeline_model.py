@@ -4,6 +4,7 @@ All positions are integer frames. Source paths are references; edits never modif
 """
 from __future__ import annotations
 
+import math
 from copy import deepcopy
 from dataclasses import asdict, dataclass, field
 from uuid import uuid4
@@ -70,21 +71,55 @@ class Clip:
         return clip_speed(self)
 
     @property
+    def source_phase(self) -> float:
+        """How far past source_in, in source frames (0 ≤ phase < 1), the clip really begins.
+
+        A clip at a fractional speed that is split or trimmed starts between two source frames: at 1.5×
+        the ninth timeline frame is source frame 13.5. Rounding that start to 13 made every later frame
+        of the cut clip one source frame early, so a bare split changed the export. The fraction is kept
+        here (style 'source_phase'); clips at whole speeds always have 0, so older projects are unchanged.
+        """
+        try:
+            value = float((self.style or {}).get('source_phase', 0.0)) if self.source else 0.0
+        except (TypeError, ValueError):
+            return 0.0
+        return value if 0.0 <= value < 1.0 else 0.0
+
+    @property
     def source_frames(self) -> int:
-        """How many source frames the clip plays (its length at its own speed)."""
-        return source_span(self.length, self.speed) if self.source else self.length
+        """How many source frames the clip plays (its length at its own speed, from its phase)."""
+        if not self.source:
+            return self.length
+        return max(1, int(self.source_phase + self.length * self.speed + 1e-6))
 
     @property
     def source_end(self) -> int:
         return self.source_in + self.source_frames
 
     def source_frame(self, frame) -> int:
-        """The source frame shown at timeline `frame` (inside the clip)."""
-        return self.source_in + int((frame - self.start) * self.speed + 1e-6)
+        """The source frame shown at timeline `frame` (inside the clip): the one at or just before the
+        exact source position. The render, the still preview and a split clip all follow this rule."""
+        return self.source_in + int(self.source_phase + (frame - self.start) * self.speed + 1e-6)
+
+    def source_at(self, frame):
+        """(whole source frame, phase) where a clip cut at timeline `frame` begins: what split, trim and
+        slice give the part from `frame` on, so it shows exactly what the uncut clip showed."""
+        exact = self.source_phase + (frame - self.start) * self.speed
+        whole = math.floor(exact + 1e-6)
+        fraction = round(exact - whole, 9)
+        return self.source_in + whole, (fraction if 1e-6 < fraction < 1 - 1e-6 else 0.0)
 
     def timeline_frame(self, source_frame) -> float:
         """Where source frame `source_frame` falls on the timeline (may lie outside the clip)."""
-        return self.start + (source_frame - self.source_in) / self.speed
+        return self.start + (source_frame - self.source_in - self.source_phase) / self.speed
+
+
+def with_phase(style, phase):
+    """`style` with the source phase set to `phase` (left out when 0)."""
+    style = {key: value for key, value in (style or {}).items() if key != 'source_phase'}
+    if phase:
+        style['source_phase'] = phase
+    return style
 
 
 @dataclass
@@ -122,12 +157,13 @@ class Track:
         offset = frame - clip.start
         if not 0 < offset < clip.length:
             raise ValueError("Split must be inside clip")
+        source_in, phase = clip.source_at(frame) if clip.source else (clip.source_in + offset, 0.0)
         right = Clip(source=clip.source, start=frame, length=clip.length-offset,
-                     source_in=clip.source_frame(frame) if clip.source else clip.source_in + offset,
+                     source_in=source_in,
                      source_length=clip.source_length,
                      text=clip.text, volume=clip.volume,
-                     style=cut_words({k: v for k, v in clip.style.items() if not k.startswith('transition')},
-                                     offset, clip.length - offset))
+                     style=with_phase(cut_words({k: v for k, v in clip.style.items() if not k.startswith('transition')},
+                                                offset, clip.length - offset), phase))
         for name, points in clip.keyframes.items():
             right.keyframes[name] = [dict(p, frame=p['frame']-offset) for p in points if p['frame'] >= offset]
             clip.keyframes[name] = [p for p in points if p['frame'] < offset]
@@ -173,12 +209,15 @@ class Track:
         clip = self.find(clip_id)
         delta = start - clip.start
         length = clip.length - delta
-        # A clip without media (text, shape) has no earlier material to run out of.
-        source_in = clip.source_in + int(delta * clip.speed + (1e-6 if delta >= 0 else -1e-6)) if clip.source else 0
+        # A clip without media (text, shape) has no earlier material to run out of. The new start is the
+        # exact source position the clip showed (or would show) at `start`, its fraction kept as the phase.
+        source_in, phase = clip.source_at(start) if clip.source else (0, 0.0)
         if start < 0 or length < 1 or source_in < 0:
             raise ValueError("Invalid trim")
         old = (clip.start, clip.length, clip.source_in, clip.keyframes, clip.style)
         clip.start, clip.length, clip.source_in = start, length, source_in
+        if clip.source:
+            clip.style = with_phase(clip.style, phase)
         if delta > 0:
             clip.style = cut_words(clip.style, delta, length)
         clip.keyframes = {name: [dict(p, frame=p['frame'] - delta) for p in points if p['frame'] - delta >= 0]
@@ -193,7 +232,7 @@ class Track:
         clip = self.find(clip_id)
         length = end - clip.start
         if length < 1 or (clip.source_length is not None and
-                          clip.source_in + source_span(length, clip.speed) > clip.source_length):
+                          clip.source_in + int(clip.source_phase + length * clip.speed + 1e-6) > clip.source_length):
             raise ValueError("Invalid trim")
         old_length = clip.length
         following = [c for c in self.clips if c.id != clip.id and c.start >= clip.end]

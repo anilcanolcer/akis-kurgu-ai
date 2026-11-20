@@ -418,8 +418,11 @@ class ProjectMixin:
                 if not chosen:
                     continue
             found[stored] = chosen
+            # The others follow from where this one went (the same subfolders of the moved folder), but
+            # never onto a file another source already got: same-named takes are asked about one by one.
             for other, path_now in project_service.find_moved(
-                    [item for item in left if item not in found and item not in photos], Path(chosen).parent).items():
+                    [item for item in left if item not in found and item not in photos], stored, chosen,
+                    taken=found.values()).items():
                 found[other] = path_now
         return found
 

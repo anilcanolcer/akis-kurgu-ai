@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import tempfile
 import time
 from dataclasses import dataclass
@@ -141,8 +142,10 @@ def save(path, document, *, media_root=None):
     data['relative_media'] = relative_media(data, target.parent, media_root=media_root)
     name = None
     try:
+        # A short temporary name in the same folder (the replace stays atomic): built from the target's name,
+        # a valid long project name (Windows allows 255 characters) became an invalid one (errno 22).
         with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=target.parent,
-                                         prefix=target.name + '.', suffix='.tmp', delete=False) as stream:
+                                         prefix='.akis-', suffix='.tmp', delete=False) as stream:
             name = stream.name
             json.dump(data, stream, ensure_ascii=False, indent=2)
             stream.flush()
@@ -173,6 +176,9 @@ def make_document(state, timeline, publish, ai_prompt):
 
 
 KEEP_VERSIONS = 20
+# The name save_with_snapshot gives a version: 20261120-091500-123456.json. Pruning deletes only these, so a
+# note or any other JSON file someone put in the versions folder is left alone.
+SNAPSHOT_NAME = re.compile(r'\d{8}-\d{6}-\d{6}\.json')
 
 
 def versions_folder(path):
@@ -185,7 +191,8 @@ def prune_versions(path, keep=KEEP_VERSIONS):
     folder = versions_folder(path)
     if not folder.is_dir():
         return []
-    snapshots = sorted(folder.glob('*.json'), key=lambda item: item.name, reverse=True)
+    snapshots = sorted((item for item in folder.glob('*.json') if SNAPSHOT_NAME.fullmatch(item.name)),
+                       key=lambda item: item.name, reverse=True)
     removed = []
     for old in snapshots[max(0, keep):]:
         try:
@@ -260,14 +267,44 @@ def media_name(stored):
     return PureWindowsPath(str(stored)).name
 
 
-def find_moved(missing, folder):
-    """{stored: path} for the missing media whose file name exists in `folder` (moved together)."""
+def find_moved(missing, located_from, located_to, taken=()):
+    """{stored: file now} for missing media, worked out from one file the user located.
+
+    `located_from` is where the project said that file was, `located_to` where it is now. Their folders
+    share a tail (…/Proje/A on both sides); the media that lived under the old folders are looked for at
+    the same place under the new ones, deepest first, so Proje/B/take.mp4 is found in the moved Proje/B.
+    A file of the same name next to the located one is the last resort. No file is ever given to two
+    different sources, and none that is already in `taken`: two takes called take.mp4 in different
+    folders must not both become the one the user pointed at; one that cannot be told apart stays
+    missing, so the user is asked about it on its own.
+    """
+    old_file, new_file = PureWindowsPath(str(located_from)), Path(located_to)
+    levels = [(old_file.parent, new_file.parent)]
+    old_dir, new_dir = old_file.parent, new_file.parent
+    while (old_dir.name and new_dir.name and old_dir.name.casefold() == new_dir.name.casefold()
+           and old_dir.parent != old_dir and new_dir.parent != new_dir):
+        old_dir, new_dir = old_dir.parent, new_dir.parent
+        levels.append((old_dir, new_dir))
+    used = {os.path.normcase(os.path.abspath(str(path))) for path in taken}
+    used.add(os.path.normcase(os.path.abspath(str(new_file))))
     found = {}
-    folder = Path(folder)
     for stored in missing:
-        candidate = folder / media_name(stored)
-        if candidate.is_file():
-            found[stored] = str(candidate)
+        if str(stored) == str(located_from):
+            continue
+        place = PureWindowsPath(str(stored))
+        candidates = []
+        for old_root, new_root in levels:
+            try:
+                candidates.append(new_root / place.relative_to(old_root))
+            except ValueError:
+                continue
+        candidates.append(new_file.parent / place.name)
+        for candidate in candidates:
+            key = os.path.normcase(os.path.abspath(str(candidate)))
+            if key not in used and candidate.is_file():
+                found[stored] = str(candidate)
+                used.add(key)
+                break
     return found
 
 

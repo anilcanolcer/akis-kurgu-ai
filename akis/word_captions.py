@@ -72,6 +72,18 @@ def caption_clips(source_clip, words, fps, look):
     return made
 
 
+def visible(clip, lit=None):
+    """(the words that start inside the clip, the index of `lit` among them or None).
+
+    Trimming a clip's end keeps its word timings, so lengthening it again brings the words back; the
+    words past the new end must not be drawn meanwhile.
+    """
+    words = clip.style.get('words') or []
+    kept = [index for index, word in enumerate(words) if int(word[0]) < clip.length]
+    shown = [words[index] for index in kept]
+    return shown, (kept.index(lit) if lit in kept else None)
+
+
 def states(clip):
     """[(first frame, end frame, lit word index or None)] covering the clip, frames from its start. A word
     stays lit until the next one starts, so the highlight never flickers off between words."""

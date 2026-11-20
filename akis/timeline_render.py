@@ -36,6 +36,7 @@ TRANSITIONS = ('fade', 'flash', 'dip', 'slide_left', 'slide_right', 'slide_up', 
 # ranges of this many and joined without re-encoding.
 MAX_PICTURE_INPUTS = 16
 AUDIO_PREROLL = 0.5  # seconds decoded before a cut so the audio decoder has settled at the cut
+GRID_MARGIN = 0.1    # seconds a frame-exact input opens early: the picture on screen at the cut may start before it
 # HDR (BT.2020 PQ/HLG) to SDR BT.709: linear light, tone curve, then back to an 8-bit video signal.
 # mobius keeps everything up to SDR white as it is and only rolls off the highlights (hable darkens the whole picture).
 TONE_MAP = ('zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=mobius:desat=0,'
@@ -274,7 +275,8 @@ class TimelineRenderer:
                 if begin > cursor + 1e-6:
                     entries.append((blank, begin - cursor))
                 picture = folder / f'words{layer}-{clip.id}-{"n" if lit is None else lit}.png'
-                word_captions.draw(clip.style['words'], lit, look, canvas, rect, self.font, px).save(picture)
+                shown, shown_lit = word_captions.visible(clip, lit)   # not the words trimmed off its end
+                word_captions.draw(shown, shown_lit, look, canvas, rect, self.font, px).save(picture)
                 entries.append((picture, stop - begin))
                 cursor = stop
         entries.append((blank, 1.0 / fps))
@@ -301,6 +303,55 @@ class TimelineRenderer:
             args += ['-ss', f'{position - lead:.9f}']
         args += ['-i', source]
         return lead
+
+    def _exact_frames(self, args, index, clip, timeline, skip, with_audio):
+        """Open a clip at its own speed or source phase so each output frame shows exactly the source
+        frame Clip.source_frame names. Returns (filter chain, input lead, lead of the clip's sound).
+
+        Retiming with setpts alone left the choice to rounded timestamps: at 2× every frame came out one
+        source frame early, at 0.5× the last frame was missing, and a still preview, seeked to a fractional
+        source time, showed the next frame instead. Here the input starts at the first whole source frame
+        shown, is put on the timeline's frame grid, and source frame k gets output frame
+        ceil((k − fraction) / rate): the first frame n with floor(fraction + n·rate) ≥ k, the model's rule.
+        The fps filter then repeats frames for slow motion and keeps the last of several for fast motion.
+
+        A source whose frame rate is not the timeline's (60 fps phone video, 24 fps film) is put on the
+        timeline grid first, each grid moment getting the picture on screen at that moment (the last frame
+        that started at or before it). The input is opened a little before the first moment, so that
+        picture is decoded even when it started earlier, wherever the seek lands.
+        """
+        fps_num, fps_den = timeline.fps_num, timeline.fps_den
+        fps = fps_num / fps_den
+        rate, phase = clip.speed, clip.source_phase
+        skipped = round(skip * fps)                       # whole timeline frames into the clip (a still)
+        exact = phase + skipped * rate
+        first = int(exact + 1e-6)                         # the first source frame shown
+        fraction = exact - first
+        last = int(fraction + (clip.length - skipped - 1) * rate + 1e-6)
+        moment = (clip.source_in + first) / fps           # source time of the first grid frame
+        lead = self._open_input(args, clip.source, max(0.0, moment - GRID_MARGIN), with_audio)
+        opened = max(0.0, moment - GRID_MARGIN) - lead     # where the input really starts (time 0 of it)
+        offset = moment - opened
+        # Picture times relative to the first grid moment, a hair early (1e-4 s) so a frame exactly on a
+        # grid moment, give or take float noise, counts as on screen there; round=up then gives every
+        # frame the first grid moment at or after its start. Frames before the first moment fall out.
+        chain = (f"[{index}:v]setpts=PTS-{offset + 0.0001:.9f}/TB,fps={fps_num}/{fps_den}:round=up,"
+                 f'trim=start=0:duration={(last + 2) / fps:.9f},setpts=PTS-STARTPTS,'
+                 # The output frame number is written out (ceil), not left to the fps filter's rounding
+                 # of a fractional time: that rounding put every frame one output frame early.
+                 f"setpts='max(0,ceil((N-{fraction:.9f})/{rate:.9f}-0.000001))/FR/TB',"
+                 # settb=AVTB: in the 1/fps time base, adding the clip's place (13/30 s = 12.9999…
+                 # units) was cut down to 12 and the clip came in one frame early.
+                 f'fps={fps_num}/{fps_den},settb=AVTB')
+        return chain, lead, offset + fraction / fps
+
+    def _off_grid(self, source, timeline):
+        """The source's frame rate is known and is not the timeline's: its frames do not fall on the grid."""
+        try:
+            numerator, denominator = (int(part) for part in self.media.frame_rate(source))
+        except Exception:  # unknown, unreadable or not a (numerator, denominator) pair: the usual path
+            return False
+        return numerator > 0 and denominator > 0 and numerator * timeline.fps_den != timeline.fps_num * denominator
 
     @staticmethod
     def _trim(name, lead, duration):
@@ -345,7 +396,8 @@ class TimelineRenderer:
                 for clip in sorted(track.clips, key=lambda c: c.start):
                     if (track_index, clip.id) not in planned_ids:
                         continue
-                    start, length, source_in = clip.start/fps, clip.length/fps, clip.source_in/fps
+                    phase = clip.source_phase if clip.source else 0.0
+                    start, length, source_in = clip.start/fps, clip.length/fps, (clip.source_in + phase)/fps
                     # The clip's own speed: it plays length × rate seconds of its source in `length`.
                     rate = clip.speed if clip.source else 1.0
                     retime = f',setpts=PTS/{rate:.6f}' if rate != 1.0 else ''
@@ -375,8 +427,12 @@ class TimelineRenderer:
                         hold = outgoing_hold(track, clip) / fps
                         # Each clip has its own input, seeked (not decoded from the source's start);
                         # the clip's audio below reads the same seeked input.
-                        lead = self._open_input(args, clip.source, source_in + skip * rate, frame is None)
-                        chain = f'[{index}:v]{self._trim("trim", lead, (length - skip) * rate)},setpts=PTS-STARTPTS{retime}'
+                        sound_lead = None
+                        if rate != 1.0 or phase or self._off_grid(clip.source, timeline):
+                            chain, lead, sound_lead = self._exact_frames(args, index, clip, timeline, skip, frame is None)
+                        else:
+                            lead = self._open_input(args, clip.source, source_in + skip * rate, frame is None)
+                            chain = f'[{index}:v]{self._trim("trim", lead, (length - skip) * rate)},setpts=PTS-STARTPTS{retime}'
                         if hold:
                             chain += f',tpad=stop_mode=clone:stop_duration={hold:.9f}'
                         scale, place = clip_fit.filters(clip.style, self.width, self.height, f'k{layer}')  # fit, fill or blur
@@ -409,7 +465,10 @@ class TimelineRenderer:
                         base = f'base{layer}'
                         if track.kind == 'video' and want_audio and self.media.has_audio(clip.source):
                             delay = round(start * 1000)
-                            graph.append(f'[{index}:a]{self._trim("atrim", lead, length * rate)},asetpts=PTS-STARTPTS{tempo},{voice_filter}volume={clip.volume:.6f},adelay={delay}:all=1[a{index}]')
+                            # The exact-frame input is opened at a whole source frame; the sound starts at
+                            # the clip's real (fractional) position, a little further in.
+                            sound_start = lead if sound_lead is None else sound_lead
+                            graph.append(f'[{index}:a]{self._trim("atrim", sound_start, length * rate)},asetpts=PTS-STARTPTS{tempo},{voice_filter}volume={clip.volume:.6f},adelay={delay}:all=1[a{index}]')
                             audio.append(f'[a{index}]')
                             voices.append(f'[a{index}]')
                         index += 1

@@ -133,8 +133,11 @@ class PreviewView(QWidget):
 
 
 def timeline_signature(timeline, size, adjustments):
-    """Changes whenever the rendered picture or sound would change."""
-    payload = json.dumps([timeline.to_dict(), list(size), sorted(adjustments.items())], sort_keys=True, default=str)
+    """Changes whenever the rendered picture or sound would change, a media file replaced at the same path
+    included (its size and modification time are part of it)."""
+    from akis.chunk_preview import source_stamps
+    payload = json.dumps([timeline.to_dict(), list(size), sorted(adjustments.items()),
+                          sorted(source_stamps(timeline).items())], sort_keys=True, default=str)
     return hashlib.sha1(payload.encode()).hexdigest()
 
 

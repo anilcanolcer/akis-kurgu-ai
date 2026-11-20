@@ -47,9 +47,31 @@ def chunk_bounds(timeline, total, limit, seconds=None):
     return bounds
 
 
+def source_stamps(timeline, kinds=None):
+    """{source path: (size, modification time ns)} of the media a timeline uses; None for a missing file.
+
+    The edit itself names files only by path. A file replaced at the same path (re-exported from another
+    program, a different take saved under the old name) must not reuse previews drawn from the old one.
+    """
+    stamps = {}
+    for track in timeline.tracks:
+        if kinds is not None and track.kind not in kinds:
+            continue
+        for clip in track.clips:
+            for path in (clip.source, clip.style.get('still_image') if isinstance(clip.style, dict) else None):
+                if path and path not in stamps:
+                    try:
+                        stat = os.stat(path)
+                        stamps[path] = (stat.st_size, stat.st_mtime_ns)
+                    except OSError:
+                        stamps[path] = None
+    return stamps
+
+
 def piece_key(part, size, settings):
-    """What a piece shows: its sliced timeline's picture, the canvas and the look settings. Clip ids are left out,
-    so an undo or a copy of the same content still finds the stored piece."""
+    """What a piece shows: its sliced timeline's picture, the canvas, the look settings and the state of the
+    media files it draws from. Clip ids are left out, so an undo or a copy of the same content still finds
+    the stored piece."""
     data = part.to_dict()
     # Only the picture: sound tracks and clip volumes do not change a piece (the sound is mixed separately).
     data['tracks'] = [track for track in data['tracks'] if track['kind'] != 'audio']
@@ -57,7 +79,8 @@ def piece_key(part, size, settings):
         for clip in track['clips']:
             clip.pop('id', None)
             clip.pop('volume', None)
-    payload = json.dumps([data, list(size), sorted(settings.items())], sort_keys=True, default=str)
+    files = sorted(source_stamps(part, kinds={'video', 'overlay', 'text'}).items())
+    payload = json.dumps([data, list(size), sorted(settings.items()), files], sort_keys=True, default=str)
     return hashlib.sha1(payload.encode()).hexdigest()
 
 
