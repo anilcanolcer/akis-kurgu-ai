@@ -23,8 +23,8 @@ from akis import clip_fit
 from akis.call_worker import CallWorker
 from akis import beat_sync, emphasis, retakes, silence_cut
 
-from PySide6.QtWidgets import QFileDialog, QInputDialog, QMessageBox
-from PySide6.QtCore import QTimer
+from PySide6.QtWidgets import QApplication, QFileDialog, QInputDialog, QMessageBox
+from PySide6.QtCore import Qt, QTimer
 
 from akis import app_support
 from akis import i18n
@@ -651,6 +651,23 @@ class TimelineEditMixin:
         self.seek_timeline(self.timeline_frame)
         self.set_status(self.ui_text('Kadraj: {choice}', choice=chosen))
 
+    def sound_check_paths(self):
+        """Files whose loudness tells a separate microphone track apart from music (empty without one)."""
+        return edit_plan.sound_paths(self.multitrack)
+
+    def local_cut(self, sources, segments):
+        """The timeline with a local tool's segments applied; a sound clip recorded together with the main
+        picture (a separate microphone track) is cut with it instead of being left out of sync."""
+        executable = app_support.ffmpeg_path()
+        follow = set()
+        if self.sound_check_paths():
+            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+            try:
+                follow = edit_plan.synced_sound(self.multitrack, lambda source: silence_cut.cached_levels(executable, source))
+            finally:
+                QApplication.restoreOverrideCursor()
+        return edit_plan.apply_plan(self.multitrack, sources, {'segments': segments}, follow=follow)
+
     def remove_silences(self) -> None:
         """Cut the pauses out of the main cut: measured locally, previewed in a dialog, one undo step."""
         if not self.can_start_work() or not self.ensure_video():
@@ -669,7 +686,7 @@ class TimelineEditMixin:
         if not dialog.exec() or not dialog.cuts:  # exec() is 0 when the dialog is dismissed
             return
         try:
-            timeline = edit_plan.apply_plan(self.multitrack, sources, {'segments': dialog.segments})
+            timeline = self.local_cut(sources, dialog.segments)
         except Exception as exc:
             QMessageBox.warning(self, APP_NAME, self.ui_text('Sessizlikler kesilemedi: {error}', error=exc))
             return
@@ -714,7 +731,7 @@ class TimelineEditMixin:
                                 QMessageBox.StandardButton.Yes) != QMessageBox.StandardButton.Yes:
             return
         try:
-            timeline = edit_plan.apply_plan(self.multitrack, sources, {'segments': new})
+            timeline = self.local_cut(sources, new)
         except Exception as exc:
             QMessageBox.warning(self, APP_NAME, self.ui_text('Tekrarlar kesilemedi: {error}', error=exc))
             return
@@ -737,6 +754,7 @@ class TimelineEditMixin:
             return
         model, download = self.local_model.currentText(), self.download_model.isChecked()
         vocabulary = ' '.join(filter(None, [fillers.PROMPT, speech_settings.vocabulary(None)]))
+        sound_paths, executable = self.sound_check_paths(), app_support.ffmpeg_path()
 
         def listen():
             from akis.ai_service import local_transcribe
@@ -752,7 +770,10 @@ class TimelineEditMixin:
                         if name == model:
                             raise
                 return []
-            return {source: fillers.find(fillers.words_of(heard(source))) for source in sources}
+            found = {source: fillers.find(fillers.words_of(heard(source))) for source in sources}
+            for path in sound_paths:   # read now, off the window's thread, for the microphone check
+                silence_cut.cached_levels(executable, path)
+            return found
         self.run_analysis(self.ui_text('Dolgu sözcükleri aranıyor (yerel konuşma tanıma)…'), listen, self.finish_fillers)
 
     def separate_speakers(self) -> None:
@@ -769,6 +790,7 @@ class TimelineEditMixin:
         executable = app_support.ffmpeg_path()
 
         folder = app_support.app_data_dir()
+        sound_paths = self.sound_check_paths()
 
         def listen():
             from akis.ai_service import local_transcribe
@@ -780,6 +802,8 @@ class TimelineEditMixin:
             except Exception as exc:     # offline or blocked: pitch still separates clearly different voices
                 log.warning('Konuşmacı modeli kullanılamadı, perdeyle ayrılıyor: %s', exc)
             found = speakers.find(speakers.decode(MediaService(executable), source), words, embedder)
+            for path in sound_paths:   # read now, off the window's thread, for the microphone check
+                silence_cut.cached_levels(executable, path)
             return source, found, embedder is not None
         text = 'Konuşmacılar ayırt ediliyor…' if speaker_model.available(folder) else \
             'Konuşmacılar ayırt ediliyor (ilk kullanımda {size} MB ses modeli indirilir)…'
@@ -837,7 +861,7 @@ class TimelineEditMixin:
             QMessageBox.information(self, APP_NAME, self.ui_text('Ana videoda bu konuşmacının konuştuğu bir yer yok.'))
             return
         try:
-            timeline = edit_plan.apply_plan(self.multitrack, sources, {'segments': new})
+            timeline = self.local_cut(sources, new)
         except Exception as exc:
             QMessageBox.warning(self, APP_NAME, str(exc))
             return
@@ -872,7 +896,7 @@ class TimelineEditMixin:
                                 QMessageBox.StandardButton.Yes) != QMessageBox.StandardButton.Yes:
             return
         try:
-            timeline = edit_plan.apply_plan(self.multitrack, sources, {'segments': new})
+            timeline = self.local_cut(sources, new)
         except Exception as exc:
             QMessageBox.warning(self, APP_NAME, self.ui_text('Dolgu sözcükleri kesilemedi: {error}', error=exc))
             return
@@ -900,11 +924,13 @@ class TimelineEditMixin:
             return
         fps = self.multitrack.fps_num / self.multitrack.fps_den
         executable = app_support.ffmpeg_path()
+        sound_paths = self.sound_check_paths()
         self.run_analysis(self.ui_text('Müziğin ritmi çözümleniyor…'),
                           # The music's own stretch of source: at 1.5× its clip plays 1.5 × length of it.
-                          lambda: beat_sync.beats(beat_sync.read_onsets(
-                              executable, music.source, (music.source_in + music.source_phase) / fps,
-                              music.length * music.speed / fps)),
+                          lambda: ([silence_cut.cached_levels(executable, path) for path in sound_paths],
+                                   beat_sync.beats(beat_sync.read_onsets(
+                                       executable, music.source, (music.source_in + music.source_phase) / fps,
+                                       music.length * music.speed / fps)))[1],
                           lambda beats: self.finish_beat_snap(beats, music, sources, segments))
 
     def finish_beat_snap(self, beats, music, sources, segments) -> None:
@@ -918,13 +944,15 @@ class TimelineEditMixin:
             QMessageBox.information(self, APP_NAME, self.ui_text('Kesimler zaten vuruşta ya da yakınlarında vuruş yok.'))
             return
         try:
-            timeline = edit_plan.apply_plan(self.multitrack, sources, {'segments': new})
+            timeline = self.local_cut(sources, new)
         except Exception as exc:
             QMessageBox.warning(self, APP_NAME, self.ui_text('Kesimler ritme oturtulamadı: {error}', error=exc))
             return
         # The music sets the beat: it stays exactly where it was, whatever happened to the picture.
+        # A microphone track on another sound track was cut with the picture and stays that way.
         for index, track in enumerate(self.multitrack.tracks):
-            if track.kind == 'audio' and index < len(timeline.tracks) and timeline.tracks[index].name == track.name:
+            if (track.kind == 'audio' and any(clip.id == music.id for clip in track.clips)
+                    and index < len(timeline.tracks) and timeline.tracks[index].name == track.name):
                 timeline.tracks[index].clips = copy.deepcopy(track.clips)
         with self.history_step():
             self.show_timeline(timeline)

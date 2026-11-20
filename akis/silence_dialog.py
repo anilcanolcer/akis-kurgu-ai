@@ -62,8 +62,8 @@ class MeasureWorker(QThread):
                     self._process = None
 
     def _measure(self, path):
-        if self.measure is silence_cut.measure:
-            return self.measure(self.executable, path, runner=self._run_cancellable)
+        if self.measure is silence_cut.measure:   # remembered: the cut then checks microphone tracks at once
+            return silence_cut.cached_levels(self.executable, path, runner=self._run_cancellable)
         return self.measure(self.executable, path)
 
     def run(self):

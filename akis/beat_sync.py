@@ -79,6 +79,7 @@ def snap_segments(segments, beat_times, durations, max_shift=MAX_SHIFT, min_leng
     for index, segment in enumerate(segments):
         piece = dict(segment)
         rate = float(piece.get('speed', 1.0))     # a sped-up clip covers its source in less time
+        cursor += float(piece.get('gap', 0.0))    # empty time the user left before the clip stays
         end_at = cursor + (piece['end'] - piece['start']) / rate
         if index < len(segments) - 1 and beat_times:
             target = min(beat_times, key=lambda beat: abs(beat - end_at))

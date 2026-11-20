@@ -197,7 +197,7 @@ class ExportMixin:
         executable = app_support.ffmpeg_path()
         timeline = copy.deepcopy(self.multitrack)
         self.run_analysis(self.ui_text('Konuşmadaki duraklamalar aranıyor…'),
-                          lambda: shorts_split.timeline_pauses(timeline, lambda source: silence_cut.measure(executable, source)),
+                          lambda: shorts_split.timeline_pauses(timeline, lambda source: silence_cut.cached_levels(executable, source)),
                           lambda pauses: self.choose_shorts(pauses, total))
 
     def find_highlights(self) -> None:
@@ -212,7 +212,7 @@ class ExportMixin:
 
         def work():
             levels = {}
-            read = lambda source: levels.setdefault(source, silence_cut.measure(executable, source))
+            read = lambda source: levels.setdefault(source, silence_cut.cached_levels(executable, source))
             pauses = shorts_split.timeline_pauses(timeline, read)
             return highlights.find(timeline, read, pauses=pauses)
         self.run_analysis(self.ui_text('Öne çıkan anlar aranıyor…'), work, self.choose_highlights)

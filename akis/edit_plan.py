@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 import math
+from copy import deepcopy
+from uuid import uuid4
 from pathlib import Path
 
 from akis.caption_service import caption_track
@@ -158,7 +160,7 @@ def current_segments(timeline, sources, keep=False):
         return []
     fps = timeline.fps_num / timeline.fps_den
     index = {str(item['path']): i for i, item in enumerate(sources)}
-    segments = []
+    segments, previous_end = [], 0
     for clip in sorted(primary.clips, key=lambda c: c.start):
         if clip.source not in index:
             continue
@@ -168,12 +170,16 @@ def current_segments(timeline, sources, keep=False):
             segment['transition'] = clip.style['transition']
         if keep:
             segment['clip'] = clip.id
+            gap = clip.start - previous_end
+            if gap > 0:
+                segment['gap'] = round(gap / fps, 6)    # empty time before the clip, kept by local cuts
             if clip.speed != 1.0:
                 segment['speed'] = clip.speed
             begin = clip.source_in + clip.source_phase
             segment['start'] = round(begin / fps, 6)
             segment['end'] = round((begin + clip.length * clip.speed) / fps, 6)
         segments.append(segment)
+        previous_end = max(previous_end, clip.end)
     return segments
 
 
@@ -827,6 +833,7 @@ class _FrameMap:
                 gaps.append((cursor, a))
             cursor = max(cursor, b)
         gaps.append((cursor, _FAR))
+        self.gaps = gaps
         # Frames that keep a place in the new timeline: kept material plus everything outside the old cut.
         self.usable = sorted(self.kept + gaps)
 
@@ -855,7 +862,120 @@ class _FrameMap:
         return max(found) if found else None
 
 
-def _remap_track(track, frame_map, total):
+def _follow_pieces(clip, frame_map, total):
+    """A clip cut exactly like the main picture under it (a separate microphone recording): every stretch
+    of it over kept material or over an empty gap goes where that moment now is, at the same source time;
+    the stretches over removed material go with it."""
+    spans = []
+    for a, b, new_a in frame_map.pieces:
+        lo, hi = max(a, clip.start), min(b, clip.end)
+        if hi > lo:
+            spans.append((lo, hi, new_a + lo - a))
+    for a, b in frame_map.gaps:
+        lo, hi = max(a, clip.start), min(b, clip.end)
+        if hi > lo:
+            new = frame_map(lo)
+            if new is not None:
+                spans.append((lo, hi, new))
+    spans.sort()
+    merged = []
+    for lo, hi, new in spans:   # neighbours that stay neighbours become one piece again
+        if merged and lo == merged[-1][1] and new == merged[-1][2] + merged[-1][1] - merged[-1][0]:
+            merged[-1][1] = hi
+        else:
+            merged.append([lo, hi, new])
+    pieces = []
+    for number, (lo, hi, new) in enumerate(merged):
+        length = min(hi - lo, total - new)
+        if length < 1 or new < 0:
+            continue
+        piece = deepcopy(clip)
+        if number:
+            piece.id = uuid4().hex
+        piece.start, piece.length = new, length
+        piece.source_in, phase = clip.source_at(lo)
+        piece.style = with_phase(clip.style, phase)
+        piece.keyframes = _slice_keyframes(clip.keyframes, lo - clip.start, length)
+        pieces.append(piece)
+    return pieces
+
+
+def _remap_words(clip, old_start, frame_map):
+    """A word-by-word caption's words moved with the material they were said on; a word whose moment was
+    cut goes with it, so the caption never lights up a word that is no longer heard."""
+    words = []
+    for a, b, text in clip.style.get('words') or ():
+        first = frame_map.first_usable(old_start + a, old_start + b)
+        if first is None:
+            continue
+        last = frame_map.last_usable(first, old_start + b)
+        new_a, new_b = frame_map(first) - clip.start, frame_map(last) + 1 - clip.start
+        new_a, new_b = max(0, new_a), min(clip.length, new_b)
+        if new_b > new_a:
+            words.append([new_a, new_b, text])
+    if len(words) != len(clip.style.get('words') or ()):
+        clip.text = ' '.join(str(word[2]) for word in words)
+    clip.style = dict(clip.style, words=words)
+    return bool(words)
+
+
+def sound_paths(timeline):
+    """The main video's files and the sound tracks' files, which synced_sound reads; [] without a sound
+    clip (nothing to check then)."""
+    sounds = [clip.source for track in timeline.tracks if track.kind == 'audio' and not track.muted
+              for clip in track.clips if clip.source]
+    primary = primary_track(timeline)
+    if not sounds or primary is None:
+        return []
+    return list(dict.fromkeys([clip.source for clip in primary.clips if clip.source] + sounds))
+
+
+def synced_sound(timeline, levels_for, window=0.02):
+    """Ids of sound clips recorded together with the main picture (a separate microphone track): their
+    loudness rises and falls with the main video's own sound. Such a clip is cut with the picture; music,
+    whose loudness does not follow the speech, stays a bed.
+
+    levels_for(source) -> loudness curve (akis.silence_cut.measure, one value per `window` seconds)."""
+    fps = timeline.fps_num / timeline.fps_den
+    primary = primary_track(timeline)
+    if primary is None:
+        return set()
+
+    def curve(clip):
+        levels = levels_for(clip.source) or []
+        first = (clip.source_in + clip.source_phase) / fps / window
+        step = clip.speed
+        begin = int(clip.start / fps / window)
+        for i in range(int(clip.length / fps / window)):
+            index = int(first + i * step)
+            if index < len(levels):
+                yield begin + i, levels[index]
+
+    picture = {}
+    for clip in primary.clips:
+        if clip.source:
+            picture.update(curve(clip))
+    found = set()
+    for track in timeline.tracks:
+        if track.kind != 'audio' or track.muted:
+            continue
+        for clip in track.clips:
+            if not clip.source:
+                continue
+            pairs = [(picture[i], level) for i, level in curve(clip) if i in picture
+                     and max(picture[i], level) > -60]
+            if len(pairs) < 2 / window:
+                continue
+            xs, ys = zip(*pairs)
+            mx, my = sum(xs) / len(xs), sum(ys) / len(ys)
+            sxy = sum((x - mx) * (y - my) for x, y in pairs)
+            sxx, syy = sum((x - mx) ** 2 for x in xs), sum((y - my) ** 2 for y in ys)
+            if sxx > 0 and syy > 0 and sxy / math.sqrt(sxx * syy) >= 0.6:
+                found.add(clip.id)
+    return found
+
+
+def _remap_track(track, frame_map, total, follow=()):
     """Move a non-primary track's items with the material under them; returns how many were dropped.
 
     An item spanning the whole old cut is a bed: it keeps its start and is only truncated to the new length.
@@ -868,7 +988,10 @@ def _remap_track(track, frame_map, total):
     placed = []
     span = (frame_map.covered[0][0], frame_map.covered[-1][1]) if frame_map.covered else None
     for clip in sorted(track.clips, key=lambda c: c.start):
-        if span and clip.start <= span[0] and clip.end >= span[1]:
+        if clip.id in follow:
+            placed += _follow_pieces(clip, frame_map, total)
+            continue
+        if span and clip.start <= span[0] and clip.end >= span[1] and not clip.style.get('words'):
             # A bed under the whole cut (background music, a full-length logo) stays anchored at its start.
             if total - clip.start >= 1:
                 clip.length = min(clip.length, total - clip.start)
@@ -886,7 +1009,10 @@ def _remap_track(track, frame_map, total):
         length = min(length, total - start)
         if length < 1:
             continue
+        old_start = clip.start
         clip.start, clip.length = start, length
+        if clip.style.get('words') and not _remap_words(clip, old_start, frame_map):
+            continue
         placed.append(clip)
     placed.sort(key=lambda c: c.start)
     result = []
@@ -904,15 +1030,17 @@ def _remap_track(track, frame_map, total):
     return dropped
 
 
-def _recut(result, sources, segments, fps):
-    """Rebuild the primary video track from the plan and carry every other track and marker along."""
+def _recut(result, sources, segments, fps, follow=()):
+    """Rebuild the primary video track from the plan and carry every other track and marker along.
+
+    follow: ids of sound clips cut exactly like the picture (synced_sound)."""
     primary = primary_track(result)
     if primary is None:
         primary = Track('video', 'Video')
         result.tracks.insert(0, primary)
     old_clips = list(primary.clips)
     by_id = {clip.id: clip for clip in old_clips}
-    new_clips, runs, cursor = [], [], 0
+    new_clips, runs, cursor, last_owner = [], [], 0, None
     for segment in segments:
         source = sources[segment['source']]
         path = str(source['path'])
@@ -924,24 +1052,40 @@ def _recut(result, sources, segments, fps):
         owner = by_id.get(segment.get('clip'))
         if owner is not None and owner.source == path:
             # A piece of one known clip (a local cut): it keeps that clip's volume (a muted second use
-            # stays muted), speed, look and keyframes.
+            # stays muted), speed, look and keyframes, and its exact length: whole source frames would turn
+            # a 9-frame 0.5× clip (4.5 source frames) into 8 frames.
+            if owner.id != last_owner:
+                # A gap the user left before this clip stays: "remove the pauses" means pauses in the sound.
+                before = max((c.end for c in old_clips if c.end <= owner.start), default=0)
+                cursor += owner.start - before
+                last_owner = owner.id
             speed = owner.speed
-            frames = int(length / speed + 1e-6)
+            # Seconds come back through a few roundings: a frame edge within 1/1000 frame is that edge.
+            snap = lambda value: round(value) if abs(value - round(value)) < 1e-3 else value
+            exact_a = min(snap(segment['start'] * fps), source_frames - 1)
+            exact_b = min(snap(segment['end'] * fps), source_frames)
+            src_in = math.floor(exact_a + 1e-6)
+            phase = round(exact_a - src_in, 9)
+            phase = phase if 1e-6 < phase < 1 - 1e-6 else 0.0
+            frames = round((exact_b - exact_a) / speed)
+            while frames > 0 and src_in + int(phase + frames * speed + 1e-6) > source_frames:
+                frames -= 1
             if frames < 1:
                 continue
-            style = with_phase({k: v for k, v in owner.style.items() if not k.startswith('transition')}, 0)
-            if cursor and segment.get('transition'):
+            style = with_phase({k: v for k, v in owner.style.items() if not k.startswith('transition')}, phase)
+            if new_clips and segment.get('transition'):
                 same = owner.style.get('transition') == segment['transition']
                 style.update(transition=segment['transition'],
                              transition_frames=owner.style.get('transition_frames', 10) if same
                              else max(2, round(TRANSITION_SECONDS * fps)))
-            offset = round((first - owner.source_in - owner.source_phase) / speed)
-            new_clips.append(Clip(path, cursor, frames, source_in=first, source_length=source_frames,
+            offset = round((src_in + phase - owner.source_in - owner.source_phase) / speed)
+            new_clips.append(Clip(path, cursor, frames, source_in=src_in, source_length=source_frames,
                                   volume=owner.volume, keyframes=_slice_keyframes(owner.keyframes, offset, frames),
                                   style=style))
-            runs.append((path, first, first + length, cursor, owner.id, speed))
+            runs.append((path, src_in, src_in + max(1, int(phase + frames * speed + 1e-6)), cursor, owner.id, speed))
             cursor += frames
             continue
+        last_owner = None
         runs.append((path, first, first + length, cursor, None, 1.0))
         for i, (src_in, piece_length, volume, style, keyframes) in enumerate(_recut_pieces(old_clips, path, first, length)):
             style = dict(style)
@@ -951,7 +1095,7 @@ def _recut(result, sources, segments, fps):
             new_clips.append(Clip(path, cursor, piece_length, source_in=src_in, source_length=source_frames,
                                   volume=volume, keyframes=keyframes, style=style))
             cursor += piece_length
-    if not cursor:
+    if not new_clips:
         raise ValueError('Plan uygulanınca boş bir video oluşuyor.')
     primary.clips = new_clips
     primary.validate()
@@ -962,7 +1106,7 @@ def _recut(result, sources, segments, fps):
         if track is primary:
             continue
         before = len(track.clips)
-        dropped = _remap_track(track, frame_map, cursor)
+        dropped = _remap_track(track, frame_map, cursor, follow)
         report['kept'] += before - dropped
         report['dropped'] += dropped
     markers = []
@@ -987,7 +1131,7 @@ def _drop_generated(result, what):
     return sum(len(track.clips) for track in gone)
 
 
-def apply_plan(timeline, sources, plan, canvas=None):
+def apply_plan(timeline, sources, plan, canvas=None, follow=()):
     """Return a new Timeline with the plan applied; the input timeline is untouched.
 
     sources: [{'path', 'duration', 'transcript', 'size'}] in the index order shown to the model.
@@ -1001,7 +1145,7 @@ def apply_plan(timeline, sources, plan, canvas=None):
 
     if 'segments' in plan:
         # Only the primary video track is re-cut; other tracks and markers follow the material they sat on.
-        result.edit_report = _recut(result, sources, plan['segments'], fps)
+        result.edit_report = _recut(result, sources, plan['segments'], fps, follow)
 
     total = max((clip.end for track in result.tracks if track.kind == 'video' for clip in track.clips), default=0)
 

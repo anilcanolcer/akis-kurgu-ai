@@ -48,6 +48,14 @@ def measure(executable, source, runner=subprocess.run):
     return levels_from_pcm(result.stdout) if result.returncode == 0 else []
 
 
+def cached_levels(executable, source, runner=subprocess.run):
+    """measure(), remembered per file while the app runs (akis.analysis_cache): the silence cut, Shorts,
+    highlights and the microphone check share one reading of each file. A failed or stopped reading
+    ([]) is not kept."""
+    from akis import analysis_cache
+    return analysis_cache.remember(str(source), 'loudness', lambda: measure(executable, source, runner=runner), keep=bool)
+
+
 def silent_spans(levels, threshold_db=DEFAULT_THRESHOLD_DB, min_silence=DEFAULT_MIN_SILENCE, window=WINDOW):
     """(start, end) seconds of every stretch quieter than the threshold for at least min_silence."""
     spans, start = [], None
@@ -109,7 +117,8 @@ def keep_segments(segments, silences, margin=DEFAULT_MARGIN, min_keep=MIN_KEEP, 
         for n, (a, b) in enumerate(merged):
             if a > cursor:
                 cuts.append((number, cursor, a))
-            piece = {'source': source, 'start': round(a, 6), 'end': round(b, 6), **extra}
+            piece = {'source': source, 'start': round(a, 6), 'end': round(b, 6),
+                     **{k: v for k, v in extra.items() if not n or k != 'gap'}}
             if not n and segment.get('transition'):
                 piece['transition'] = segment['transition']
             result.append(piece)
