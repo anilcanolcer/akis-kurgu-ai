@@ -103,7 +103,7 @@ Talking-head videos, tutorials, vlogs and Shorts take hours of repetitive work: 
 - In-app updates that verify the installer's SHA-256 checksum and restore the previous version if anything fails.
 - Proxy files in the background for smooth playback, chunked preview rendering for long edits, HDR (PQ/HLG) sources tone-mapped to SDR.
 
-**Version 0.6.10:** silence, filler, retake and speaker cuts and beat snapping keep every clip's own volume, speed and markers, Shorts of an edit with gaps or cut inside a transition match the full video, silent recordings get no highlights, and beats of sped-up music land where they are heard. [Read the 0.6.10 release notes](https://github.com/anilcanolcer/akis-kurgu-ai/releases/tag/v0.6.10).
+**Version 0.6.11:** a separate microphone track is cut together with the picture, words cut from a word-by-word caption leave it, gaps left by hand stay, and clips a cut does not touch keep every frame. [Read the 0.6.11 release notes](https://github.com/anilcanolcer/akis-kurgu-ai/releases/tag/v0.6.11).
 
 ## Screenshots
 
