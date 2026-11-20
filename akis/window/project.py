@@ -136,7 +136,8 @@ class ProjectMixin:
         self.state = EditState(source=str(file), aspect=self.aspect.currentData(),
                                brightness=self.brightness.value(), contrast=self.contrast.value(),
                                saturation=self.saturation.value(), speed=self.speed_value(),
-                               export_profile=self.export_profile.currentData())
+                               export_profile=self.export_profile.currentData(),
+                               **{name: box.isChecked() for box, name in self.audio_boxes()})
         if not self._pending_project and not keep_timeline:
             self.multitrack = Timeline.from_legacy({}, self._source_rate)
             self.multitrack_view.set_model(self.multitrack)
@@ -277,25 +278,24 @@ class ProjectMixin:
         if answer == buttons.Save:
             self.save_project()
             return not self.has_unsaved_changes()
-        if answer == buttons.Discard:
-            self.discard_autosave()  # discarded work must not come back as "recovered" later
-            return True
-        return False
+        # The caller removes recovery only after closing or replacing this project succeeds.
+        return answer == buttons.Discard
 
     def open_project(self) -> None:
-        if not self.can_start_work() or not self.confirm_close():
+        if not self.can_start_work():
             return
         path, _ = QFileDialog.getOpenFileName(
             self, self.ui_text("Proje aç"), "", self.ui_text("Akış projesi (*.akis.json);;JSON (*.json)")
         )
-        if not path:
-            return
-        self.open_project_file(path)
+        if path and self.confirm_close():
+            self.open_project_file(path)
 
     def open_project_file(self, path: str) -> bool:
         """Open a project file, offering its unclaimed recovery copy if one exists."""
         autosave = Path(str(Path(path).resolve()) + '.autosave')
-        if not autosave.is_file():
+        # Reopening our own project after Discard selects the saved copy. Its recovery stays on disk
+        # until the load succeeds. An orphan or another instance's recovery still goes through locking.
+        if not autosave.is_file() or (self._autosave_file and Path(self._autosave_file) == autosave):
             return self.load_project_document(path, path)
         lock = self.lock_project_autosave(str(autosave))
         if lock is None:

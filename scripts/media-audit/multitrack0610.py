@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 import numpy as np
 sys.path.insert(0,str(Path(sys.argv[1]).resolve()))
-from akis import edit_plan, silence_cut, project_service
+from akis import edit_plan, silence_cut
 from akis.media_service import MediaService
 from akis.timeline_model import Clip,Track,Timeline
 from akis.timeline_render import TimelineRenderer
@@ -89,10 +89,4 @@ with tempfile.TemporaryDirectory() as folder:
     renderer.export(cleaned,root/'expected-caption.mp4')
     expected=frame_bytes(root/'expected-caption.mp4')
     result['words_after_cut']['pixels_different_from_correct_caption']=int((abs(actual-expected).reshape(-1,3).max(axis=1)>24).sum())
-    # Keep a synthetic sample only for the packaged startup and interactive checks.
-    scratch=Path(__file__).resolve().parent/'ui0610'
-    scratch.mkdir(exist_ok=True)
-    shutil.copyfile(a,scratch/'sample.mp4')
-    src=str(scratch/'sample.mp4')
-    project_service.save(scratch/'Denetim.akis.json',project_service.make_document({'source':src,'duration':4,'start':0,'end':4},Timeline(tracks=[track(Clip(src,0,120))]),{},''))
 print(json.dumps(result,indent=2))

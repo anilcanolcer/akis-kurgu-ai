@@ -35,10 +35,16 @@ jobs:
           "AKIS_FFMPEG=$($ffmpegFile.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
       - name: Install dependencies
         run: python -m pip install -r requirements.txt -r requirements-local-ai.txt
-      - name: Run tests
-        run: python -m unittest discover -v
-      - name: Verify local edit frame and marker matrix
-        run: python scripts/media-audit/matrix.py .
+      - name: Run feature tests and verify all synthetic media scenarios
+        shell: pwsh
+        run: ./scripts/media-audit/run-audit.ps1 -Project . -Python (Get-Command python).Source -Headless -ResultsRoot $env:RUNNER_TEMP
+      - name: Keep media measurements
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: media-audit-results
+          path: ${{ runner.temp }}/akis-audit-*/*-final.json
+          retention-days: 14
       - name: Build application
         run: python -m PyInstaller AkisKurguAI.spec --noconfirm --clean
       - name: Verify packaged startup

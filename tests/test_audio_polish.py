@@ -155,6 +155,16 @@ class WindowTests(unittest.TestCase):
         w.music_duck.setChecked(False)
         self.assertNotIn('audio', w.render_adjustments())
 
+    def test_sound_selected_before_loading_video_reaches_export_and_save(self):
+        w = self.window
+        video = self.root / 'a.mp4'
+        video.touch()
+        w.loudness.setChecked(True)
+        self.assertTrue(w.load_video(str(video)))
+        self.assertTrue(w.loudness.isChecked())
+        self.assertEqual(w.render_adjustments().get('audio'), ('level',))
+        self.assertTrue(w.project_document()['state']['audio_level'])
+
     def test_project_file_keeps_the_switches(self):
         w = self.window
         video = self.root / 'a.mp4'

@@ -84,6 +84,16 @@ class MediaFactsTests(unittest.TestCase):
             fast_export.export(pieces, out, self.media)
         self.assertAlmostEqual(self.media.duration(out), 3.0, delta=0.3)   # 0–1 s and 2–4 s of the source
 
+    def test_source_does_not_inherit_an_unrelated_sequence_format(self):
+        timeline = Timeline(fps_num=25, tracks=[
+            Track('video', 'Video', [Clip(str(self.root / 'telefon.mov'), 0, 25)])])
+        text, _ = fcpxml_export.build(timeline, (1080, 1920), self.media)
+        root = ET.fromstring(text)
+        asset = root.find('resources/asset')
+        fmt = root.find(f"resources/format[@id='{asset.get('format')}']")
+        self.assertEqual((fmt.get('width'), fmt.get('height'), fmt.get('frameDuration')), ('320', '240', '1/30s'))
+        self.assertEqual(asset.find('media-rep').get('src'), (self.root / 'telefon.mov').as_uri())
+
     def test_fcpxml_describes_sound_files_as_sound(self):
         m, root = self.media, self.root
         timeline = Timeline(tracks=[

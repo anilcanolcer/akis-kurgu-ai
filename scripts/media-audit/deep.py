@@ -36,7 +36,7 @@ def sample(path,s):
     pcm=ff(['-ss',str(s),'-i',path,'-t','0.2','-vn','-ac','1','-ar','8000','-f','f32le','-'])
     wave=np.frombuffer(pcm,dtype='<f4')
     return dict(rgb=list(rgb),hz=round(float(np.argmax(abs(np.fft.rfft(wave*np.hanning(len(wave)))))*8000/len(wave))))
-with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parent) as tmp:
+with tempfile.TemporaryDirectory() as tmp:
     root=Path(tmp)
     a=root/'old/A/take.mp4'
     b=root/'old/B/take.mp4'

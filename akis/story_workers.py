@@ -63,7 +63,7 @@ def stop_all(timeout_ms=3000):
 def write_atomic(path, data):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    handle, temp = tempfile.mkstemp(prefix=path.stem + '.', suffix='.part', dir=path.parent)
+    handle, temp = tempfile.mkstemp(prefix='.akis-', suffix='.part', dir=path.parent)
     try:
         with os.fdopen(handle, 'wb') as out:
             out.write(data)

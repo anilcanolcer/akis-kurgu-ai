@@ -9,7 +9,7 @@ and reads selection() after the dialog is accepted.
 from PySide6.QtWidgets import (QDialog, QHBoxLayout, QInputDialog, QLabel, QListWidget, QMessageBox, QPushButton,
                                QVBoxLayout)
 
-from akis import i18n, user_templates
+from akis import i18n, messages, user_templates
 
 TITLE = 'Şablonlarım'
 
@@ -73,7 +73,7 @@ class SavedTemplatesDialog(QDialog):
         item = self.selection()
         self.apply_button.setEnabled(item is not None)
         self.delete_button.setEnabled(item is not None and self._delete is not None)
-        self.details.setText(user_templates.describe(item) if item is not None
+        self.details.setText(user_templates.describe(item, self.language) if item is not None
                              else self.tr_('Henüz kayıtlı şablonunuz yok.'))
 
     def save_current(self):
@@ -89,7 +89,7 @@ class SavedTemplatesDialog(QDialog):
         try:
             self.saved = list(self._save(name))
         except (ValueError, OSError) as exc:
-            QMessageBox.warning(self, self.tr_(TITLE), self.tr_('Şablon kaydedilemedi: {error}').format(error=exc))
+            QMessageBox.warning(self, self.tr_(TITLE), self.tr_('Şablon kaydedilemedi: {error}').format(error=messages.message(exc, self.language)))
             return
         self.fill(next((i for i, item in enumerate(self.saved) if item['name'].casefold() == name.casefold()), 0))
 
@@ -105,6 +105,6 @@ class SavedTemplatesDialog(QDialog):
         try:
             self.saved = list(self._delete(item['name']))
         except OSError as exc:
-            QMessageBox.warning(self, self.tr_(TITLE), self.tr_('Şablon silinemedi: {error}').format(error=exc))
+            QMessageBox.warning(self, self.tr_(TITLE), self.tr_('Şablon silinemedi: {error}').format(error=messages.message(exc, self.language)))
             return
         self.fill(self.list.currentRow())

@@ -230,8 +230,18 @@ class StoryState:
     def from_dict(cls, data):
         if not isinstance(data, dict):
             raise ValueError('Hikâye dosyası geçersiz.')
-        return cls(bible_from_dict(data.get('bible') or {}),
-                   [_from_fields(Scene, s) for s in data.get('scenes') or [] if isinstance(s, dict)],
+        # Older untagged stories still identify themselves by their bible or scenes.
+        if data.get('format', 'akis-story') != 'akis-story' or not any(k in data for k in ('bible', 'scenes')):
+            raise ValueError('Hikâye dosyası geçersiz.')
+        version = data.get('version', 1)
+        if type(version) is not int or version != FORMAT_VERSION:
+            raise ValueError('Bu hikâye dosyasının sürümü desteklenmiyor.')
+        bible = data.get('bible', {})
+        scenes = data.get('scenes', [])
+        if not isinstance(bible, dict) or not isinstance(scenes, list):
+            raise ValueError('Hikâye dosyası geçersiz.')
+        return cls(bible_from_dict(bible),
+                   [_from_fields(Scene, s) for s in scenes if isinstance(s, dict)],
                    _text(data.get('rolling_summary')), _continuity(data.get('continuity')))
 
 
@@ -261,6 +271,8 @@ def _from_fields(cls, data):
 
 
 def bible_from_dict(data):
+    if not isinstance(data, dict) or not isinstance(data.get('characters', []), list):
+        raise ValueError('Hikâye dosyası geçersiz.')
     bible = StoryBible()
     for name in ('title', 'premise', 'genre', 'style', 'pov', 'tense', 'setting', 'art_style', 'notes'):
         if name in data:
@@ -278,7 +290,7 @@ def save_story(path, state):
     """Atomic JSON write (a crash never leaves half a file)."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    handle, temp = tempfile.mkstemp(prefix=path.name + '.', suffix='.tmp', dir=path.parent)
+    handle, temp = tempfile.mkstemp(prefix='.akis-', suffix='.tmp', dir=path.parent)
     try:
         with os.fdopen(handle, 'w', encoding='utf-8') as out:
             json.dump(state.to_dict(), out, ensure_ascii=False, indent=2)

@@ -161,6 +161,25 @@ class DialogSmokeTests(unittest.TestCase):
         self.assertTrue(wait_until(lambda: self.dialog.worker is None))
         QTest.qWait(10)
 
+    def test_invalid_character_list_does_not_replace_the_guide(self):
+        dialog = self.dialog
+        dialog.state.bible.title = 'Original'
+        dialog.bible_editor.setPlainText('{"title": "Broken", "characters": 42}')
+        self.assertFalse(dialog.apply_bible_editor())
+        self.assertEqual(dialog.state.bible.title, 'Original')
+
+    def test_failed_open_after_discard_keeps_current_story_dirty(self):
+        from unittest.mock import patch
+        from PySide6.QtWidgets import QMessageBox
+        dialog = self.dialog
+        dialog.premise.setPlainText('Unsaved premise')
+        self.assertTrue(dialog.is_dirty())
+        with patch.object(dialog, 'can_ask', return_value=True), \
+                patch.object(dialog, 'ask', return_value=QMessageBox.StandardButton.Discard):
+            self.assertFalse(dialog.open_story(str(self.folder / 'missing.json')))
+        self.assertEqual(dialog.premise.toPlainText(), 'Unsaved premise')
+        self.assertTrue(dialog.is_dirty())
+
     def test_text_image_video_pass(self):
         d = self.dialog
         self.assertEqual(d.image_aspect.currentText(), '9:16')

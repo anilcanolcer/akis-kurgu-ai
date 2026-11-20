@@ -582,6 +582,20 @@ class MainWindow(LayoutMixin, PlaybackMixin, TimelineEditMixin, ProjectMixin, As
             except Exception:
                 log.exception("Hikâye işleri durdurulamadı")
 
+    def confirm_document_close(self):
+        """Settle both documents before closing, including a close requested by the updater."""
+        story_ok = getattr(self.story_dialog, 'confirm_close', None)
+        if callable(story_ok) and not story_ok():
+            return False
+        if self.confirm_close():
+            return True
+        self.reset_story_close_approval()
+        return False
+
+    def reset_story_close_approval(self):
+        if self.story_dialog is not None and hasattr(self.story_dialog, '_close_approved'):
+            self.story_dialog._close_approved = False
+
     def closeEvent(self, event):
         if self._workers:
             if not self.isVisible():  # a hidden window (tests, scripted runs) has nobody to ask
@@ -594,14 +608,7 @@ class MainWindow(LayoutMixin, PlaybackMixin, TimelineEditMixin, ProjectMixin, As
             if answer != QMessageBox.StandardButton.Yes:
                 event.ignore()
                 return
-        # Unsaved story scenes (paid generations) first: its Cancel keeps the whole app open.
-        story_ok = getattr(self.story_dialog, 'confirm_close', None)
-        if callable(story_ok) and not story_ok():
-            event.ignore()
-            return
-        if not self.confirm_close():
-            if self.story_dialog is not None and hasattr(self.story_dialog, '_close_approved'):
-                self.story_dialog._close_approved = False  # the app stays open: ask again next time
+        if not self.confirm_document_close():
             event.ignore()
             return
         self.autosave_timer.stop()

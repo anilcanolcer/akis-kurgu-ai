@@ -186,9 +186,7 @@ class AutosaveTests(WindowCase):
         with patch.object(self.window, 'isVisible', return_value=True), \
              patch('main.QMessageBox.question', return_value=QMessageBox.StandardButton.Discard):
             self.assertTrue(self.window.confirm_close())
-        self.assertFalse(own.exists())
-        self.window.autosave_project()
-        self.assertTrue(own.exists())
+        self.assertTrue(own.exists())  # the caller can still fail to replace or close this project
         self.window.close()  # hidden window: no prompt, a clean close
         self.assertFalse(own.exists())
 

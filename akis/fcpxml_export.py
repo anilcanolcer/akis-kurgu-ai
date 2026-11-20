@@ -40,6 +40,25 @@ def build(timeline, canvas, media, name='Akış Kurgu'):
     ET.SubElement(resources, 'format', id='r1', name=f'Akis{width}x{height}', frameDuration=rational(1, num, den),
                   width=str(width), height=str(height))
     assets = {}
+    formats = {(width, height, Fraction(num, den)): 'r1'}
+
+    def source_format(source):
+        # The project can be portrait / 25 fps while the original movie is landscape / 30 fps.
+        # Leave the optional reference to the importer when FFmpeg cannot identify the rate reliably.
+        try:
+            w, h = media.dimensions(source)
+            rate = Fraction(*media.frame_rate(source))
+            if abs(media.video_rate(source) - float(rate)) > 0.0051:
+                return None
+        except (TypeError, ValueError, OSError, RuntimeError, AttributeError, ZeroDivisionError):
+            return None
+        key = (w, h, rate)
+        if key not in formats:
+            identifier = f'fmt{len(formats) + 1}'
+            ET.SubElement(resources, 'format', id=identifier, name=f'Akis{w}x{h}', width=str(w), height=str(h),
+                          frameDuration=rational(1, rate.numerator, rate.denominator))
+            formats[key] = identifier
+        return formats[key]
 
     def asset(source):
         if source not in assets:
@@ -60,7 +79,9 @@ def build(timeline, canvas, media, name='Akış Kurgu'):
                           'duration': seconds_rational(seconds, num, den) if seconds else time(1),
                           'hasVideo': '1' if picture else '0', 'hasAudio': '1' if channels else '0'}
             if picture:
-                attributes['format'] = 'r1'
+                fmt = source_format(source)
+                if fmt:
+                    attributes['format'] = fmt
             element = ET.SubElement(resources, 'asset', attributes)
             if channels:
                 element.set('audioSources', '1')
@@ -69,12 +90,15 @@ def build(timeline, canvas, media, name='Akış Kurgu'):
             assets[source] = identifier
         return assets[source]
 
-    def clip_element(parent, clip, offset, lane=None, audio_only=False):
+    def clip_element(parent, clip, offset, lane=None, kind="video"):
         attributes = {'ref': asset(clip.source), 'name': Path(clip.source).name, 'offset': offset,
                       'start': time(clip.source_in), 'duration': time(clip.length)}
         if lane is not None:
             attributes['lane'] = str(lane)
-        if audio_only:
+        if kind == 'overlay':
+            attributes['srcEnable'] = 'video'
+        elif kind == 'audio':
+            attributes['srcEnable'] = 'audio'
             attributes['audioRole'] = 'music'
         element = ET.SubElement(parent, 'asset-clip', attributes)
         if clip.volume != 1.0:
@@ -134,7 +158,7 @@ def build(timeline, canvas, media, name='Akış Kurgu'):
             if parent is None:
                 continue
             first, _, element, local = parent
-            clip_element(element, clip, time(local + clip.start - first), lanes[id(track)], track.kind == 'audio')
+            clip_element(element, clip, time(local + clip.start - first), lanes[id(track)], track.kind)
 
     ET.indent(root, space='  ')
     text = '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE fcpxml>\n' + ET.tostring(root, encoding='unicode') + '\n'

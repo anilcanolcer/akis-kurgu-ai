@@ -190,10 +190,7 @@ class StoryDialog(QDialog):
         answer = self.ask(UNSAVED_QUESTION, buttons.Save | buttons.Discard | buttons.Cancel, buttons.Save)
         if answer == buttons.Save:
             return self.save_story()
-        if answer == buttons.Discard:
-            self.mark_clean()  # the user chose to drop them: do not ask again for the same changes
-            return True
-        return False
+        return answer == buttons.Discard
 
     def confirm_close(self):
         """For the host before it closes (e.g. at application exit): False means stay open.
@@ -506,11 +503,12 @@ class StoryDialog(QDialog):
 
     def apply_bible_editor(self):
         data = ss.extract_json(self.bible_editor.toPlainText())
-        if not isinstance(data, dict):
+        try:
+            merged = ss.bible_from_dict(data)
+        except ValueError:
             self.set_status('Rehber geçerli JSON değil; düzeltip tekrar uygulayın.')
             return False
         self.read_idea_fields()
-        merged = ss.bible_from_dict(data)
         for name in ('premise', 'style', 'pov', 'tense'):
             setattr(merged, name, getattr(self.state.bible, name))
         merged.genre = self.genre.text().strip()
@@ -976,12 +974,12 @@ class StoryDialog(QDialog):
         if self.worker is not None:
             self.set_status('Önce süren işlemin bitmesini bekleyin.')
             return False
-        if not self.maybe_save():
-            return False
         if not path:
             path, _ = QFileDialog.getOpenFileName(self, self.tr_('Hikâye aç'), self.story_path, self.tr_('Hikâye (*.hikaye.json *.json)'))
             if not path:
                 return False
+        if not self.maybe_save():
+            return False
         try:
             self.state = ss.load_story(path)
         except ValueError as exc:

@@ -20,7 +20,7 @@ from akis.template_dialog import TemplateDialog
 from akis.inspiration_dialog import InspirationDialog
 from akis import speech_settings
 from akis import user_templates
-from akis import clip_fit, style_sample
+from akis import style_sample
 from akis.plan_review import PlanReviewDialog
 from akis import word_captions
 from akis.saved_templates_dialog import SavedTemplatesDialog
@@ -166,18 +166,13 @@ class AssistantMixin:
     def apply_saved_template(self, item):
         with self.history_step():
             user_templates.apply(self.multitrack, item)
-            if item.get('framing'):                 # a look taken from a sample video
-                for track in self.multitrack.tracks:
-                    if track.kind == 'video':
-                        for clip in track.clips:
-                            clip_fit.apply(clip, item['framing'])
             self._template_before_video = not bool(self.state.source)
             if item['aspect']:
                 self.select_aspect(item['aspect'])
             self.apply_preset(*item['color'])
             self.select_speed(item['speed'])
-        for box, name in self.audio_boxes():
-            box.setChecked(name[len('audio_'):] in item['audio'])
+            for box, name in self.audio_boxes():
+                box.setChecked(name[len('audio_'):] in item['audio'])
         self.multitrack_view.set_model(self.multitrack)
         self.refresh_timeline_view()
         self.multitrack_view.update()

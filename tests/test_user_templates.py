@@ -66,6 +66,43 @@ class FileTests(unittest.TestCase):
             self.assertEqual(user_templates.load(self.folder), [])
             self.assertEqual(path.read_text(encoding='utf-8'), content)
 
+    def test_failed_changes_preserve_unreadable_template_collection(self):
+        self.folder.mkdir()
+        path = self.folder / user_templates.FILE_NAME
+        for content in ('{damaged', '{"future": 2}', '[{"name": "incomplete"}]'):
+            for change in (lambda: user_templates.add(self.folder, sample('B')),
+                           lambda: user_templates.remove(self.folder, 'A')):
+                with self.subTest(content=content):
+                    path.write_text(content, encoding='utf-8')
+                    with self.assertRaises(OSError):
+                        change()
+                    self.assertEqual(path.read_text(encoding='utf-8'), content)
+
+    def test_two_writers_keep_both_templates(self):
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+        ready = threading.Barrier(2)
+
+        def save(name):
+            ready.wait(timeout=5)
+            user_templates.add(self.folder, sample(name))
+
+        with ThreadPoolExecutor(max_workers=2) as workers:
+            list(workers.map(save, ('First', 'Second')))
+        self.assertEqual({item['name'] for item in user_templates.load(self.folder)}, {'First', 'Second'})
+
+    def test_busy_template_store_leaves_existing_collection_intact(self):
+        from PySide6.QtCore import QLockFile
+        user_templates.add(self.folder, sample('A'))
+        lock = QLockFile(str(self.folder / (user_templates.FILE_NAME + '.lock')))
+        self.assertTrue(lock.tryLock(0))
+        try:
+            with self.assertRaises(OSError):
+                user_templates.add(self.folder, sample('B'))
+        finally:
+            lock.unlock()
+        self.assertEqual([item['name'] for item in user_templates.load(self.folder)], ['A'])
+
     def test_bad_values_are_dropped_or_clamped(self):
         self.folder.mkdir()
         entries = [dict(sample('İyi'), color=[900, -900, 3], audio=['level', 'bass'], tracks=[['video', 'V'], ['hologram', 'X']]),
@@ -157,6 +194,14 @@ class DialogTests(unittest.TestCase):
         self.assertEqual(dialog.save_button.text(), 'Save this project as a template')
         self.assertEqual(dialog.details.text(), 'You have no saved templates yet.')
 
+    def test_saved_template_details_follow_language_and_keep_user_text(self):
+        item = dict(sample(), aspect='Kaynak oranı', framing='blur')
+        dialog = SavedTemplatesDialog(language='en', saved=[item])
+        text = dialog.details.text()
+        for expected in ('Tracks', 'Source ratio', 'blurred background', 'Haftanın özeti', 'Music'):
+            self.assertIn(expected, text)
+        self.assertNotIn('İzler:', text)
+
     def test_templates_dialog_offers_the_way_in(self):
         dialog = TemplateDialog()
         results = []
@@ -184,6 +229,17 @@ class WindowTests(unittest.TestCase):
     def close_window(self):
         self.window._close_confirmed = True
         self.window.close()
+
+    def test_undo_redo_saved_template_restores_its_sound_settings(self):
+        w = self.window
+        w.loudness.setChecked(False)
+        w.apply_saved_template(dict(sample(), audio=['level']))
+        self.assertTrue(w.loudness.isChecked())
+        self.assertTrue(w.undo())
+        self.assertFalse(w.loudness.isChecked())
+        self.assertFalse(w.state.audio_level)
+        self.assertTrue(w.redo())
+        self.assertTrue(w.state.audio_level)
 
     def test_project_is_captured_saved_and_applied_again(self):
         w = self.window

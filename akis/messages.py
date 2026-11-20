@@ -99,6 +99,9 @@ EN_MESSAGES = {
     'Kurtarma dosyası kilitlenemedi: {a}': 'The recovery file could not be locked: {a}',
     'Kayıt zaten sürüyor.': 'A recording is already running.',
     'Kayıt başlamadı.': 'The recording did not start.',
+    'Şablon dosyası okunamadığı için değişiklik kaydedilemedi.':
+        'The changes could not be saved because the template file could not be read.',
+    'Şablon dosyası yazma için kilitlenemedi.': 'Could not lock the template file for writing.',
     'Şablona bir ad verin.': 'Give the template a name.',
     'Şablon kaydedilemedi: geçersiz içerik.': 'The template could not be saved: invalid content.',
     'En çok {a} şablon saklanabilir; önce birini silin.': 'At most {a} templates can be kept; delete one first.',

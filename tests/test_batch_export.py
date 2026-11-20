@@ -51,6 +51,13 @@ class BuildTests(unittest.TestCase):
         main = next(t for t in timeline.tracks if t.kind == 'video')
         self.assertAlmostEqual(sum(c.length for c in main.clips), 125, delta=2)
 
+    def test_sample_template_framing_survives_batch_silence_cut(self):
+        template = dict(TEMPLATE, framing='blur')
+        timeline = batch_export.build(str(self.video), self.media, cut_silences=True, template=template)
+        clips = [clip for track in timeline.tracks if track.kind == 'video' for clip in track.clips]
+        self.assertEqual(len(clips), 2)
+        self.assertEqual([clip.style.get('fit') for clip in clips], ['blur', 'blur'])
+
     def test_silences_cut_and_template_added(self):
         timeline = batch_export.build(str(self.video), self.media, cut_silences=True, template=TEMPLATE)
         main = next(t for t in timeline.tracks if t.kind == 'video')

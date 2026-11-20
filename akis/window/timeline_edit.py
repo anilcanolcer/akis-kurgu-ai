@@ -46,7 +46,8 @@ class TimelineEditMixin:
         """What one edit step can change: the timeline (a private copy) and the settings an AI plan or a
         template sets. Stored snapshots are never modified; restoring one installs another copy."""
         return {'timeline': copy.deepcopy(self.multitrack), 'aspect': self.aspect.currentData(),
-                'speed': self.speed_value(),
+                'speed': self.speed_value(), 'template_before_video': getattr(self, '_template_before_video', False),
+                **{name: box.isChecked() for box, name in self.audio_boxes()},
                 'color': (self.brightness.value(), self.contrast.value(), self.saturation.value()),
                 'publish': (self.publish_title.text(), self.publish_caption.toPlainText(), self.publish_tags.toPlainText())}
 
@@ -101,6 +102,11 @@ class TimelineEditMixin:
             self.select_choice(self.aspect, snapshot['aspect'])
         if 'speed' in keys:
             self.select_speed(snapshot['speed'])
+        if 'template_before_video' in keys:
+            self._template_before_video = snapshot['template_before_video']
+        for box, name in self.audio_boxes():
+            if name in keys:
+                box.setChecked(snapshot[name])
         if 'color' in keys:
             self.apply_preset(*snapshot['color'])
         if 'publish' in keys:

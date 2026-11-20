@@ -245,7 +245,7 @@ class UpdatesMixin:
             QMessageBox.information(self, APP_NAME, self.ui_text("Güncellemeden önce devam eden işlemin bitmesini bekleyin."))
             return
         # Settle unsaved work before the installer starts waiting for this process to exit.
-        if not self.confirm_close():
+        if not self.confirm_document_close():
             return
         # The next launch compares this with the version it runs to tell success from failure.
         self.settings.setValue("update/pending_version", update['version'])
@@ -254,6 +254,7 @@ class UpdatesMixin:
             # Verifies the SHA-256 again right before spawning; the helper re-verifies before Start-Process.
             update_service.launch_installer(installer, sys.executable, os.getpid(), sha256=update['sha256'])
         except (OSError, ValueError) as exc:
+            self.reset_story_close_approval()
             self.settings.remove("update/pending_version")
             if str(exc) == update_service.VERIFY_FAILED:
                 self.remove_file(Path(installer))

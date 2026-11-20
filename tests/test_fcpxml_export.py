@@ -90,6 +90,16 @@ class BuildTests(unittest.TestCase):
         self.assertIsNotNone(gap)
         self.assertEqual(report['clips'], 3)
 
+    def test_same_movie_respects_each_tracks_audio_video_selection(self):
+        timeline = Timeline(tracks=[Track('video', 'A', [Clip(self.a, 0, 30)]),
+                                    Track('overlay', 'B', [Clip(self.a, 0, 30)]),
+                                    Track('audio', 'C', [Clip(self.a, 0, 30)])])
+        root, _ = self.parse(timeline)
+        clips = root.findall('.//asset-clip')
+        self.assertEqual(len({clip.get('ref') for clip in clips}), 1)
+        self.assertEqual({clip.get('lane'): clip.get('srcEnable', 'all') for clip in clips},
+                         {None: 'all', '1': 'video', '-1': 'audio'})
+
     def test_music_alone_hangs_off_a_gap(self):
         root, _ = self.parse(Timeline(fps_num=25, tracks=[Track('video', 'V'), Track('audio', 'M', [Clip(self.music, 25, 50)])]))
         gap = root.find('library/event/project/sequence/spine/gap')

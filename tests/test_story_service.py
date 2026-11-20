@@ -285,6 +285,29 @@ class FileTests(unittest.TestCase):
             self.assertEqual(odd.bible.world_rules, ['bir', 'iki'])
             self.assertTrue(odd.scenes[0].id)
 
+    def test_wrong_document_future_version_and_invalid_containers_are_rejected(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'input.json'
+            for data in ({'format': 'akis-kurgu-project'}, {}, {'format': 'akis-story', 'version': 2},
+                         {'bible': ['x']}, {'scenes': 123}, {'bible': {'characters': 7}}):
+                with self.subTest(data=data):
+                    path.write_text(json.dumps(data), encoding='utf-8')
+                    with self.assertRaises(ValueError):
+                        ss.load_story(path)
+            path.write_text('{"bible": {"title": "Legacy"}, "scenes": []}', encoding='utf-8')
+            self.assertEqual(ss.load_story(path).bible.title, 'Legacy')
+
+    def test_long_story_and_export_names_round_trip(self):
+        from akis.story_workers import write_atomic
+        with tempfile.TemporaryDirectory() as folder:
+            story = Path(folder) / ('s' * 241 + '.hikaye.json')
+            state = sample_state(scenes=1)
+            ss.save_story(story, state)
+            self.assertEqual(ss.load_story(story).to_dict(), state.to_dict())
+            xml = Path(folder) / ('x' * 245 + '.fcpxml')
+            write_atomic(xml, b'<fcpxml/>')
+            self.assertEqual(xml.read_bytes(), b'<fcpxml/>')
+
     def test_media_paths_are_stable_and_never_overwrite(self):
         with tempfile.TemporaryDirectory() as folder:
             state = sample_state(scenes=3)

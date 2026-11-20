@@ -121,6 +121,20 @@ class UpdateFlowTests(unittest.TestCase):
         launch.assert_called_once()
         self.assertTrue(self.window._shutting_down)  # the window closed for the installer
 
+    def test_story_cancel_prevents_starting_the_installer(self):
+        w = self.window
+        w._update = dict(UPDATE)
+        installer = self.root / 'update.exe'
+        installer.write_bytes(b'x')
+        story = Mock()
+        story.confirm_close.return_value = False
+        with patch.object(w, 'story_dialog', story), patch('main.QMessageBox.question', return_value=YES), \
+                patch('main.update_service.launch_installer') as launch:
+            w.install_update(str(installer))
+            launch.assert_not_called()
+        self.assertFalse(w._close_confirmed)
+        self.assertFalse(w.settings.contains('update/pending_version'))
+
     def test_declining_install_postpones_and_keeps_verified_file(self):
         self.window._update = dict(UPDATE)
         installer = self.root / 'AkisKurguAI-Setup-9.9.9.exe'

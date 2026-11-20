@@ -539,6 +539,13 @@ EN_UI = {
     "Henüz kayıtlı şablonunuz yok.": "You have no saved templates yet.",
     "Şablon olarak kaydet": "Save as template", "Şablonun adı:": "Template name:",
     "“{name}” adlı şablon zaten var. Üzerine yazılsın mı?": "A template named “{name}” already exists. Overwrite it?",
+    "İzler: {tracks}": "Tracks: {tracks}",
+    "Oran: {aspect} · Hız: {speed}× · Renk: {color} · Ses: {sound}":
+        "Ratio: {aspect} · Speed: {speed}× · Colour: {color} · Sound: {sound}",
+    " · Kadraj: {framing}": " · Framing: {framing}",
+    "Başlık: {title}": "Title: {title}",
+    "ses eşitleme": "loudness levelling", "gürültü azaltma": "noise reduction", "müzik kısma": "music ducking",
+    "sığdır": "fit", "doldur": "fill", "bulanık arka plan": "blurred background", "yok": "none",
     "Şablon kaydedilemedi: {error}": "The template could not be saved: {error}",
     "“{name}” şablonu silinsin mi? Bu geri alınamaz.": "Delete the template “{name}”? This cannot be undone.",
     "Şablon silinemedi: {error}": "The template could not be deleted: {error}",
@@ -1036,6 +1043,7 @@ STORY_EN = {
         'Story opened: {path}',
     'Hikâye (*.hikaye.json *.json)':
         'Story (*.hikaye.json *.json)',
+    'Bu hikâye dosyasının sürümü desteklenmiyor.': 'This story file version is unsupported.',
     'Hikâye dosyası geçersiz.':
         'Invalid story file.',
     'Hikâye dosyası okunamadı: {detail}':

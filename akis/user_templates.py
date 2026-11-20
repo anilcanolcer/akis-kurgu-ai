@@ -5,11 +5,14 @@ colour values, speed and sound switches of the project it was taken from, so "do
 this one" is a single choice. Media and cuts are not part of a template.
 Stored as one JSON file in the per-user data folder; a damaged file is treated as empty, never deleted.
 """
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
 
-from akis import audio_polish
+from PySide6.QtCore import QLockFile
+
+from akis import audio_polish, clip_fit, i18n
 from akis.timeline_model import Clip, Track
 
 FILE_NAME = 'templates.json'
@@ -50,27 +53,51 @@ def _valid(item):
         if item.get('framing') in FRAMINGS:      # taken from a sample video (akis.style_sample)
             found['framing'] = item['framing']
         return found
-    except (KeyError, TypeError, ValueError):
+    except (KeyError, TypeError, ValueError, OverflowError):
         return None
 
 
-def load(folder):
-    """Saved templates, oldest first; [] when there are none or the file cannot be read."""
+def _read(folder, *, for_update=False):
+    path = Path(folder) / FILE_NAME
     try:
-        data = json.loads((Path(folder) / FILE_NAME).read_text(encoding='utf-8'))
-    except (OSError, ValueError):
+        data = json.loads(path.read_text(encoding='utf-8'))
+        if not isinstance(data, list):
+            raise ValueError
+        items = [_valid(entry) if isinstance(entry, dict) else None for entry in data]
+        if for_update and (None in items or len(items) > MAX_TEMPLATES):
+            raise ValueError
+        return [item for item in items if item is not None][:MAX_TEMPLATES]
+    except FileNotFoundError:
         return []
-    if not isinstance(data, list):
+    except (OSError, ValueError) as exc:
+        if for_update:
+            raise OSError('Şablon dosyası okunamadığı için değişiklik kaydedilemedi.') from exc
         return []
-    return [item for item in map(_valid, (entry for entry in data if isinstance(entry, dict))) if item][:MAX_TEMPLATES]
 
 
-def _write(folder, items):
+def load(folder):
+    """Return the readable templates, even if another entry is damaged."""
+    return _read(folder)
+
+
+@contextmanager
+def _update(folder):
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=True)
+    lock = QLockFile(str(folder / (FILE_NAME + '.lock')))
+    if not lock.tryLock(1000):
+        raise OSError('Şablon dosyası yazma için kilitlenemedi.')
     partial = folder / (FILE_NAME + '.tmp')
-    partial.write_text(json.dumps(items, ensure_ascii=False, indent=1), encoding='utf-8')
-    os.replace(partial, folder / FILE_NAME)  # a crash mid-write leaves the previous list intact
+    try:
+        items = _read(folder, for_update=True)
+        yield items
+        partial.write_text(json.dumps(items, ensure_ascii=False, indent=1), encoding='utf-8')
+        os.replace(partial, folder / FILE_NAME)
+    finally:
+        try:
+            partial.unlink(missing_ok=True)
+        finally:
+            lock.unlock()
 
 
 def add(folder, item):
@@ -78,17 +105,17 @@ def add(folder, item):
     item = _valid(item)
     if item is None:
         raise ValueError('Şablon kaydedilemedi: geçersiz içerik.')
-    items = [existing for existing in load(folder) if existing['name'].casefold() != item['name'].casefold()]
-    if len(items) >= MAX_TEMPLATES:
-        raise ValueError(f'En çok {MAX_TEMPLATES} şablon saklanabilir; önce birini silin.')
-    items.append(item)
-    _write(folder, items)
+    with _update(folder) as items:
+        items[:] = [existing for existing in items if existing['name'].casefold() != item['name'].casefold()]
+        if len(items) >= MAX_TEMPLATES:
+            raise ValueError(f'En çok {MAX_TEMPLATES} şablon saklanabilir; önce birini silin.')
+        items.append(item)
     return items
 
 
 def remove(folder, name):
-    items = [existing for existing in load(folder) if existing['name'] != name]
-    _write(folder, items)
+    with _update(folder) as items:
+        items[:] = [existing for existing in items if existing['name'] != name]
     return items
 
 
@@ -100,6 +127,11 @@ def apply(timeline, item):
         if not any(track.kind == kind and track.name == name for track in timeline.tracks):
             first_text = next((i for i, track in enumerate(timeline.tracks) if track.kind == 'text'), len(timeline.tracks))
             timeline.tracks.insert(len(timeline.tracks) if kind == 'text' else first_text, Track(kind, name))
+    if item.get('framing'):
+        for track in timeline.tracks:
+            if track.kind == 'video':
+                for clip in track.clips:
+                    clip_fit.apply(clip, item['framing'])
     if item['title']:
         target = next((track for track in timeline.tracks if track.kind == 'text'
                        and [track.kind, track.name] in item['tracks']), None)
@@ -110,13 +142,21 @@ def apply(timeline, item):
     return timeline
 
 
-def describe(item):
-    """Two lines for the template list's detail area."""
+def describe(item, language='tr'):
+    def say(text):
+        return i18n.translate(text, language)
+
     b, c, s = item['color']
     sound = {'level': 'ses eşitleme', 'denoise': 'gürültü azaltma', 'duck': 'müzik kısma'}
-    extras = ', '.join(sound[option] for option in item['audio']) or 'yok'
+    extras = ', '.join(say(sound[option]) for option in item['audio']) or say('yok')
     framing = {'fit': 'sığdır', 'fill': 'doldur', 'blur': 'bulanık arka plan'}.get(item.get('framing'))
-    return ('İzler: ' + ' / '.join(name for _, name in item['tracks']) +
-            f'\nOran: {item["aspect"] or "—"} · Hız: {item["speed"]:.2f}× · Renk: {b:+d} / {c:+d} / {s:+d} · Ses: {extras}'
-            + (f' · Kadraj: {framing}' if framing else '')
-            + (f'\nBaşlık: {item["title"]}' if item['title'] else ''))
+    names = ' / '.join(i18n.track_label(name, language) for _, name in item['tracks'])
+    lines = [say('İzler: {tracks}').format(tracks=names),
+             say('Oran: {aspect} · Hız: {speed}× · Renk: {color} · Ses: {sound}').format(
+                 aspect=say(item['aspect']) or '—', speed=f"{item['speed']:.2f}",
+                 color=f'{b:+d} / {c:+d} / {s:+d}', sound=extras)]
+    if framing:
+        lines[-1] += say(' · Kadraj: {framing}').format(framing=say(framing))
+    if item['title']:
+        lines.append(say('Başlık: {title}').format(title=item['title']))
+    return '\n'.join(lines)

@@ -6,7 +6,7 @@ import unittest
 from dataclasses import asdict
 from pathlib import Path
 from unittest.mock import patch
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox
 from akis import project_service
 from akis.timeline_model import Timeline, Track, Clip
 from main import MainWindow, EditState
@@ -50,6 +50,34 @@ class ProjectOpenTests(unittest.TestCase):
         self.window.publish_title.setText('A başlık (kaydedilmedi)')
         self.window.brightness.setValue(7)
         self.assertTrue(self.window.has_unsaved_changes())
+
+    def test_failed_or_cancelled_replacement_keeps_recovery_on_disk(self):
+        w = self.window
+        broken = Path(self.tmp.name) / 'broken.json'
+        broken.write_text('{', encoding='utf-8')
+        w.autosave_project()
+        recovery = Path(w._autosave_file)
+        previous = recovery.read_bytes()
+        with patch.object(w, 'isVisible', return_value=True), \
+                patch('main.QMessageBox.question', return_value=QMessageBox.StandardButton.Discard), \
+                patch('main.QMessageBox.critical'), \
+                patch('PySide6.QtWidgets.QFileDialog.getOpenFileName', return_value=('', '')):
+            w.open_project()
+            self.assertEqual(recovery.read_bytes(), previous)
+            self.assertFalse(w.open_path(str(broken)))
+            self.assertEqual(recovery.read_bytes(), previous)
+
+    def test_reopening_current_project_after_discard_loads_saved_copy(self):
+        w = self.window
+        w.autosave_project()
+        recovery = Path(w._autosave_file)
+        with patch.object(w, 'isVisible', return_value=True), \
+                patch('main.QMessageBox.question', return_value=QMessageBox.StandardButton.Discard), \
+                patch.object(w, 'ask_recovery') as ask:
+            self.assertTrue(w.open_path(str(self.project_a)))
+        ask.assert_not_called()
+        self.assertFalse(recovery.exists())
+        self.assertFalse(w.has_unsaved_changes())
 
     def picture(self):
         w = self.window
