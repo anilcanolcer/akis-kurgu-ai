@@ -48,16 +48,23 @@ def build(timeline, canvas, media, name='Akış Kurgu'):
                 seconds = float(media.duration(source))
             except Exception:
                 seconds = 0.0
+            # What the file really holds: a WAV or MP3 has no picture, a mono recording one channel.
+            # Resolve and Final Cut trust these attributes, so a sound file described as video with two
+            # channels came in as a blank video clip with a phantom right channel.
             try:
-                sound = bool(media.has_audio(source))
+                picture = bool(media.has_video(source))
+                channels = int(media.audio_channels(source))
             except Exception:
-                sound = True
-            element = ET.SubElement(resources, 'asset', id=identifier, name=Path(source).name, start='0s',
-                                    duration=seconds_rational(seconds, num, den) if seconds else time(1),
-                                    hasVideo='1', hasAudio='1' if sound else '0', format='r1')
-            if sound:
+                picture, channels = True, 2
+            attributes = {'id': identifier, 'name': Path(source).name, 'start': '0s',
+                          'duration': seconds_rational(seconds, num, den) if seconds else time(1),
+                          'hasVideo': '1' if picture else '0', 'hasAudio': '1' if channels else '0'}
+            if picture:
+                attributes['format'] = 'r1'
+            element = ET.SubElement(resources, 'asset', attributes)
+            if channels:
                 element.set('audioSources', '1')
-                element.set('audioChannels', '2')
+                element.set('audioChannels', str(channels))
             ET.SubElement(element, 'media-rep', kind='original-media', src=Path(source).resolve().as_uri())
             assets[source] = identifier
         return assets[source]

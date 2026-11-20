@@ -161,6 +161,16 @@ def partial_output_path(output):
     return target.with_name(f'{stem}{marker}{suffix}')
 
 
+def concat_entry(path):
+    """A `file` line of FFmpeg's concat list for `path` (without the newline).
+
+    The name goes between single quotes, where a quote of its own must be written '\\'' (close the
+    quotes, an escaped quote, open them again). Temporary folders live under the user's folder, so a
+    Windows account such as "Ali'nin" otherwise cut every name short and the export failed.
+    """
+    return "file '" + Path(path).as_posix().replace("'", "'\\''") + "'"
+
+
 _ERROR_WORDS = ('error', 'denied', 'permission', 'invalid', 'no such', 'failed', 'not permitted', 'cannot',
                 'could not', 'unable', 'no space', 'hata', 'bulunamad')
 
@@ -271,8 +281,8 @@ class TimelineRenderer:
         listing = folder / f'words{layer}.txt'
         lines = ['ffconcat version 1.0']
         for picture, seconds in entries:
-            lines += [f"file '{picture.as_posix()}'", f'duration {seconds:.6f}']
-        lines.append(f"file '{entries[-1][0].as_posix()}'")   # the demuxer ignores the last duration otherwise
+            lines += [concat_entry(picture), f'duration {seconds:.6f}']
+        lines.append(concat_entry(entries[-1][0]))   # the demuxer ignores the last duration otherwise
         listing.write_text('\n'.join(lines) + '\n', encoding='utf-8')
         return listing
 
@@ -563,7 +573,7 @@ class TimelineRenderer:
             made = self._render(timeline, sound, streams='audio',
                                 on_progress=lambda f: report(picture_share + f * 0.1))
             listing = Path(tmp) / 'parts.txt'
-            listing.write_text(''.join(f"file '{p.as_posix()}'\n" for p in parts), encoding='utf-8')
+            listing.write_text(''.join(concat_entry(p) + '\n' for p in parts), encoding='utf-8')
             args = ['-y', '-f', 'concat', '-safe', '0', '-i', str(listing)]
             args += ['-i', str(sound), '-map', '0:v', '-map', '1:a'] if made else ['-map', '0:v']
             args += ['-c', 'copy', '-movflags', '+faststart', str(output)]
@@ -618,7 +628,7 @@ class TimelineRenderer:
             sound = Path(tmp) / 'sound.m4a'
             made = self._render(timeline, sound, streams='audio', on_progress=lambda f: report(picture_share + f * 0.08))
             listing = Path(tmp) / 'parts.txt'
-            listing.write_text(''.join(f"file '{p.as_posix()}'\n" for p in parts), encoding='utf-8')
+            listing.write_text(''.join(concat_entry(p) + '\n' for p in parts), encoding='utf-8')
             args = ['-y', '-f', 'concat', '-safe', '0', '-i', str(listing)]
             args += ['-i', str(sound), '-map', '0:v', '-map', '1:a'] if made else ['-map', '0:v']
             args += ['-c', 'copy', str(output)]

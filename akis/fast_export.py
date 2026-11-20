@@ -14,14 +14,25 @@ from PySide6.QtCore import QThread, Signal
 
 from akis.media_service import MediaService, RenderCancelled
 from akis.timeline_model import Timeline
-from akis.timeline_render import export_failure, output_overwrites_source, partial_output_path
+from akis.timeline_render import concat_entry, export_failure, output_overwrites_source, partial_output_path
 
-COPYABLE = ('.mp4', '.mov', '.m4v')   # containers whose streams go into an .mp4 unchanged
+COPYABLE = ('.mp4', '.mov', '.m4v')   # containers whose streams can go into an .mp4 unchanged…
+# …but only when their codecs are ones MP4 can carry. A camera MOV often holds ProRes, DNxHD or PCM sound,
+# which the MP4 muxer refuses: the copy would fail after the user chose the fast export.
+MP4_VIDEO = {'h264', 'hevc', 'av1', 'mpeg4'}
+MP4_AUDIO = {'aac', 'mp3', 'ac3', 'eac3', 'alac'}
 QUESTION = ('Bu kurgu yalnızca kesimlerden oluşuyor. Yeniden kodlamadan, hızlı dışa aktarılsın mı?\n\n'
             'Kalite hiç düşmez ve işlem çok daha kısa sürer. Kesim noktaları en yakın anahtar kareye '
             'kayabilir; her parçanın başında genellikle iki saniyeden kısa bir fazlalık kalabilir ve '
             'birleşme yerinde tek bir kare atlanabilir.\n\n'
             '“Hayır” derseniz olağan (kare hassasiyetli) dışa aktarma yapılır.')
+
+
+def copyable_codecs(streams):
+    """Whether the first picture stream and every sound stream can be copied into an MP4 as they are."""
+    videos = [codec for kind, codec, _ in streams if kind == 'video']
+    sounds = [codec for kind, codec, _ in streams if kind == 'audio']
+    return bool(videos) and videos[0] in MP4_VIDEO and all(codec in MP4_AUDIO for codec in sounds)
 
 
 def plan(timeline, adjustments, canvas, media):
@@ -45,6 +56,8 @@ def plan(timeline, adjustments, canvas, media):
         cursor = clip.end
     try:
         if tuple(media.dimensions(source)) != tuple(canvas) or media.is_hdr(source) is True:
+            return None
+        if not copyable_codecs(media.streams(source)):
             return None
     except Exception:  # a file that cannot be probed is not a candidate
         return None
@@ -74,7 +87,7 @@ def export(pieces, output, media, on_progress=None):
                 parts.append(part)
                 report((index + 1) / (len(pieces) + 1))
             listing = Path(folder) / 'parts.txt'
-            listing.write_text(''.join(f"file '{part.as_posix()}'\n" for part in parts), encoding='utf-8')
+            listing.write_text(''.join(concat_entry(part) + '\n' for part in parts), encoding='utf-8')
             result = media.run(['-y', '-f', 'concat', '-safe', '0', '-i', listing, '-c', 'copy', '-movflags', '+faststart',
                                 partial], text=True)
             if result.returncode or not Path(partial).is_file():

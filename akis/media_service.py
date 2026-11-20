@@ -172,6 +172,37 @@ class MediaService:
     def has_audio(self, path):
         return bool(re.search(r'Stream #\S+.*Audio:', self.probe(path)))
 
+    def streams(self, path):
+        """[(kind, codec, description line)] of the file's picture and sound streams, in order.
+
+        kind is 'video' or 'audio'; codec is FFmpeg's name ('h264', 'prores', 'pcm_s16le'…). A cover
+        picture embedded in a sound file (an MP3's album art) is not a video stream.
+        """
+        found = []
+        for line in self.probe(path).splitlines():
+            match = re.search(r'Stream #\S+?: (Video|Audio): (\w+)', line)
+            if match and 'attached pic' not in line:
+                found.append((match.group(1).lower(), match.group(2).lower(), line.strip()))
+        return found
+
+    def has_video(self, path):
+        """The file has a moving picture (not just a cover image)."""
+        return any(kind == 'video' for kind, _, _ in self.streams(path))
+
+    def audio_channels(self, path):
+        """Channels of the first sound stream (1 mono, 2 stereo, 6 for 5.1…); 0 without sound."""
+        line = next((line for kind, _, line in self.streams(path) if kind == 'audio'), None)
+        if line is None:
+            return 0
+        count = re.search(r'\b(\d+) channels\b', line)
+        if count:
+            return int(count.group(1))
+        for name, channels in (('mono', 1), ('stereo', 2), ('quad', 4), ('7.1', 8), ('6.1', 7), ('5.1', 6),
+                               ('5.0', 5), ('4.0', 4), ('3.0', 3), ('2.1', 3)):
+            if re.search(rf'(?<![\w.]){re.escape(name)}(?![\w.])', line):
+                return channels
+        return 2
+
     def dimensions(self, path):
         """Displayed picture size. Phone footage is often stored landscape with a rotation flag;
         FFmpeg turns it upright when decoding, so the reported size must be turned the same way."""

@@ -28,6 +28,8 @@ class PlanTests(unittest.TestCase):
         self.media = MagicMock()
         self.media.dimensions.return_value = (1920, 1080)
         self.media.is_hdr.return_value = False
+        # A phone video: H.264 picture and AAC sound, both copyable into an MP4 as they are.
+        self.media.streams.return_value = [('video', 'h264', ''), ('audio', 'aac', '')]
 
     def cut(self, *clips, extra=()):
         return Timeline(fps_num=30, tracks=[Track('video', 'Video', list(clips)), Track('audio', 'Ses'), *extra])
@@ -41,6 +43,17 @@ class PlanTests(unittest.TestCase):
     def test_plain_cuts_of_one_video_are_copied_piece_by_piece(self):
         pieces = self.plan(self.cut(self.clip(0, 60, 30), self.clip(60, 90, 300)))
         self.assertEqual(pieces, [(self.source, 1.0, 2.0), (self.source, 10.0, 3.0)])
+
+    def test_codecs_an_mp4_cannot_carry_rule_it_out(self):
+        edit = lambda: self.cut(self.clip(0, 60, 30), self.clip(60, 90, 300))
+        for streams in ([('video', 'prores', ''), ('audio', 'pcm_s16le', '')],     # a camera MOV
+                        [('video', 'h264', ''), ('audio', 'pcm_s24le', '')],       # copyable picture, PCM sound
+                        [('video', 'dnxhd', '')],
+                        [('audio', 'aac', '')]):                                   # no picture at all
+            self.media.streams.return_value = streams
+            self.assertIsNone(self.plan(edit()), streams)
+        self.media.streams.return_value = [('video', 'hevc', ''), ('audio', 'aac', ''), ('audio', 'ac3', '')]
+        self.assertIsNotNone(self.plan(edit()))
 
     def test_a_split_that_was_never_cut_is_one_piece(self):
         self.assertEqual(self.plan(self.cut(self.clip(0, 60, 30), self.clip(60, 30, 90))), [(self.source, 1.0, 3.0)])
