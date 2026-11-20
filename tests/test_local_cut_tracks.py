@@ -26,6 +26,27 @@ def local_cut(timeline, sources, spans, follow=(), **options):
 
 
 class GapAndLengthTests(unittest.TestCase):
+    def test_local_cut_preserves_fractional_clips_and_their_markers(self):
+        for speed, length, phase in [(0.25, 1, 0), (0.5, 9, 0), (0.75, 7, 0.25), (1.5, 3, 0.5)]:
+            with self.subTest(speed=speed):
+                first = Clip('a', 3, length, source_in=4, style={'speed': speed, 'source_phase': phase})
+                following = Clip('b', first.end + 11, 90)
+                markers = [{'frame': i} for i in range(following.start + 1)]
+                timeline = Timeline(30000, 1001, [Track('video', 'V', [first, following])], markers)
+                sources = [{'path': name, 'duration': 10} for name in ('a', 'b')]
+                result = local_cut(timeline, sources, {1: [(1, 2)]}, margin=0)
+                kept = result.tracks[0].clips[0]
+                self.assertEqual((kept.start, kept.length, kept.source_phase), (3, length, phase))
+                self.assertEqual(result.markers, markers)
+
+    def test_gaps_on_both_sides_of_removed_clip_stay(self):
+        clips = [Clip('a', 0, 30), Clip('b', 40, 30), Clip('c', 80, 30)]
+        timeline = Timeline(tracks=[Track('video', 'V', clips)], markers=[{'frame': 75}])
+        sources = [{'path': name, 'duration': 1} for name in ('a', 'b', 'c')]
+        result = local_cut(timeline, sources, {1: [(0, 1)]}, whole=True, margin=0)
+        self.assertEqual([c.start for c in result.tracks[0].clips], [0, 50])
+        self.assertEqual(result.markers, [{'frame': 45}])
+
     def test_a_gap_left_between_clips_stays(self):
         timeline = Timeline(fps_num=FPS, tracks=[Track('video', 'Video', [
             Clip('a.mp4', 0, 75, source_length=300), Clip('b.mp4', 135, 75, source_length=300)])],

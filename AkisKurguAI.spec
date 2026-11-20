@@ -70,6 +70,11 @@ a = Analysis(
     noarchive=False,
     optimize=1,
 )
+# Qt uses the unversioned Windows ICU API. A third-party icuuc.dll found on the
+# build machine's PATH may export only version-suffixed symbols and prevent QtCore from loading.
+if os.name == "nt":
+    windows_icu = {"icu.dll", "icuuc.dll", "icuin.dll"}
+    a.binaries = [entry for entry in a.binaries if Path(entry[0]).name.lower() not in windows_icu]
 pyz = PYZ(a.pure)
 
 exe = EXE(

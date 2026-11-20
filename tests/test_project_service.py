@@ -169,6 +169,21 @@ def project_with_media(folder, names=('video.mp4',), outside=None):
 
 
 class PortabilityTests(unittest.TestCase):
+    def test_copy_prefers_its_own_media_and_skips_a_directory_named_like_a_file(self):
+        import shutil
+        original, copy = self.root / 'original', self.root / 'copy'
+        document, paths = project_with_media(original)
+        ps = 'demo.akis.json'
+        project_service.save(original / ps, document)
+        shutil.copytree(original, copy)
+        media = copy / 'media' / 'video.mp4'
+        self.assertTrue(Path(project_service.load_project(copy / ps)[1]).samefile(media))
+        media.unlink()
+        media.mkdir()
+        self.assertTrue(Path(project_service.load_project(copy / ps)[1]).samefile(paths[0]))
+        Path(paths[0]).unlink()
+        self.assertEqual(project_service.missing_media(copy / ps), paths)
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)

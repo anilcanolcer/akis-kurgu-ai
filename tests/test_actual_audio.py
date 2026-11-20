@@ -90,7 +90,8 @@ class ActualAudioTests(unittest.TestCase):
                 expected_ms = 1000 + (monotonic() - start) * 1500
                 self.assertLess(abs(player.position() - expected_ms), 300)
                 audio.sync(timeline, 60, 0.75, force=True)
-                self.assertTrue(wait_for(lambda: abs(player.position() - 2000) < 150), player.errorString())
+                self.assertTrue(wait_for(lambda: abs(player.position() - 2000) < 150
+                                         and abs(player.playbackRate() - 0.75) < 0.01), player.errorString())
                 self.assertAlmostEqual(player.playbackRate(), 0.75, delta=0.01)
             finally:
                 player.stop()

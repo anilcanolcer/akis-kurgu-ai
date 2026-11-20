@@ -5,7 +5,9 @@ One player follows the main sound (an audio track, else the video's own sound), 
 under the music, a second music track…), each at its own clip volume, so what is heard matches the
 export instead of only one of the sources.
 """
-from PySide6.QtCore import QObject, QUrl, Signal
+from time import monotonic
+
+from PySide6.QtCore import QObject, QUrl, Qt, Signal
 from PySide6.QtMultimedia import QMediaPlayer
 
 from akis.timeline_service import audio_target, audio_targets
@@ -23,7 +25,8 @@ class _Lane:
         self.source = None
         self.pending = None
         self.rate = None
-        player.mediaStatusChanged.connect(self._status_changed)
+        self.last_seek = float("-inf")
+        player.mediaStatusChanged.connect(self._status_changed, Qt.ConnectionType.QueuedConnection)
         if hasattr(player, "errorOccurred"):
             player.errorOccurred.connect(self._error)
 
@@ -36,29 +39,40 @@ class _Lane:
         self.source = None
 
     def follow(self, source, position, rate, force):
-        if rate != self.rate:
-            self.player.setPlaybackRate(rate)
-            self.rate = rate
+        rate_changed = rate != self.rate
+        self.rate = rate
         if source != self.source:
             self.source = source
             self.pending = position
             self.player.setSource(QUrl.fromLocalFile(source))
             # Windows media loads asynchronously. Seek only after LoadedMedia.
             return
-        if self.player.mediaStatus() in (QMediaPlayer.MediaStatus.LoadingMedia, QMediaPlayer.MediaStatus.NoMedia):
+        if self.pending is not None:
+            # Reusing an already-loaded URL need not emit another mediaStatusChanged.
+            self.pending = position
+            self._status_changed(self.player.mediaStatus())
+            return
+        if self.player.mediaStatus() in (
+                QMediaPlayer.MediaStatus.LoadingMedia, QMediaPlayer.MediaStatus.NoMedia):
             self.pending = position
             return
-        if force or abs(self.player.position() - position) > 120:
+        # The backend can briefly report a stale position while a seek is in flight.
+        if force or rate_changed or (monotonic() - self.last_seek >= 0.25 and abs(self.player.position() - position) > 120):
+            self.last_seek = monotonic()
             self.player.setPosition(position)
-        self.pending = None
+        if rate_changed:
+            self.player.setPlaybackRate(rate)
         if self.player.playbackState() != QMediaPlayer.PlaybackState.PlayingState:
             self.player.play()
 
     def _status_changed(self, status):
-        if (self.owner.active and self.pending is not None and status in
+        if (status == self.player.mediaStatus() and self.owner.active and self.pending is not None and status in
                 (QMediaPlayer.MediaStatus.LoadedMedia, QMediaPlayer.MediaStatus.BufferedMedia)):
-            self.player.setPosition(self.pending)
+            position = self.pending
             self.pending = None
+            self.last_seek = monotonic()
+            self.player.setPosition(position)
+            self.player.setPlaybackRate(self.rate)
             self.player.play()
 
     def _error(self, error, message):

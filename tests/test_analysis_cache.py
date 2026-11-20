@@ -61,6 +61,15 @@ class CacheTests(unittest.TestCase):
         analysis_cache.remember(other, 'frame', lambda: calls.append(1) or b'')
         self.assertEqual(calls, [])                      # the newer file is still there
 
+    def test_single_file_and_long_loudness_curves_respect_budget(self):
+        with patch.object(analysis_cache, 'MAX_BYTES', 1500):
+            curve = [float(n) for n in range(200)]
+            self.assertIs(analysis_cache.remember(self.file, 'levels', lambda: curve), curve)
+            self.assertEqual(analysis_cache.held_bytes(), 0)
+            for n in range(4):
+                analysis_cache.remember(self.file, n, lambda: b'x' * 800)
+                self.assertLessEqual(analysis_cache.held_bytes(), 1500)
+
 
 class WorkerTests(unittest.TestCase):
     """A second request on the same video does not analyse it again."""

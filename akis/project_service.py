@@ -233,10 +233,8 @@ def normalize_project_path(path):
 
 
 def resolve_media(path, folder, relative):
-    """The existing file a stored media path means: as stored (absolute) first, then relative to folder."""
+    """Prefer the project's own portable copy, falling back to the original file."""
     stored = Path(path)
-    if stored.is_absolute() and stored.exists():
-        return str(stored)
     candidates = []
     if path in relative:
         candidates.append(relative[path])
@@ -247,9 +245,9 @@ def resolve_media(path, folder, relative):
             resolved = (Path(folder) / candidate).resolve()
         except (OSError, ValueError):
             continue
-        if resolved.exists():
+        if resolved.is_file():
             return str(resolved)
-    return None
+    return str(stored) if stored.is_absolute() and stored.is_file() else None
 
 
 def missing_media(path):

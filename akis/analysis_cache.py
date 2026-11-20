@@ -6,6 +6,7 @@ here per file, and a file that changes on disk (size or modification time) is an
 In memory only: nothing is written to disk, and closing the app forgets everything.
 """
 import os
+import sys
 import threading
 
 MAX_BYTES = 96 * 1024 * 1024   # sample frames are the only large entries; oldest files go first
@@ -24,7 +25,14 @@ def file_key(path):
 
 
 def _weight(value):
-    return len(value) if isinstance(value, (bytes, bytearray)) else 256
+    if isinstance(value, (bytes, bytearray)):
+        return len(value)
+    size = sys.getsizeof(value)
+    if isinstance(value, dict):
+        return size + sum(_weight(k) + _weight(v) for k, v in value.items())
+    if isinstance(value, (tuple, list)):
+        return size + sum(map(_weight, value))
+    return size
 
 
 def remember(path, name, compute, *, keep=lambda value: True):
@@ -40,17 +48,20 @@ def remember(path, name, compute, *, keep=lambda value: True):
                 return entries[name]
     value = compute()
     if key is not None and keep(value):
+        weight = _weight(value)
         with _lock:
+            if weight > MAX_BYTES or file_key(path) != key:
+                return value
+            if name in _files.get(key, {}):
+                return _files[key][name]
             stale = [other for other in _files if other[0] == key[0] and other != key]
             for other in stale:              # the file changed on disk: its old results are useless
                 _files.pop(other, None)
                 _sizes.pop(other, None)
             _files.setdefault(key, {})[name] = value
-            _sizes[key] = _sizes.get(key, 0) + _weight(value)
-            while sum(_sizes.values()) > MAX_BYTES and len(_files) > 1:
+            _sizes[key] = _sizes.get(key, 0) + weight
+            while sum(_sizes.values()) > MAX_BYTES:
                 oldest = next(iter(_files))
-                if oldest == key:
-                    break
                 _files.pop(oldest)
                 _sizes.pop(oldest, None)
     return value

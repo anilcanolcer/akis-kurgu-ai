@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import Mock
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QCoreApplication, QObject, Signal
 from PySide6.QtMultimedia import QMediaPlayer
 from akis.timeline_audio import TimelineAudio
 from akis.timeline_model import Clip, Timeline, Track
@@ -113,7 +113,19 @@ class TimelineServiceTests(unittest.TestCase):
         self.assertIn('arka ucu', errors[0])
         self.assertEqual(player.calls, [])
 
+    def test_ready_player_resumes_without_another_load_notification(self):
+        player = FakePlayer()
+        audio = TimelineAudio(player)
+        audio.sync(self.timeline, 25, 2)
+        player.status = QMediaPlayer.MediaStatus.LoadedMedia
+        audio.sync(self.timeline, 28, 2)
+        self.assertEqual(player.offset, 600)
+        self.assertIsNone(audio.pending)
+        self.assertEqual(player.state, QMediaPlayer.PlaybackState.PlayingState)
+
     def test_async_audio_load_and_drift_correction(self):
+        from PySide6.QtWidgets import QApplication
+        app = QApplication.instance() or QApplication([])
         player = FakePlayer()
         audio = TimelineAudio(player)
         audio.sync(self.timeline, 25, 2)
@@ -121,6 +133,7 @@ class TimelineServiceTests(unittest.TestCase):
         audio.sync(self.timeline, 28, 2)
         player.status = QMediaPlayer.MediaStatus.LoadedMedia
         player.mediaStatusChanged.emit(player.status)
+        QCoreApplication.processEvents()
         self.assertEqual(player.offset, 600)
         self.assertEqual(player.rate, 2)
         audio.sync(self.timeline, 34, .5)

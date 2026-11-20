@@ -3,7 +3,7 @@ import os
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 import unittest
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QCoreApplication, QObject, Signal
 from PySide6.QtMultimedia import QMediaPlayer
 from PySide6.QtWidgets import QApplication
 
@@ -30,6 +30,7 @@ class FakePlayer(QObject):
     def load(self):
         self.status = QMediaPlayer.MediaStatus.LoadedMedia
         self.mediaStatusChanged.emit(self.status)
+        QCoreApplication.processEvents()
 
     def setPosition(self, value): self.offset = value
     def setPlaybackRate(self, value): self.rate = value

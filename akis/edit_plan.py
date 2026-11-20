@@ -806,9 +806,9 @@ class _FrameMap:
       same as a ripple delete; for reordered plans it keeps such items next to the material before them.
     """
 
-    def __init__(self, old_clips, new_runs):
+    def __init__(self, old_clips, new_runs, local_pieces=()):
         self.covered = sorted((c.start, c.end) for c in old_clips)
-        pieces = []
+        pieces = list(local_pieces)
         for clip in old_clips:
             for source, src_a, src_b, new_a, owner, speed in new_runs:
                 # A run cut from one known clip carries only that clip's material and markers, even when
@@ -1040,52 +1040,56 @@ def _recut(result, sources, segments, fps, follow=()):
         result.tracks.insert(0, primary)
     old_clips = list(primary.clips)
     by_id = {clip.id: clip for clip in old_clips}
-    new_clips, runs, cursor, last_owner = [], [], 0, None
+    new_clips, runs, local_pieces = [], [], []
+    # Cumulative empty time also preserves gaps on either side of a wholly removed clip.
+    gaps_before = {}
+    previous_end = empty_time = 0
+    for clip in sorted(old_clips, key=lambda item: item.start):
+        empty_time += clip.start - previous_end
+        gaps_before[clip.id] = empty_time
+        previous_end = clip.end
+    cursor = gaps_used = 0
     for segment in segments:
         source = sources[segment['source']]
         path = str(source['path'])
         source_frames = max(1, round(source['duration'] * fps))
         first = min(round(segment['start'] * fps), source_frames - 1)
         length = min(round(segment['end'] * fps), source_frames) - first
-        if length < 1:
-            continue
         owner = by_id.get(segment.get('clip'))
         if owner is not None and owner.source == path:
             # A piece of one known clip (a local cut): it keeps that clip's volume (a muted second use
             # stays muted), speed, look and keyframes, and its exact length: whole source frames would turn
             # a 9-frame 0.5× clip (4.5 source frames) into 8 frames.
-            if owner.id != last_owner:
-                # A gap the user left before this clip stays: "remove the pauses" means pauses in the sound.
-                before = max((c.end for c in old_clips if c.end <= owner.start), default=0)
-                cursor += owner.start - before
-                last_owner = owner.id
             speed = owner.speed
-            # Seconds come back through a few roundings: a frame edge within 1/1000 frame is that edge.
-            snap = lambda value: round(value) if abs(value - round(value)) < 1e-3 else value
-            exact_a = min(snap(segment['start'] * fps), source_frames - 1)
-            exact_b = min(snap(segment['end'] * fps), source_frames)
-            src_in = math.floor(exact_a + 1e-6)
-            phase = round(exact_a - src_in, 9)
-            phase = phase if 1e-6 < phase < 1 - 1e-6 else 0.0
-            frames = round((exact_b - exact_a) / speed)
+            # Round the two boundaries on the owner's timeline, not in source frames.
+            # Even a single displayed frame can occupy less than half a source frame.
+            old_start = round(owner.timeline_frame(segment['start'] * fps))
+            old_end = round(owner.timeline_frame(min(source_frames, segment['end'] * fps)))
+            src_in, phase = owner.source_at(old_start)
+            frames = old_end - old_start
             while frames > 0 and src_in + int(phase + frames * speed + 1e-6) > source_frames:
                 frames -= 1
             if frames < 1:
                 continue
+            cursor += gaps_before[owner.id] - gaps_used
+            gaps_used = gaps_before[owner.id]
             style = with_phase({k: v for k, v in owner.style.items() if not k.startswith('transition')}, phase)
             if new_clips and segment.get('transition'):
                 same = owner.style.get('transition') == segment['transition']
                 style.update(transition=segment['transition'],
                              transition_frames=owner.style.get('transition_frames', 10) if same
                              else max(2, round(TRANSITION_SECONDS * fps)))
-            offset = round((src_in + phase - owner.source_in - owner.source_phase) / speed)
+            offset = old_start - owner.start
             new_clips.append(Clip(path, cursor, frames, source_in=src_in, source_length=source_frames,
                                   volume=owner.volume, keyframes=_slice_keyframes(owner.keyframes, offset, frames),
                                   style=style))
-            runs.append((path, src_in, src_in + max(1, int(phase + frames * speed + 1e-6)), cursor, owner.id, speed))
+            lo, hi = max(old_start, owner.start), min(old_start + frames, owner.end)
+            if lo < hi:
+                local_pieces.append((lo, hi, cursor + lo - old_start))
             cursor += frames
             continue
-        last_owner = None
+        if length < 1:
+            continue
         runs.append((path, first, first + length, cursor, None, 1.0))
         for i, (src_in, piece_length, volume, style, keyframes) in enumerate(_recut_pieces(old_clips, path, first, length)):
             style = dict(style)
@@ -1100,7 +1104,7 @@ def _recut(result, sources, segments, fps, follow=()):
     primary.clips = new_clips
     primary.validate()
 
-    frame_map = _FrameMap(old_clips, runs)
+    frame_map = _FrameMap(old_clips, runs, local_pieces)
     report = {'kept': 0, 'dropped': 0, 'markers_kept': 0, 'markers_dropped': 0}
     for track in result.tracks:
         if track is primary:
