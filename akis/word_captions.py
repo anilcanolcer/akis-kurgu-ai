@@ -58,17 +58,21 @@ def caption_clips(source_clip, words, fps, look):
     """[(timeline start, length, text, style)] for the chunks of `words` (seconds in the source) that the
     video clip `source_clip` shows, placed through its in-point and its own speed."""
     made = []
+    first, last = source_clip.source_bounds
     for chunk in chunks(words):
-        inside = [(a, b, t) for a, b, t in chunk
-                  if source_clip.source_in <= round(a * fps) < source_clip.source_end]
-        if not inside:
-            continue
-        at = [source_clip.timeline_frame(round(a * fps)) for a, _, _ in inside]
-        until = [source_clip.timeline_frame(min(round(b * fps), source_clip.source_end)) for _, b, _ in inside]
-        start = round(at[0])
-        end = min(source_clip.end, max(round(until[-1]), start + 1))
-        timed = [[max(0, round(a) - start), max(1, round(b) - start), t] for a, b, (_, _, t) in zip(at, until, inside)]
-        made.append((start, end - start, ' '.join(t for _, _, t in inside), {'words': timed, 'look': look}))
+        positions = []
+        for a, b, text in chunk:
+            if not first <= a * fps < last:
+                continue
+            start = min(source_clip.end - 1, round(source_clip.timeline_frame(a * fps)))
+            end = min(source_clip.end, max(start + 1, round(source_clip.timeline_frame(min(b * fps, last)))))
+            positions.append((start, end, text))
+        if positions:
+            start = positions[0][0]
+            end = max(b for _, b, _ in positions)
+            timed = [[a - start, b - start, text] for a, b, text in positions]
+            made.append((start, end - start, ' '.join(text for _, _, text in positions),
+                         {'words': timed, 'look': look}))
     return made
 
 

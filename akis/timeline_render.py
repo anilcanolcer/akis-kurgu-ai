@@ -516,7 +516,8 @@ class TimelineRenderer:
                         from akis.shape_art import draw_shape
                         layer += 1
                         picture = Path(tmp) / f'shape{layer}.png'
-                        draw_shape(clip.style, (self.width, self.height), zlib.crc32(clip.id.encode())).save(picture)
+                        shape_id = str(clip.style.get('_shape_seed_id') or clip.id)
+                        draw_shape(clip.style, (self.width, self.height), zlib.crc32(shape_id.encode())).save(picture)
                         args += ['-loop', '1', '-framerate', f'{timeline.fps_num}/{timeline.fps_den}',
                                  '-t', f'{length - skip:.9f}', '-i', str(picture)]
                         elapsed = skip + clip.style.get('_shape_offset', 0) / fps

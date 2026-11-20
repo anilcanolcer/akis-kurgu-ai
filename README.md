@@ -103,7 +103,7 @@ Talking-head videos, tutorials, vlogs and Shorts take hours of repetitive work: 
 - In-app updates that verify the installer's SHA-256 checksum and restore the previous version if anything fails.
 - Proxy files in the background for smooth playback, chunked preview rendering for long edits, HDR (PQ/HLG) sources tone-mapped to SDR.
 
-**Version 0.6.12** preserves frame positions and markers across local cuts, opens a moved project's own media first, bounds the analysis cache and improves Windows audio playback and packaging. [Release notes](https://github.com/anilcanolcer/akis-kurgu-ai/releases/tag/v0.6.12).
+**Version 0.6.13** keeps captions and Shorts timing aligned at fractional speeds, preserves annotations when splitting, and remembers relinked photos. [Release notes](https://github.com/anilcanolcer/akis-kurgu-ai/releases/tag/v0.6.13).
 
 ## Screenshots
 

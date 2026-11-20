@@ -96,6 +96,13 @@ class Clip:
     def source_end(self) -> int:
         return self.source_in + self.source_frames
 
+    @property
+    def source_bounds(self):
+        """The played source interval in frames, including fractional edges."""
+        first = self.source_in + self.source_phase
+        end = first + self.length * self.speed
+        return first, min(end, self.source_length) if self.source_length is not None else end
+
     def source_frame(self, frame) -> int:
         """The source frame shown at timeline `frame` (inside the clip): the one at or just before the
         exact source position. The render, the still preview and a split clip all follow this rule."""
@@ -167,6 +174,12 @@ class Track:
         for name, points in clip.keyframes.items():
             right.keyframes[name] = [dict(p, frame=p['frame']-offset) for p in points if p['frame'] >= offset]
             clip.keyframes[name] = [p for p in points if p['frame'] < offset]
+        if clip.style.get('shape'):
+            shape_length = clip.style.get('_shape_length', clip.length)
+            elapsed = clip.style.get('_shape_offset', 0)
+            shape_id = clip.style.get('_shape_seed_id', clip.id)
+            right.style.update(_shape_length=shape_length, _shape_offset=elapsed + offset, _shape_seed_id=shape_id)
+            clip.style = dict(clip.style, _shape_length=shape_length)
         clip.length = offset
         clip.style = cut_words(clip.style, 0, offset)
         self.add(right)
@@ -220,6 +233,8 @@ class Track:
             clip.style = with_phase(clip.style, phase)
         if delta > 0:
             clip.style = cut_words(clip.style, delta, length)
+        elif delta < 0 and clip.style.get('words'):
+            clip.style = dict(clip.style, words=[[a - delta, b - delta, text] for a, b, text in clip.style['words']])
         clip.keyframes = {name: [dict(p, frame=p['frame'] - delta) for p in points if p['frame'] - delta >= 0]
                           for name, points in clip.keyframes.items()}
         try:

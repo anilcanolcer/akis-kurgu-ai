@@ -340,7 +340,7 @@ def load_project(path, replacements=None):
             style = clip.get('style') if isinstance(clip.get('style'), dict) else {}
             image = style.get(STILL_IMAGE)
             if isinstance(image, str) and image:
-                located = resolve_media(image, folder, relative)
+                located = replacements.get(image) or resolve_media(image, folder, relative)
                 if located:
                     style[STILL_IMAGE] = located
             if clip.get('source') in resolved:

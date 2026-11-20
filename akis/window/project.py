@@ -414,9 +414,11 @@ class ProjectMixin:
             if not chosen:
                 break  # cancelling stops the search; what is still missing is listed after opening
             if stored in photos and Path(chosen).suffix.lower() in STILL_IMAGE_EXTS:
-                chosen = self.rebuild_still(chosen)
-                if not chosen:
-                    continue
+                rebuilt = self.rebuild_still(chosen)
+                if rebuilt:
+                    found[stored] = rebuilt
+                    found[photos[stored]] = chosen
+                continue
             found[stored] = chosen
             # The others follow from where this one went (the same subfolders of the moved folder), but
             # never onto a file another source already got: same-named takes are asked about one by one.
@@ -541,7 +543,8 @@ class ProjectMixin:
         for track in self.multitrack.tracks:
             for clip in track.clips:
                 if clip.source:
-                    self.media_bin.add(clip.source)
+                    image = clip.style.get(timeline_service.STILL_IMAGE)
+                    self.media_bin.add(image if image and Path(image).is_file() else clip.source)
         self.refresh_media_bin()
         # The legacy in/out range, clamped to the video as the old range bar did.
         duration = max(0.01, self.state.duration)

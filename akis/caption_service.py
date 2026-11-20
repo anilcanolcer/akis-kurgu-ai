@@ -55,10 +55,12 @@ def _sentence_track(timeline, source, segments):
                     continue
                 # A long sentence becomes several short captions in a row, not one block of many lines.
                 for piece_start, piece_end, piece in split_caption(text, start, end):
-                    left = max(clip.source_in, round(piece_start * fps))
-                    right = min(clip.source_end, round(piece_end * fps))
-                    if right > left:  # placed where the clip shows those source frames, at its own speed
-                        spans.append((round(clip.timeline_frame(left)), round(clip.timeline_frame(right)), piece))
+                    first, last = clip.source_bounds
+                    left, right = max(first, piece_start * fps), min(last, piece_end * fps)
+                    if right > left:
+                        begin = min(clip.end - 1, round(clip.timeline_frame(left)))
+                        end_frame = min(clip.end, max(begin + 1, round(clip.timeline_frame(right))))
+                        spans.append((begin, end_frame, piece))
     for start, end, text in sorted(spans):
         start = max(start, max((c.end for c in track.clips), default=0))
         if end > start:
