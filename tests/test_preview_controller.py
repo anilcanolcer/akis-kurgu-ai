@@ -147,6 +147,33 @@ class ProxyTests(unittest.TestCase):
         CancellableWorker.instances[-1].finish(CancellableWorker.instances[-1].output)
         self.assertTrue(proxy.is_ready('A'))
 
+    def test_cancelled_render_cannot_report_a_failure_for_its_replacement(self):
+        proxy = self.proxy
+        errors = []
+        proxy.failed.connect(errors.append)
+        proxy.prepare(Timeline(), (160, 90), {}, 'old')
+        old = CancellableWorker.instances[-1]
+        proxy.prepare(Timeline(), (160, 90), {}, 'new')
+        old.failed.emit('Obsolete render')
+        old.finished.emit()
+        self.assertEqual(errors, [])
+        self.assertEqual(proxy.rendering, 'new')
+
+    def test_playing_proxy_keeps_its_frame_rate_while_a_new_project_renders(self):
+        proxy = self.proxy
+        proxy.prepare(Timeline(fps_num=25), (160, 90), {}, 'old')
+        old = CancellableWorker.instances[-1]
+        old.finish(old.output)
+        with patch.object(proxy.player, 'setSource'), patch.object(proxy.player, 'setPlaybackRate'):
+            proxy.play(25, 1.0, 1.0)
+            self.assertEqual(proxy.fps, 25)
+            proxy.prepare(Timeline(fps_num=60), (160, 90), {}, 'new')
+            self.assertEqual(proxy.fps, 25)
+            new = CancellableWorker.instances[-1]
+            new.finish(new.output)
+            proxy.play(60, 1.0, 1.0)
+            self.assertEqual(proxy.fps, 60)
+
     def test_close_cancels_running_proxy_render(self):
         self.proxy.prepare(Timeline(), (160, 90), {}, 'A')
         worker = CancellableWorker.instances[-1]

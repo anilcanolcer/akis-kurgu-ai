@@ -72,6 +72,14 @@ class BoundTests(unittest.TestCase):
         self.assertNotEqual(chunk_preview.piece_key(slice_timeline(moved, 0, 60), size, look), key)
         self.assertNotEqual(chunk_preview.piece_key(slice_timeline(timeline, 0, 60), size, {'fast': True, 'brightness': 5}), key)
 
+    def test_annotations_with_different_drawings_have_different_cache_keys(self):
+        first = Clip('', 0, 60, id='first', style={'shape': 'circle'})
+        second = Clip('', 0, 60, id='second', style={'shape': 'circle'})
+        def key(clip):
+            timeline = Timeline(tracks=[Track('text', 'Annotations', [clip])])
+            return chunk_preview.piece_key(timeline, (320, 180), {})
+        self.assertNotEqual(key(first), key(second))
+
     def test_tidy_keeps_used_and_recent_pieces(self):
         with tempfile.TemporaryDirectory() as folder:
             for index in range(chunk_preview.KEEP_UNUSED + 5):

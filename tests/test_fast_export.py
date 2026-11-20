@@ -28,6 +28,7 @@ class PlanTests(unittest.TestCase):
         self.media = MagicMock()
         self.media.dimensions.return_value = (1920, 1080)
         self.media.is_hdr.return_value = False
+        self.media.video_rate.return_value = 30.0
         # A phone video: H.264 picture and AAC sound, both copyable into an MP4 as they are.
         self.media.streams.return_value = [('video', 'h264', ''), ('audio', 'aac', '')]
 
@@ -54,6 +55,14 @@ class PlanTests(unittest.TestCase):
             self.assertIsNone(self.plan(edit()), streams)
         self.media.streams.return_value = [('video', 'hevc', ''), ('audio', 'aac', ''), ('audio', 'ac3', '')]
         self.assertIsNotNone(self.plan(edit()))
+
+    def test_copy_is_not_offered_when_timeline_changes_source_frame_rate(self):
+        for source_rate, timeline_rate in ((25.0, 30), (120.0, 60), (0.0, 30)):
+            with self.subTest(source_rate=source_rate, timeline_rate=timeline_rate):
+                self.media.video_rate.return_value = source_rate
+                timeline = self.cut(self.clip(0, 60, 30))
+                timeline.fps_num = timeline_rate
+                self.assertIsNone(self.plan(timeline))
 
     def test_a_split_that_was_never_cut_is_one_piece(self):
         self.assertEqual(self.plan(self.cut(self.clip(0, 60, 30), self.clip(60, 30, 90))), [(self.source, 1.0, 3.0)])

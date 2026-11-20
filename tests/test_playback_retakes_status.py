@@ -139,6 +139,23 @@ class PlayWhileRenderingTests(unittest.TestCase):
         w.on_proxy_ready()                                # a copy finished after the pause must not start
         self.play.assert_not_called()
 
+    def test_render_failure_keeps_requested_playback_running(self):
+        w = self.window
+        w.toggle_play()
+        w.on_proxy_failed('Render failed')
+        self.assertFalse(w._play_when_ready)
+        self.assertTrue(w.play_timer.isActive())
+        self.assertEqual(w.play_button.text(), '❚❚')
+
+    def test_frame_playback_restarts_after_the_last_frame(self):
+        w = self.window
+        w._proxy_failed_signature = w.proxy_signature()
+        from akis.timeline_render import duration_frames
+        w.seek_timeline(duration_frames(w.multitrack) - 1)
+        w.toggle_play()
+        self.assertEqual(w.timeline_frame, 0)
+        self.assertTrue(w.play_timer.isActive())
+
     def test_reaching_the_end_first_does_not_start_the_copy_later(self):
         w = self.window
         w.toggle_play()

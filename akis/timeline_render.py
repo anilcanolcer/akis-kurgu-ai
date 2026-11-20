@@ -10,7 +10,6 @@ import re
 import tempfile
 import textwrap
 import uuid
-import zlib
 from pathlib import Path
 from akis import audio_polish, caption_layout, clip_fit, emphasis, word_captions
 from akis.frame_plan import plan_frame, plan_segments
@@ -513,11 +512,11 @@ class TimelineRenderer:
                         base = f'base{layer}'
                         index += 1
                     elif track.kind == 'text' and clip.style.get('shape'):
-                        from akis.shape_art import draw_shape
+                        from akis.shape_art import draw_shape, drawing_seed
                         layer += 1
                         picture = Path(tmp) / f'shape{layer}.png'
-                        shape_id = str(clip.style.get('_shape_seed_id') or clip.id)
-                        draw_shape(clip.style, (self.width, self.height), zlib.crc32(shape_id.encode())).save(picture)
+                        seed = drawing_seed(clip.id, clip.style)
+                        draw_shape(clip.style, (self.width, self.height), seed).save(picture)
                         args += ['-loop', '1', '-framerate', f'{timeline.fps_num}/{timeline.fps_den}',
                                  '-t', f'{length - skip:.9f}', '-i', str(picture)]
                         elapsed = skip + clip.style.get('_shape_offset', 0) / fps

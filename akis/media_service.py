@@ -136,14 +136,18 @@ class MediaService:
             raise ValueError('Medya süresi okunamadı.')
         return int(match.group(1))*3600 + int(match.group(2))*60 + float(match.group(3))
 
+    def video_rate(self, path):
+        "Reported video rate before adapting it to the editor's supported rates."
+        match = re.search(r'Stream #[^\n]*Video:[^\n]*?\b(\d+(?:\.\d+)?) (?:fps|tbr)\b', self.probe(path))
+        return float(match.group(1)) if match else 0.0
+
     def frame_rate(self, path):
         """(numerator, denominator) for a timeline showing this video at its own pace, or None if unknown.
 
         Snapped to the nearest standard rate (phones record slightly uneven rates such as 29.83) and
         kept between 10 and 60: slow-motion footage flagged 120/240 fps plays back at 60.
         """
-        match = re.search(r'Stream #[^\n]*Video:[^\n]*?\b(\d+(?:\.\d+)?) (?:fps|tbr)\b', self.probe(path))
-        rate = float(match.group(1)) if match else 0.0
+        rate = self.video_rate(path)
         if rate <= 0:
             return None
         numerator, denominator = min(FRAME_RATES, key=lambda r: abs(rate - r[0] / r[1]))

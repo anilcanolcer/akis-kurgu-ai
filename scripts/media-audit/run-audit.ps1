@@ -12,7 +12,7 @@ try {
     $env:PYTHONIOENCODING = "utf-8"
     & $python -B -m unittest discover -v
     if ($LASTEXITCODE) { throw "Test suite failed" }
-    foreach ($name in "matrix","timing","deep","kurgu0610","multitrack0610") {
+    foreach ($name in "matrix","timing","deep","kurgu0610","multitrack0610","preview_export") {
         & $python -X utf8 -B "$PSScriptRoot/$name.py" $repo | Out-File "$outDir/$name-final.json" -Encoding utf8
         if ($LASTEXITCODE) { throw "$name failed" }
     }

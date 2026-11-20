@@ -7,11 +7,16 @@ from __future__ import annotations
 
 import math
 import random
+import zlib
 
 COLORS = {'red': (255, 45, 45), 'yellow': (255, 221, 0), 'white': (255, 255, 255),
           'green': (57, 255, 90), 'blue': (60, 160, 255), 'pink': (255, 80, 200)}
 SHAPES = ('circle', 'arrow', 'card')
 SCALE = 2  # supersampling for smooth strokes
+
+
+def drawing_seed(clip_id, style):
+    return zlib.crc32(str(style.get('_shape_seed_id') or clip_id).encode())
 
 
 def _stroke(draw, points, width, colour):

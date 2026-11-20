@@ -165,6 +165,7 @@ class ProxyPlayback(QObject):
         self.worker = None
         self.pending = None         # newest request waiting for a cancelled render to stop
         self.fps = 30.0
+        self._render_fps = self._ready_fps = self.fps
         self.closing = False
         self._start_at = None
         self.audio = QAudioOutput(self)
@@ -225,7 +226,7 @@ class ProxyPlayback(QObject):
         self.counter += 1
         output = str(Path(self.directory.name) / f'proxy_{self.counter}.mp4')
         executable = self.executable() if callable(self.executable) else self.executable
-        self.fps = timeline.fps_num / timeline.fps_den
+        self._render_fps = timeline.fps_num / timeline.fps_den
         self.rendering = signature
         pieces = str(Path(self.directory.name) / 'pieces')   # kept between edits: unchanged pieces are reused
         self.worker = self.worker_factory(timeline, output, self.proxy_size(size), executable,
@@ -241,6 +242,7 @@ class ProxyPlayback(QObject):
             return
         previous = self.path
         self.signature, self.path = self.rendering, path
+        self._ready_fps = self._render_fps
         if previous and previous != path and self.player.source() != QUrl.fromLocalFile(previous):
             self._discard(previous)
 
@@ -253,8 +255,9 @@ class ProxyPlayback(QObject):
             pass
 
     def _render_failed(self, message):
-        self.rendering = None
-        self.failed.emit(message)
+        if self.rendering is not None and not self.closing:
+            self.rendering = None
+            self.failed.emit(message)
 
     def _worker_finished(self):
         self.worker = None
@@ -272,6 +275,7 @@ class ProxyPlayback(QObject):
             self.ready.emit()
 
     def play(self, frame, speed, volume):
+        self.fps = self._ready_fps
         self.audio.setVolume(volume)
         self.player.setPlaybackRate(speed)
         position = round(frame * 1000 / self.fps)

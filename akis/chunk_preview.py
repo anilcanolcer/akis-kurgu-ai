@@ -16,6 +16,7 @@ import json
 import os
 from pathlib import Path
 
+from akis.shape_art import drawing_seed
 from akis.timeline_slice import picture_clips, plan_ranges, slice_timeline, transition_intervals
 
 CHUNK_SECONDS = 8.0      # shorter pieces redraw less after an edit, longer ones draw faster the first time
@@ -70,15 +71,17 @@ def source_stamps(timeline, kinds=None):
 
 def piece_key(part, size, settings):
     """What a piece shows: its sliced timeline's picture, the canvas, the look settings and the state of the
-    media files it draws from. Clip ids are left out, so an undo or a copy of the same content still finds
-    the stored piece."""
+    media files it draws from. Clip ids matter only when they seed the appearance of a drawing."""
     data = part.to_dict()
     # Only the picture: sound tracks and clip volumes do not change a piece (the sound is mixed separately).
     data['tracks'] = [track for track in data['tracks'] if track['kind'] != 'audio']
     for track in data['tracks']:
         for clip in track['clips']:
-            clip.pop('id', None)
+            clip_id = clip.pop('id')
             clip.pop('volume', None)
+            if clip['style'].get('shape') in ('circle', 'arrow'):
+                clip['drawing_seed'] = drawing_seed(clip_id, clip['style'])
+                clip['style'].pop('_shape_seed_id', None)
     files = sorted(source_stamps(part, kinds={'video', 'overlay', 'text'}).items())
     payload = json.dumps([data, list(size), sorted(settings.items()), files], sort_keys=True, default=str)
     return hashlib.sha1(payload.encode()).hexdigest()

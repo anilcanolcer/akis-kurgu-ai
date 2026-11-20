@@ -32,11 +32,12 @@ class PlaybackMixin:
             self.timeline_audio.stop()
             self.play_button.setText('▶')
         else:
-            if not duration_frames(self.multitrack):
+            total = duration_frames(self.multitrack)
+            if not total:
                 return
+            if self.timeline_frame >= total - 1:
+                self.seek_timeline(0)
             if self.proxy_usable():
-                if self.timeline_frame >= duration_frames(self.multitrack) - 1:
-                    self.seek_timeline(0)
                 self.play_button.setText('❚❚')
                 if self.proxy.is_ready(self.proxy_signature()):
                     self.proxy.play(self.timeline_frame, self.state.speed, self.master_volume)
@@ -144,7 +145,10 @@ class PlaybackMixin:
         failed = self._proxy_requested or self.proxy.signature or self.proxy_signature()
         self._proxy_failed_signature = failed
         log.warning("Akıcı önizleme başarısız (%s): %s", failed, message)
+        resume = self._play_when_ready or self.proxy.playing
         self.stop_proxy_playback(refresh=False)
+        if resume and duration_frames(self.multitrack):
+            self.start_frame_playback()
         self.set_status(self.ui_text('Akıcı önizleme kullanılamadı, kare kare önizlemeye geçildi: {error}', error=message[:120]))
 
     def update_range_label(self) -> None:

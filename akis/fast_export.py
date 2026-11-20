@@ -54,14 +54,17 @@ def plan(timeline, adjustments, canvas, media):
         if clip.source != source or clip.start != cursor or clip.volume != 1.0 or clip.style or clip.keyframes:
             return None
         cursor = clip.end
+    fps = timeline.fps_num / timeline.fps_den
     try:
         if tuple(media.dimensions(source)) != tuple(canvas) or media.is_hdr(source) is True:
             return None
         if not copyable_codecs(media.streams(source)):
             return None
+        # FFmpeg prints common fractional rates rounded to two decimals (e.g. 23.98).
+        if abs(media.video_rate(source) - fps) > 0.0051:
+            return None
     except Exception:  # a file that cannot be probed is not a candidate
         return None
-    fps = timeline.fps_num / timeline.fps_den
     pieces = []
     for clip in clips:
         if pieces and pieces[-1][1] + pieces[-1][2] == clip.source_in:  # a split that was never cut: one piece
