@@ -103,7 +103,7 @@ Konuşma videoları, eğitimler, vloglar ve Shorts saatlerce tekrar eden iş ist
 - Uygulama içinden güncelleme: kurucunun SHA-256 özeti doğrulanır, bir sorun olursa eski sürüm geri yüklenir.
 - Akıcı oynatma için arka planda proxy, uzun kurgularda parçalı önizleme, HDR (PQ/HLG) kaynaklarda SDR'ye ton eşleme.
 
-**0.6.7 sürümünde:** Uzun videolarda oynatma hemen başlar (akıcı önizleme hazır olana kadar kare kare ve sesli), “Tekrarları kes” tek parça gelen konuşma metnindeki tekrarları da bulur ve durum iletileri İngilizce arayüzde İngilizce görünür. [0.6.7 sürüm notlarını okuyun](https://github.com/anilcanolcer/akis-kurgu-ai/releases/tag/v0.6.7).
+**0.6.8 sürümünde:** Hızlı dışa aktarma yalnızca MP4'e olduğu gibi kopyalanabilen videolarda önerilir (ProRes ya da PCM sesli kamera MOV dosyalarında önerilmez), geçici klasör yolunda tek tırnak olduğunda dışa aktarma çalışır ve FCPXML ses dosyalarını gerçek kanal sayılarıyla ses olarak tanımlar. [0.6.8 sürüm notlarını okuyun](https://github.com/anilcanolcer/akis-kurgu-ai/releases/tag/v0.6.8).
 
 ## Ekran görüntüleri
 

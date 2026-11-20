@@ -103,7 +103,7 @@ Talking-head videos, tutorials, vlogs and Shorts take hours of repetitive work: 
 - In-app updates that verify the installer's SHA-256 checksum and restore the previous version if anything fails.
 - Proxy files in the background for smooth playback, chunked preview rendering for long edits, HDR (PQ/HLG) sources tone-mapped to SDR.
 
-**Version 0.6.7:** playback starts at once on long videos (frame by frame with sound until smooth playback is ready), “Remove retakes” finds repeated sentences inside one long transcript segment, and status messages follow the English interface. [Read the 0.6.7 release notes](https://github.com/anilcanolcer/akis-kurgu-ai/releases/tag/v0.6.7).
+**Version 0.6.8:** fast export is offered only for videos MP4 can carry as they are (not ProRes or PCM camera MOV files), exports work when the temporary folder path contains a single quote, and FCPXML describes sound files as sound with their real channel count. [Read the 0.6.8 release notes](https://github.com/anilcanolcer/akis-kurgu-ai/releases/tag/v0.6.8).
 
 ## Screenshots
 
