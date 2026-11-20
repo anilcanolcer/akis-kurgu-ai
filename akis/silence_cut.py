@@ -64,24 +64,29 @@ def silent_spans(levels, threshold_db=DEFAULT_THRESHOLD_DB, min_silence=DEFAULT_
     return [(a * window, b * window) for a, b in spans if (b - a) * window >= need]
 
 
-def keep_segments(segments, silences, margin=DEFAULT_MARGIN, min_keep=MIN_KEEP):
+def keep_segments(segments, silences, margin=DEFAULT_MARGIN, min_keep=MIN_KEEP, whole=False):
     """Cut the silences out of the main cut.
 
-    segments: edit_plan.current_segments() ([{'source', 'start', 'end', 'transition'?}], seconds in the source).
+    segments: edit_plan.current_segments() ([{'source', 'start', 'end', 'transition'?, 'clip'?, 'speed'?}],
+    seconds in the source). Every other key of a segment ('clip', 'speed') is kept on each of its pieces.
     silences: {source index: [(start, end)]} in source seconds.
     Returns (new segments, cuts) where cuts lists every removed range as (segment number, start, end),
     the segment number counting the given segments from 0.
     A silence keeps `margin` seconds on each side that touches speech; one at the very start or end of a
-    segment is removed up to the edge. A segment that is silent throughout is left alone: emptying the
-    video is never what "remove the pauses" means.
+    segment is removed up to the edge. `margin` and `min_keep` are heard seconds: a 2× segment keeps twice as
+    much source. By default a segment covered throughout is left alone: emptying the video is never what
+    "remove the pauses" means. whole=True removes it too (a speaker, filler or retake filling a clip).
     """
     result, cuts = [], []
     for number, segment in enumerate(segments):
         source, first, last = segment['source'], segment['start'], segment['end']
+        rate = float(segment.get('speed', 1.0))
+        pad, shortest = margin * rate, min_keep * rate
+        extra = {key: value for key, value in segment.items() if key not in ('source', 'start', 'end', 'transition')}
         removed = []
         for a, b in sorted(silences.get(source, ())):
-            lo = first if a <= first else a + margin
-            hi = last if b >= last else b - margin
+            lo = first if a <= first else a + pad
+            hi = last if b >= last else b - pad
             lo, hi = max(lo, first), min(hi, last)
             if hi - lo > 1e-6:
                 removed.append((lo, hi))
@@ -93,15 +98,18 @@ def keep_segments(segments, silences, margin=DEFAULT_MARGIN, min_keep=MIN_KEEP):
         if last > cursor:
             kept.append([cursor, last])
         # A sliver of sound between two silences (a click, a breath) goes with them instead of flickering by.
-        merged = [piece for piece in kept if piece[1] - piece[0] >= min_keep]
+        merged = [piece for piece in kept if piece[1] - piece[0] >= shortest]
         if not merged:
-            result.append(dict(segment))
+            if whole and removed:
+                cuts.append((number, first, last))
+            else:
+                result.append(dict(segment))
             continue
         cursor = first
         for n, (a, b) in enumerate(merged):
             if a > cursor:
                 cuts.append((number, cursor, a))
-            piece = {'source': source, 'start': round(a, 3), 'end': round(b, 3)}
+            piece = {'source': source, 'start': round(a, 6), 'end': round(b, 6), **extra}
             if not n and segment.get('transition'):
                 piece['transition'] = segment['transition']
             result.append(piece)
@@ -112,7 +120,8 @@ def keep_segments(segments, silences, margin=DEFAULT_MARGIN, min_keep=MIN_KEEP):
 
 
 def duration(segments):
-    return sum(segment['end'] - segment['start'] for segment in segments)
+    """Heard seconds: a segment at its clip's own speed lasts (end - start) / speed."""
+    return sum((segment['end'] - segment['start']) / float(segment.get('speed', 1.0)) for segment in segments)
 
 
 def clock(seconds):

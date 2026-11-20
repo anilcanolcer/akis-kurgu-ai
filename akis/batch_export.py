@@ -59,7 +59,7 @@ def build(source, media, *, cut_silences=False, template=None, measure=None):
         user_templates.apply(timeline, template)
     if cut_silences:
         sources = [{'path': source, 'duration': seconds}]
-        segments = edit_plan.current_segments(timeline, sources)
+        segments = edit_plan.current_segments(timeline, sources, keep=True)
         if measure is None:
             # Use the same process owner as probing/rendering so Cancel also stops this stage. The
             # measurement helper accepts subprocess.run's full command; MediaService adds its own exe.

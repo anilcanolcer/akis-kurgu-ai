@@ -97,11 +97,13 @@ class CutStrip(QWidget):
         offsets, cursor = [], 0.0
         for segment in self.segments:
             offsets.append(cursor)
-            cursor += segment['end'] - segment['start']
+            cursor += silence_cut.duration([segment])
         found = [(0.0, 1.0, False)]
         for number, a, b in self.cuts:
-            base = offsets[number] - self.segments[number]['start']
-            found.append(((base + a) / total, (base + b) / total, True))
+            segment = self.segments[number]
+            rate = float(segment.get('speed', 1.0))
+            start, end = (offsets[number] + (x - segment['start']) / rate for x in (a, b))
+            found.append((start / total, end / total, True))
         return found
 
     def paintEvent(self, event):

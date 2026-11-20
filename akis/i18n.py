@@ -444,6 +444,9 @@ EN_UI = {
     'Yalnız Konuşmacı {number}': 'Speaker {number} only',
     '{count} konuşmacı değişimi işaretlendi.': '{count} speaker changes were marked.',
     'Kesilecek bir yer kalmadı.': 'There is nothing left to cut.',
+    'Ana videoda bu konuşmacının konuştuğu bir yer yok.': 'This speaker does not speak anywhere in the main video.',
+    'Dolgu sözcükleri kesilince videoda hiçbir şey kalmıyor.': 'Cutting the filler words would leave nothing of the video.',
+    'Tekrarlar kesilince videoda hiçbir şey kalmıyor.': 'Cutting the retakes would leave nothing of the video.',
     'Yalnız Konuşmacı {number} kaldı. Beğenmezseniz geri alabilirsiniz (Ctrl+Z).': 'Only speaker {number} is left. You can undo this (Ctrl+Z).',
     'Örnek videonun stilini al…': 'Take the style of a sample video…',
     'Beğendiğiniz bir videonun oranını, kadrajını, ses düzeyini ve rengini okur; şablon olarak kaydedip bu projeye uygular. İnternet gerekmez.':

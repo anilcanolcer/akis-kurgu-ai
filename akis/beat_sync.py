@@ -78,16 +78,23 @@ def snap_segments(segments, beat_times, durations, max_shift=MAX_SHIFT, min_leng
     result, cursor, moved = [], 0.0, 0
     for index, segment in enumerate(segments):
         piece = dict(segment)
-        end_at = cursor + piece['end'] - piece['start']
+        rate = float(piece.get('speed', 1.0))     # a sped-up clip covers its source in less time
+        end_at = cursor + (piece['end'] - piece['start']) / rate
         if index < len(segments) - 1 and beat_times:
             target = min(beat_times, key=lambda beat: abs(beat - end_at))
             shift = target - end_at
-            longest = durations[piece['source']] - piece['end']
-            shortest = (piece['end'] - piece['start']) - min_length
+            longest = (durations[piece['source']] - piece['end']) / rate
+            shortest = (piece['end'] - piece['start']) / rate - min_length
             shift = max(-shortest, min(longest, shift))
             if abs(target - end_at) <= max_shift and abs(shift) > 1e-3:
-                piece['end'] = round(piece['end'] + shift, 4)
+                piece['end'] = round(piece['end'] + shift * rate, 6)
                 moved += 1
         result.append(piece)
-        cursor += piece['end'] - piece['start']
+        cursor += (piece['end'] - piece['start']) / rate
     return result, moved
+
+
+def timeline_beats(beat_times, clip, fps):
+    """Beats found in a music clip's source stretch (seconds from its source_in), as timeline seconds:
+    music played at 1.5× reaches each beat in two thirds of the time."""
+    return [clip.start / fps + beat / clip.speed for beat in beat_times]

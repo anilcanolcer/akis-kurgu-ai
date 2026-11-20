@@ -11,6 +11,7 @@ WINDOW = 0.02          # seconds per loudness value (akis.silence_cut)
 STEP = 2.0             # seconds between candidate starts
 RISE_DB = 9.0
 SNAP = 4.0             # seconds an end may move to reach a pause
+AUDIBLE_DB = -45.0     # quieter than this is room tone or digital silence, never speech
 
 
 def timeline_levels(timeline, levels_for, window=WINDOW):
@@ -22,7 +23,7 @@ def timeline_levels(timeline, levels_for, window=WINDOW):
     curve = [-100.0] * int(total / window)
     cache = {}
     for clip in clips:
-        if not clip.source:
+        if not clip.source or clip.volume <= 0 or main.muted:   # what is not heard in the edit does not count
             continue
         if clip.source not in cache:
             cache[clip.source] = levels_for(clip.source)
@@ -41,7 +42,7 @@ def _rises(levels, back, apart):
     for index in range(back, len(levels) - 1):
         if index - last < apart:
             continue
-        if levels[index] - statistics.median(levels[index - back:index]) >= RISE_DB:
+        if levels[index] >= AUDIBLE_DB and levels[index] - statistics.median(levels[index - back:index]) >= RISE_DB:
             found.append(index)
             last = index
     return found
@@ -52,13 +53,17 @@ def score(levels, length, window=WINDOW, step=STEP):
     size, hop = int(length / window), max(1, int(step / window))
     if len(levels) < size or size <= 0:
         return []
-    floor = statistics.median(levels)
+    # Comparing with the recording's own median alone made a silent recording "all speech": every value
+    # sat at the median. Sound has to be audible as well (akis.silence_cut's default silence threshold).
+    if max(levels) < AUDIBLE_DB:
+        return []
+    floor = max(statistics.median(levels) - 3, AUDIBLE_DB)
     rises = _rises(levels, max(1, int(1.0 / window)), max(1, int(0.5 / window)))
-    loud = sorted(levels)[int(len(levels) * 0.9)]
+    loud = max(sorted(levels)[int(len(levels) * 0.9)], AUDIBLE_DB)
     found = []
     for begin in range(0, len(levels) - size + 1, hop):
         stretch = levels[begin:begin + size]
-        speech = sum(1 for level in stretch if level > floor - 3) / size
+        speech = sum(1 for level in stretch if level > floor) / size
         count = sum(1 for index in rises if begin <= index < begin + size)
         energy = sum(1 for level in stretch if level >= loud) / size
         value = speech * 2 + min(count, 15) * 0.3 + energy * 3

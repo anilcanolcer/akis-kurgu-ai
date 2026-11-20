@@ -4,15 +4,43 @@ slice_timeline() is shared by Shorts (one part per range) and by long exports, w
 in ranges so ffmpeg never holds hundreds of decoders at once (see TimelineRenderer.export).
 """
 from copy import deepcopy
+from uuid import uuid4
 
 from akis.timeline_model import Timeline, Track, cut_words, with_phase
 
+FREEZE = '_freeze'                          # style: show the clip's source_in frame for its whole length
+TRANSITION_ELAPSED = '_transition_elapsed'  # style: frames of the transition already shown before this piece
+
+
+def _held_picture(track, clip, frames):
+    """The outgoing clip's last picture, frozen for `frames` frames from 0: what the incoming clip's
+    transition is drawn over when a range starts inside (or right at) that transition."""
+    before = next((c for c in track.clips if c.end == clip.start and c.source), None)
+    if before is None or frames < 1:
+        return None
+    held = deepcopy(before)
+    held.id = uuid4().hex
+    last = before.source_frame(before.end - 1)
+    held.start, held.length, held.source_in, held.keyframes = 0, frames, last, {}
+    held.style = {k: v for k, v in before.style.items()
+                  if not k.startswith('transition') and k not in ('speed', 'source_phase', 'punch', 'words')}
+    held.style[FREEZE] = True
+    return held
+
 
 def slice_timeline(timeline, start, end):
-    """A new timeline with what lies between frames `start` and `end`, moved to begin at 0."""
+    """A new timeline with what lies between frames `start` and `end`, moved to begin at 0.
+
+    The part lasts end - start frames even where nothing lies at its end: a Short cut from an edit with a
+    gap keeps its planned length (black and quiet where the edit is). A cut inside a transition keeps the
+    transition at the point it has reached, drawn over the outgoing clip's held last picture, so the part
+    shows the same frames as the whole edit."""
+    from akis.timeline_render import transition_of
     part = Timeline(fps_num=timeline.fps_num, fps_den=timeline.fps_den)
+    part.length_floor = max(0, end - start)
     for track in timeline.tracks:
         kept = Track(track.kind, track.name, muted=track.muted)
+        held_track = None
         for clip in track.clips:
             a, b = max(clip.start, start), min(clip.end, end)
             if b <= a:
@@ -30,10 +58,22 @@ def slice_timeline(timeline, start, end):
             if offset and piece.keyframes:
                 piece.keyframes = {k: [dict(p, frame=p['frame'] - offset) for p in v if p['frame'] >= offset]
                                    for k, v in piece.keyframes.items()}
-            if offset:  # the clip's own entrance belongs to its real start, not to this cut
+            transition = transition_of(track, clip)
+            if transition and offset < transition[1]:
+                if offset or min(int(clip.style.get('transition_frames', 10)), piece.length // 2) != transition[1]:
+                    # Pinned: the transition runs at its full length, `offset` frames of it already shown.
+                    piece.style = dict(piece.style, transition_frames=transition[1], **{TRANSITION_ELAPSED: offset})
+                if a == start and not track.muted:
+                    held = _held_picture(track, clip, min(transition[1] - offset, piece.length))
+                    if held is not None:
+                        held_track = held_track or Track('overlay', track.name)
+                        held_track.clips.append(held)
+            elif offset:  # the clip's own entrance belongs to its real start, not to this cut
                 piece.style = {k: v for k, v in piece.style.items() if not k.startswith('transition')}
             piece.style = cut_words(piece.style, offset, piece.length)
             kept.clips.append(piece)
+        if held_track:
+            part.tracks.append(held_track)   # drawn first: under the incoming picture
         part.tracks.append(kept)
     part.markers = [dict(m, frame=m['frame'] - start) for m in timeline.markers if start <= m.get('frame', 0) < end]
     return part

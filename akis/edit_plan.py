@@ -12,7 +12,7 @@ from pathlib import Path
 
 from akis.caption_service import caption_track
 from akis.shape_art import COLORS, SHAPES
-from akis.timeline_model import Clip, Timeline, Track
+from akis.timeline_model import Clip, Timeline, Track, with_phase
 from akis.timeline_render import TEXT_COLORS, TEXT_SCALE, TRANSITIONS
 
 ASPECTS = ('9:16', '16:9', '1:1', '4:5')
@@ -143,11 +143,15 @@ def primary_duration(timeline):
     return max(clip.end for clip in primary.clips) / (timeline.fps_num / timeline.fps_den)
 
 
-def current_segments(timeline, sources):
+def current_segments(timeline, sources, keep=False):
     """Describe the present main cut (primary video track only) so follow-up prompts can refine it.
 
     B-roll and other upper video tracks are left out: they are not part of the cut the model rewrites.
     Existing transitions are reported so a plan that re-emits the cut can keep them.
+    keep: also name the clip each segment comes from ('clip') and its speed ('speed', when not 1×), with
+    exact times. A local tool (silence, filler, retake and speaker cuts, beat snapping) that shortens these
+    segments then gives every piece left its own clip's sound, speed, look and markers back, even where the
+    same footage is used twice. Plans from the AI never carry these keys.
     """
     primary = primary_track(timeline)
     if primary is None:
@@ -162,6 +166,13 @@ def current_segments(timeline, sources):
                    'end': round(clip.source_end / fps, 2)}
         if segments and clip.style.get('transition') in TRANSITIONS:
             segment['transition'] = clip.style['transition']
+        if keep:
+            segment['clip'] = clip.id
+            if clip.speed != 1.0:
+                segment['speed'] = clip.speed
+            begin = clip.source_in + clip.source_phase
+            segment['start'] = round(begin / fps, 6)
+            segment['end'] = round((begin + clip.length * clip.speed) / fps, 6)
         segments.append(segment)
     return segments
 
@@ -793,12 +804,15 @@ class _FrameMap:
         self.covered = sorted((c.start, c.end) for c in old_clips)
         pieces = []
         for clip in old_clips:
-            for source, src_a, src_b, new_a in new_runs:
-                if source != clip.source:
+            for source, src_a, src_b, new_a, owner, speed in new_runs:
+                # A run cut from one known clip carries only that clip's material and markers, even when
+                # the same footage is used again elsewhere in the old cut.
+                if source != clip.source or (owner is not None and owner != clip.id):
                     continue
                 lo, hi = max(src_a, clip.source_in), min(src_b, clip.source_end)
                 if hi > lo:
-                    pieces.append((round(clip.timeline_frame(lo)), round(clip.timeline_frame(hi)), new_a + lo - src_a))
+                    pieces.append((round(clip.timeline_frame(lo)), round(clip.timeline_frame(hi)),
+                                   new_a + round((lo - src_a) / speed)))
         self.pieces = pieces
         kept = []
         for a, b in sorted((a, b) for a, b, _ in pieces):
@@ -897,6 +911,7 @@ def _recut(result, sources, segments, fps):
         primary = Track('video', 'Video')
         result.tracks.insert(0, primary)
     old_clips = list(primary.clips)
+    by_id = {clip.id: clip for clip in old_clips}
     new_clips, runs, cursor = [], [], 0
     for segment in segments:
         source = sources[segment['source']]
@@ -906,7 +921,28 @@ def _recut(result, sources, segments, fps):
         length = min(round(segment['end'] * fps), source_frames) - first
         if length < 1:
             continue
-        runs.append((path, first, first + length, cursor))
+        owner = by_id.get(segment.get('clip'))
+        if owner is not None and owner.source == path:
+            # A piece of one known clip (a local cut): it keeps that clip's volume (a muted second use
+            # stays muted), speed, look and keyframes.
+            speed = owner.speed
+            frames = int(length / speed + 1e-6)
+            if frames < 1:
+                continue
+            style = with_phase({k: v for k, v in owner.style.items() if not k.startswith('transition')}, 0)
+            if cursor and segment.get('transition'):
+                same = owner.style.get('transition') == segment['transition']
+                style.update(transition=segment['transition'],
+                             transition_frames=owner.style.get('transition_frames', 10) if same
+                             else max(2, round(TRANSITION_SECONDS * fps)))
+            offset = round((first - owner.source_in - owner.source_phase) / speed)
+            new_clips.append(Clip(path, cursor, frames, source_in=first, source_length=source_frames,
+                                  volume=owner.volume, keyframes=_slice_keyframes(owner.keyframes, offset, frames),
+                                  style=style))
+            runs.append((path, first, first + length, cursor, owner.id, speed))
+            cursor += frames
+            continue
+        runs.append((path, first, first + length, cursor, None, 1.0))
         for i, (src_in, piece_length, volume, style, keyframes) in enumerate(_recut_pieces(old_clips, path, first, length)):
             style = dict(style)
             # Only the plan sets transitions: the model is shown the existing ones and told to restate them.

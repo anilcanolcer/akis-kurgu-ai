@@ -52,6 +52,9 @@ def transition_of(track, clip):
     name = clip.style.get('transition')
     if track.kind != 'video' or name not in TRANSITIONS:
         return None
+    if '_transition_elapsed' in clip.style:   # a piece of a cut clip: the whole clip's transition, as it was
+        frames = int(clip.style.get('transition_frames', 10))
+        return (name, frames) if frames > int(clip.style['_transition_elapsed']) else None
     frames = min(int(clip.style.get('transition_frames', 10)), clip.length // 2)
     return (name, frames) if frames >= 1 else None
 
@@ -69,7 +72,10 @@ def active_clips(timeline, frame):
 
 
 def duration_frames(timeline):
-    return max((clip.end for track in timeline.tracks if not track.muted for clip in track.clips), default=0)
+    """Frames to render: up to the last clip's end, or a slice's own length (akis.timeline_slice) where
+    the part ends in a gap."""
+    return max(max((clip.end for track in timeline.tracks if not track.muted for clip in track.clips), default=0),
+               getattr(timeline, 'length_floor', 0))
 
 
 def output_overwrites_source(timeline, output, extra_sources=()):
@@ -428,7 +434,13 @@ class TimelineRenderer:
                         # Each clip has its own input, seeked (not decoded from the source's start);
                         # the clip's audio below reads the same seeked input.
                         sound_lead = None
-                        if rate != 1.0 or phase or self._off_grid(clip.source, timeline):
+                        if clip.style.get('_freeze'):
+                            # One picture held for the whole clip (akis.timeline_slice: the outgoing clip
+                            # under a transition a part starts in). It has no sound of its own.
+                            lead = self._open_input(args, clip.source, clip.source_in / fps, False)
+                            chain = (f'[{index}:v]{self._trim("trim", lead, 1 / fps)},setpts=PTS-STARTPTS,'
+                                     f'tpad=stop_mode=clone:stop_duration={length:.9f}')
+                        elif rate != 1.0 or phase or self._off_grid(clip.source, timeline):
                             chain, lead, sound_lead = self._exact_frames(args, index, clip, timeline, skip, frame is None)
                         else:
                             lead = self._open_input(args, clip.source, source_in + skip * rate, frame is None)
@@ -450,13 +462,17 @@ class TimelineRenderer:
                         transition = transition_of(track, clip)
                         if transition:
                             name, seconds = transition[0], transition[1] / fps
+                            # A piece cut inside its transition (akis.timeline_slice) carries on from there.
+                            elapsed = int(clip.style.get('_transition_elapsed', 0)) / fps
+                            ahead, back = (f',setpts=PTS+{elapsed:.9f}/TB', f',setpts=PTS-{elapsed:.9f}/TB') \
+                                if elapsed else ('', '')
                             if name == 'fade':
-                                chain += f',format=yuva420p,fade=t=in:st=0:d={seconds:.9f}:alpha=1'
+                                chain += f'{ahead},format=yuva420p,fade=t=in:st=0:d={seconds:.9f}:alpha=1{back}'
                             elif name in ('flash', 'dip'):
                                 tint = 'white' if name == 'flash' else 'black'
-                                chain += f',fade=t=in:st=0:d={seconds:.9f}:color={tint}'
+                                chain += f'{ahead},fade=t=in:st=0:d={seconds:.9f}:color={tint}{back}'
                             else:  # eased slide of the incoming picture over the held outgoing one
-                                ease = f'pow(max(0,1-(t-({local_start:.9f}))/{seconds:.9f}),2)'
+                                ease = f'pow(max(0,1-(t-({local_start - elapsed:.9f}))/{seconds:.9f}),2)'
                                 axis, extent = ('x', 'W') if name in ('slide_left', 'slide_right') else ('y', 'H')
                                 sign = '' if name in ('slide_left', 'slide_up') else '-'
                                 position = f"{axis}='{sign}{extent}*{ease}':"

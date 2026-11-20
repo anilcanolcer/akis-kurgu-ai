@@ -660,7 +660,7 @@ class TimelineEditMixin:
         except (ValueError, RuntimeError, OSError) as exc:
             QMessageBox.warning(self, APP_NAME, self.ui_text('Video okunamadı: {error}', error=exc))
             return
-        segments = edit_plan.current_segments(self.multitrack, sources)
+        segments = edit_plan.current_segments(self.multitrack, sources, keep=True)
         if not segments:
             QMessageBox.information(self, APP_NAME, self.ui_text('Zaman çizelgesinde kesilecek video yok.'))
             return
@@ -697,13 +697,17 @@ class TimelineEditMixin:
             QMessageBox.warning(self, APP_NAME, self.ui_text('Video okunamadı: {error}', error=exc))
             return
         index = next((i for i, source in enumerate(sources) if source['path'] == self.caption_source), None)
-        segments = edit_plan.current_segments(self.multitrack, sources)
+        segments = edit_plan.current_segments(self.multitrack, sources, keep=True)
         if index is None or not any(segment['source'] == index for segment in segments):
             QMessageBox.information(self, APP_NAME, self.ui_text('Konuşma metninin videosu zaman çizelgesinde yok.'))
             return
-        new, removed = silence_cut.keep_segments(segments, {index: [(a, b) for a, b, _, _ in cuts]}, margin=0)
+        new, removed = silence_cut.keep_segments(segments, {index: [(a, b) for a, b, _, _ in cuts]}, margin=0,
+                                                 whole=True)
         if not removed:
             QMessageBox.information(self, APP_NAME, self.ui_text('Tekrarlar zaten kesilmiş.'))
+            return
+        if not new:
+            QMessageBox.information(self, APP_NAME, self.ui_text('Tekrarlar kesilince videoda hiçbir şey kalmıyor.'))
             return
         if QMessageBox.question(self, APP_NAME, retakes.summary(cuts, self.ui_template),
                                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
@@ -823,10 +827,14 @@ class TimelineEditMixin:
             QMessageBox.warning(self, APP_NAME, self.ui_text('Video okunamadı: {error}', error=exc))
             return
         index = next((i for i, item in enumerate(sources) if item['path'] == source), None)
-        segments = edit_plan.current_segments(self.multitrack, sources)
-        new, removed = silence_cut.keep_segments(segments, {index: spans}, margin=0, min_keep=0.3)
+        segments = edit_plan.current_segments(self.multitrack, sources, keep=True)
+        # whole=True: a clip where only the other speakers talk goes entirely.
+        new, removed = silence_cut.keep_segments(segments, {index: spans}, margin=0, min_keep=0.3, whole=True)
         if index is None or not removed:
             QMessageBox.information(self, APP_NAME, self.ui_text('Kesilecek bir yer kalmadı.'))
+            return
+        if not new:
+            QMessageBox.information(self, APP_NAME, self.ui_text('Ana videoda bu konuşmacının konuştuğu bir yer yok.'))
             return
         try:
             timeline = edit_plan.apply_plan(self.multitrack, sources, {'segments': new})
@@ -849,10 +857,13 @@ class TimelineEditMixin:
             QMessageBox.warning(self, APP_NAME, self.ui_text('Video okunamadı: {error}', error=exc))
             return
         index = {source['path']: i for i, source in enumerate(sources)}
-        segments = edit_plan.current_segments(self.multitrack, sources)
+        segments = edit_plan.current_segments(self.multitrack, sources, keep=True)
         wanted = {index[path]: [(a, b) for a, b, _ in source_cuts] for path, source_cuts in found.items()
                   if path in index and source_cuts}
-        new, removed = silence_cut.keep_segments(segments, wanted, margin=0, min_keep=0.05)
+        new, removed = silence_cut.keep_segments(segments, wanted, margin=0, min_keep=0.05, whole=True)
+        if removed and not new:
+            QMessageBox.information(self, APP_NAME, self.ui_text('Dolgu sözcükleri kesilince videoda hiçbir şey kalmıyor.'))
+            return
         if not removed:
             QMessageBox.information(self, APP_NAME, self.ui_text('Dolgu sözcükleri zaten kesilmiş.'))
             return
@@ -883,20 +894,22 @@ class TimelineEditMixin:
         except (ValueError, RuntimeError, OSError) as exc:
             QMessageBox.warning(self, APP_NAME, self.ui_text('Video okunamadı: {error}', error=exc))
             return
-        segments = edit_plan.current_segments(self.multitrack, sources)
+        segments = edit_plan.current_segments(self.multitrack, sources, keep=True)
         if len(segments) < 2:
             QMessageBox.information(self, APP_NAME, self.ui_text('Ritme oturtulacak kesim yok; önce videoyu bölün ya da birkaç klip ekleyin.'))
             return
         fps = self.multitrack.fps_num / self.multitrack.fps_den
         executable = app_support.ffmpeg_path()
         self.run_analysis(self.ui_text('Müziğin ritmi çözümleniyor…'),
-                          lambda: beat_sync.beats(beat_sync.read_onsets(executable, music.source, music.source_in / fps,
-                                                                       music.length / fps)),
+                          # The music's own stretch of source: at 1.5× its clip plays 1.5 × length of it.
+                          lambda: beat_sync.beats(beat_sync.read_onsets(
+                              executable, music.source, (music.source_in + music.source_phase) / fps,
+                              music.length * music.speed / fps)),
                           lambda beats: self.finish_beat_snap(beats, music, sources, segments))
 
     def finish_beat_snap(self, beats, music, sources, segments) -> None:
         fps = self.multitrack.fps_num / self.multitrack.fps_den
-        found = [music.start / fps + beat for beat in beats]
+        found = beat_sync.timeline_beats(beats, music, fps)
         if not found:
             QMessageBox.information(self, APP_NAME, self.ui_text('Müzikte belirgin bir ritim bulunamadı.'))
             return
