@@ -103,7 +103,7 @@ Konuşma videoları, eğitimler, vloglar ve Shorts saatlerce tekrar eden iş ist
 - Uygulama içinden güncelleme: kurucunun SHA-256 özeti doğrulanır, bir sorun olursa eski sürüm geri yüklenir.
 - Akıcı oynatma için arka planda proxy, uzun kurgularda parçalı önizleme, HDR (PQ/HLG) kaynaklarda SDR'ye ton eşleme.
 
-**0.6.8 sürümünde:** Hızlı dışa aktarma yalnızca MP4'e olduğu gibi kopyalanabilen videolarda önerilir (ProRes ya da PCM sesli kamera MOV dosyalarında önerilmez), geçici klasör yolunda tek tırnak olduğunda dışa aktarma çalışır ve FCPXML ses dosyalarını gerçek kanal sayılarıyla ses olarak tanımlar. [0.6.8 sürüm notlarını okuyun](https://github.com/anilcanolcer/akis-kurgu-ai/releases/tag/v0.6.8).
+**0.6.9 sürümünde:** Taşınan medya yeniden bağlanırken aynı adlı çekimler karışmaz, aynı yolda değiştirilen kaynak akıcı önizlemede yeniden çizilir, hızı değiştirilmiş kliplerde önizleme ile dışa aktarma aynı kareyi gösterir (bölmek de çıktıyı değiştirmez) ve kırpılan kelime altyazısında kırpılan kelimeler görünmez. [0.6.9 sürüm notlarını okuyun](https://github.com/anilcanolcer/akis-kurgu-ai/releases/tag/v0.6.9).
 
 ## Ekran görüntüleri
 
