@@ -118,7 +118,84 @@ def check_versions(rng, folder):
         raise Broken(f'{current} kuruluyken {tag!r}: güncelleme {"önerildi" if found else "önerilmedi"}')
 
 
-CHECKS = [check_story, check_templates, check_versions]
+def guide_text(rng):
+    """What a person might leave in the Story Studio guide box: an edited guide, or something broken."""
+    if rng.random() < 0.6:
+        data = {}
+        for name in rng.sample(['title', 'genre', 'setting', 'art_style', 'notes'], rng.randint(0, 5)):
+            data[name] = text(rng).strip()
+        if rng.random() < 0.6:
+            data['characters'] = [{'name': text(rng, 12).strip() or 'Ada', 'role': text(rng).strip()}
+                                  for _ in range(rng.randint(0, 3))]
+        if rng.random() < 0.5:
+            data['world_rules'] = [text(rng, 20).strip() for _ in range(rng.randint(0, 3))]
+        body = json.dumps(data, ensure_ascii=rng.random() < 0.3, indent=rng.choice([None, 2]))
+        return rng.choice([body, '```json\n' + body + '\n```', 'Rehber:\n' + body])
+    return rng.choice(['{"characters":', '[', 'karakterler', '{"title": }', '{"characters": 5}', '',
+                       '["Ada", "Can"]', '{"characters": "Ada"}'])
+
+
+_story_app = []
+
+
+def check_story_guide(rng, folder):
+    """Rule: Save writes the guide that is on screen. A guide that cannot be read stops the save; the file on
+    disk stays as it was and the story stays unsaved. (0.6.17 saved the old guide and dropped the edit.)"""
+    if not _story_app:
+        from PySide6.QtWidgets import QApplication
+        _story_app.append(QApplication.instance() or QApplication([]))
+    from akis.story_dialog import StoryDialog
+    dialog = StoryDialog(api_key=lambda: 'test', output_dir=lambda: str(folder), add_media=lambda *_: None)
+    path = folder / f'rehber{rng.random():.9f}.hikaye.json'[2:]
+    steps = []
+    try:
+        for _ in range(rng.randint(1, 7)):
+            action = rng.choice(['guide', 'guide', 'apply', 'genre', 'save', 'save'])
+            steps.append(action)
+            if action == 'guide':
+                dialog.bible_editor.setPlainText(guide_text(rng))
+            elif action == 'apply':
+                dialog.apply_bible_editor()
+            elif action == 'genre':
+                dialog.genre.setText(text(rng, 15))
+            else:
+                shown = dialog.bible_editor.toPlainText()
+                before = path.read_bytes() if path.exists() else None
+                try:
+                    readable = story_service.bible_from_dict(story_service.extract_json(shown))
+                except ValueError:
+                    readable = None
+                saved = dialog.save_story(str(path))
+                if readable is None:
+                    if saved:
+                        raise Broken(f'okunamayan rehberle kaydedildi: {shown[:80]!r} · {steps}')
+                    if (path.read_bytes() if path.exists() else None) != before:
+                        raise Broken(f'kaydetme reddedildi ama dosya değişti · {steps}')
+                    if not dialog.is_dirty():
+                        raise Broken(f'kaydedilemeyen değişiklik kaydedilmiş sayıldı · {steps}')
+                    continue
+                if not saved:
+                    raise Broken(f'geçerli rehberle kaydedilemedi · {steps}')
+                loaded = story_service.load_story(path).to_dict()['bible']
+                fresh = story_service.StoryState()
+                fresh.bible = readable
+                wanted = fresh.to_dict()['bible']
+                for name in ('premise', 'style', 'pov', 'tense', 'genre'):
+                    wanted.pop(name, None)
+                    loaded.pop(name, None)
+                if loaded != wanted:
+                    diff = [k for k in wanted if wanted.get(k) != loaded.get(k)]
+                    raise Broken(f'dosyadaki rehber ekrandakinden farklı: {diff} · {steps}')
+                if story_service.load_story(path).bible.genre != dialog.genre.text().strip():
+                    raise Broken(f'tür alanı kaydedilmedi · {steps}')
+                if dialog.is_dirty():
+                    raise Broken(f'kaydettikten sonra değişiklik var görünüyor · {steps}')
+    finally:
+        dialog.close()
+        dialog.deleteLater()
+
+
+CHECKS = [check_story, check_templates, check_versions, check_story_guide]
 
 
 def main():

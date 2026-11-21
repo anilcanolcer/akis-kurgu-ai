@@ -25,6 +25,23 @@ Kullanıcının ekran görüntüsünde FFmpeg, Videolar altındaki MP4 dosyasın
 | Eşzamanlı indirme | İki editör aynı kurucuyu veya konuşmacı modelini indirirken aynı geçici dosyayı paylaşıyordu. Her deneme artık kendi dosyasını kullanıyor. Doğrulanmış dosyanın yayımlanmasında geçici Windows paylaşım kilidi hesaba katılıyor. Her iki indirme türünü ikişer paralel istemciyle sınayan test 50 kez arka arkaya geçti. |
 | Güncelleme klasörü | Temizlik, kurucuya ait olmayan bir metin dosyasını da siliyordu. Artık yalnızca tanınan güncelleme dosyaları temizleniyor. Testte klasöre bırakılan kişisel dosya korundu. |
 
+## Kural denetleyicilerine eklenenler
+
+Yukarıdaki testler her sorunu tek bir örnekle sınıyor. Aynı konular `scripts/media-audit` klasöründeki rastgele girdili kural denetleyicilerine de eklendi. Bu denetleyiciler her GitHub Windows derlemesinde çalışır; bir kural bozulursa sürüm yayımlanmaz. Her kuralın gerçekten hata yakaladığı, 0.6.17'deki eski davranış programa geri konularak denendi.
+
+| Denetleyici | Kural | Bu turda | Derlemede | Geri konan 0.6.17 davranışı |
+| --- | --- | --- | --- | --- |
+| `files_fuzz.py` (yeni): adlar | Kullanıcının dosya adından türetilen her ad (otomatik kayıt, kilidi, sürüm geçmişi, toplu işlem çıktıları, üç oranlı çıktı, Shorts parçaları) Windows'un 255 karakter sınırına sığar ve gerçekten oluşturulabilir. Sığdığında düz "ad + ek" biçimindedir. Farklı iki dosya aynı adı almaz. Adlar Türkçe harf, emoji ve uzun ortak başlangıç içerir. | 5.000 durum (dört kural sırayla) | 1.200 | Ek olduğu gibi eklenince 120 denemenin 35'i |
+| `files_fuzz.py`: üzerine yazma | Bir çıktı projenin ana videosu, zaman çizelgesindeki bir klip ya da medya listesindeki bir dosyayla aynı dosyaysa dışa aktarma reddedilir. Yol büyük-küçük harfle, ters ya da düz eğik çizgiyle, `..` ile ya da sabit bağlantıyla yazılmış olabilir. Çakışmayan çıktılar reddedilmez. | | | Yalnız ana video korununca 120 denemenin 33'ü |
+| `files_fuzz.py`: indirme | İki-dört editör aynı kurucuyu ya da konuşmacı modelini aynı anda indirince hepsi doğrulanmış dosyayla biter. Bozuk inen dosya hata verir ve var olan dosyanın yerine geçmez. Geride geçici dosya kalmaz. | | | Ortak geçici dosyayla 120 denemenin 90'ı |
+| `files_fuzz.py`: güncelleme klasörü | Temizlik yalnız programın kurucularını, eski yarım indirmeleri ve büyümüş kurulum günlüğünü siler. Tutulacak kurucu, başka bir editörün süren indirmesi, kullanıcının dosyaları ve klasörler kalır. | | | Her dosya silinince 120 denemenin 71'i |
+| `record_fuzz.py` (yeni) | Kayıt penceresinde rastgele tıklama sırası denenir: başlat, çubuktan ya da pencereden durdur, Esc, kapatırken üç cevap, önizleme, klasör değiştirme, engelli klasör. FFmpeg kendiliğinden durabilir, sonda hata verebilir, boş dosya bırakabilir ya da takılabilir. Ekran sayısı ve ölçeği, programın durumu ve pencerenin dili de rastgeledir. Her adımdan sonra şu kurallar denetlenir: kayıt sürerken program ve pencere küçüktür, çubuk pencerenin dilindedir ve Esc bir şey yapmaz. Kayıt bitince program eski haline döner ve yeni kayıt başlatılabilir. "Durdur ve ekle" dolu bir dosyayla kapanır. "Kaydı sil" dosyayı siler. İçi dolu bir kayıt başka hiçbir yolla silinmez. Hiçbir FFmpeg çalışır halde bırakılmaz. | 1.500 oturum | 400 | Yedi eski davranışın yedisi de yakalandı. 150'şer denemede: kapatınca kaydı silme 13, sessiz FFmpeg çıkışını fark etmeme 10, pencerenin yolda kalması 110, çubuğun hep Türkçe olması 64, "Kaydı sil"in dosyayı bırakması 9, Esc'in pencereyi kapatması 26, programın geri gelmemesi 51. |
+| `store_fuzz.py` (genişletildi): hikâye rehberi | Kaydet, ekrandaki rehberi yazar. Okunamayan rehber kaydı durdurur; diskteki dosya değişmez ve hikâye kaydedilmemiş görünür. | 3.000 durum (dört kural sırayla) | 1.500 | Rehberi kaydetmeyen 0.6.17 davranışıyla 200 denemenin 83'ü |
+
+300 kayıt oturumunun dökümünde her yolun denendiği görüldü. Örneğin kayıt sürerken çubuktan 117 kez, pencereden 51 kez durduruldu; 58 kez FFmpeg kendiliğinden durdu; 15 kez "Kaydı sil", 25 kez "Kayda devam et" seçildi. Bu denetleyici gerçek ekran yerine taklit ekranlar ve taklit FFmpeg kullanır. Gerçek yakalama, `tests.test_record.NativeRecordingTests` ile denetlenir. Bu test bu bilgisayarda iki ekranda da geçti: 3,63 saniyelik kayıtlar, 56 ve 58 çözülen kare.
+
+0.6.18'in eklediği beş test dosyasındaki 96 test bu bilgisayarda geçti. Genel test kümesi 1.072 test; hepsi geçiyor.
+
 ## Kapsam ve yeniden çalıştırma
 
 - Birim ve uygulama testleri proje açma, taşıma, kurtarma, medya ekleme, zaman çizelgesi, geçmiş, altyazı, ses, şablonlar, Hikâye Stüdyosu, kayıt, dışa aktarma ve güncelleme akışlarını kapsıyor. Önceki modül envanteriyle birlikte okunabilir. [Özellik ve modül listesi](toplu-denetim-0.6.17.md)
