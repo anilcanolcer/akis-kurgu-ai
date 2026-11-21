@@ -213,9 +213,35 @@ def error_lines(detail, limit=4):
     return '\n'.join(chosen[-limit:] if chosen else lines[-limit:])
 
 
+OUTPUT_IN_USE = ('Hedef dosya başka bir programda açık (örneğin bir video oynatıcıda). '
+                 'O programı kapatıp yeniden deneyin.')
+
+
+def place_output(partial, output, attempts=6):
+    """Move a finished render onto `output`.
+
+    Windows refuses the move while another program holds the existing target open: a player still showing
+    the previous export, or a virus scan of it. A short hold is waited out (about 1.5 s in all); a longer one
+    is reported as OUTPUT_IN_USE. It used to surface as "[WinError 5] Erişim engellendi" on the hidden
+    `.part-…` file, followed by advice about antivirus and folder permissions that did not apply."""
+    import time
+    for attempt in range(attempts):
+        try:
+            os.replace(partial, output)
+            return
+        except PermissionError as exc:
+            if os.name != 'nt' or not Path(output).exists():
+                raise
+            if attempt == attempts - 1:
+                raise PermissionError(OUTPUT_IN_USE) from exc
+            time.sleep(0.1 * (attempt + 1))
+
+
 def export_failure(message, output, say=str):
     """Add the selected destination to an export error, with a hint for write-permission failures."""
     detail = error_lines(str(message).strip()) or 'Bilinmeyen FFmpeg hatası.'
+    if detail == OUTPUT_IN_USE:
+        detail = say(detail)
     target = str(output)
     lines = [say('Hedef dosya: {path}').format(path=target), detail]
     folded = detail.casefold()
@@ -746,7 +772,7 @@ class TimelineRenderer:
                 self._export_in_ranges(timeline, partial, on_progress)
             else:
                 self._render(timeline, partial, on_progress=on_progress)
-            os.replace(partial, output)
+            place_output(partial, output)
         except BaseException:
             try:
                 partial.unlink(missing_ok=True)

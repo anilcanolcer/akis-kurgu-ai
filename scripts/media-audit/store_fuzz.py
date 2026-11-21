@@ -195,7 +195,59 @@ def check_story_guide(rng, folder):
         dialog.deleteLater()
 
 
-CHECKS = [check_story, check_templates, check_versions, check_story_guide]
+def check_project_file(rng, folder):
+    """Rule: a project file either opens, or is refused with a ValueError in plain Turkish (never Python's
+    parser text, an English model error, or another exception type)."""
+    from akis import project_service
+    from akis.timeline_model import Clip
+    good = project_service.make_document({}, Timeline(tracks=[Track('video', 'V1', [Clip('a.mp4', 0, 30)])]), {}, 'x')
+    text = json.dumps(good, ensure_ascii=False)
+    pick = rng.randrange(8)
+    if pick == 0:
+        body = text[:rng.randrange(len(text))].encode('utf-8')                      # cut off while writing
+    elif pick == 1:
+        body = rng.randbytes(rng.randint(0, 64))                                    # not text
+    elif pick == 2:
+        body = json.dumps(rng.choice([[], {}, 'x', 5, None, {'format': 'akis-story'}])).encode()
+    elif pick == 3:
+        good['version'] = rng.choice([0, -1, project_service.CURRENT_VERSION + 1, 99, '2', True, None, 1.5])
+        body = json.dumps(good).encode()
+    else:                                                                           # a hand-edited timeline
+        doc = json.loads(text)
+        tracks = doc['timeline']['tracks']
+        damage = rng.choice(['kind', 'overlap', 'length', 'start', 'source', 'tracks', 'clips', 'fps', 'speed'])
+        clip = tracks[0]['clips'][0]
+        if damage == 'kind':
+            tracks[0]['kind'] = rng.choice(['film', '', 5, None])
+        elif damage == 'overlap':
+            tracks[0]['clips'].append(dict(clip, id='b', start=10))
+        elif damage == 'length':
+            clip['length'] = rng.choice([0, -5, 'uzun', None])
+        elif damage == 'start':
+            clip['start'] = rng.choice([-1, 'baş', None, 1.5])
+        elif damage == 'source':
+            clip['source'] = rng.choice([None, 5, ['a']])
+        elif damage == 'tracks':
+            doc['timeline']['tracks'] = rng.choice([None, 'iz', [None], [5]])
+        elif damage == 'clips':
+            tracks[0]['clips'] = rng.choice([None, 'k', [None], [5]])
+        elif damage == 'fps':
+            doc['timeline'][rng.choice(['fps_num', 'fps_den'])] = rng.choice([0, -30, 'otuz', None])
+        else:
+            clip['speed'] = rng.choice([0, -1, 'hızlı', 1000])
+        body = json.dumps(doc).encode()
+    path = folder / f'proje{rng.random():.9f}.akis.json'[2:]
+    path.write_bytes(body)
+    try:
+        project_service.load(path)
+    except ValueError as error:
+        said = str(error)
+        known = (project_service.NOT_A_PROJECT, project_service.NEWER_PROJECT, project_service.DAMAGED_PROJECT_TIMELINE)
+        if said not in known and not said.startswith('Proje dosyası bozuk ya da yarım kalmış (satır '):
+            raise Broken(f'proje açma hatası anlaşılır değil: {said!r} · {body[:120]!r}')
+
+
+CHECKS = [check_story, check_templates, check_versions, check_story_guide, check_project_file]
 
 
 def main():

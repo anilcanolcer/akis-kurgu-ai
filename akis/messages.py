@@ -90,6 +90,13 @@ EN_MESSAGES = {
     'Medya süresi okunamadı.': 'Could not read the media duration.',
     'Video boyutları okunamadı.': 'Could not read the video dimensions.',
     'Projede kullanılan kaynak video bulunamadı.': 'The source video used in the project was not found.',
+    'Bu dosya bir Akış Kurgu projesi değil.': 'This file is not an Akış Kurgu project.',
+    'Bu proje programın daha yeni bir sürümüyle kaydedilmiş. Açmak için programı güncelleyin.':
+        'This project was saved by a newer version of the program. Update the program to open it.',
+    'Proje dosyası bozuk ya da yarım kalmış (satır {a}, sütun {b}).':
+        'The project file is damaged or incomplete (line {a}, column {b}).',
+    'Proje dosyasındaki kurgu okunamadı; dosya bozulmuş ya da elle değiştirilmiş olabilir.':
+        'The edit in the project file could not be read; the file may be damaged or edited by hand.',
     'Medya bulunamadı: {a}': 'Media not found: {a}',
     'Kaynak video bulunamadı.': 'The source video was not found.',
     'Bu iz için ses içeren bir dosya seçin.': 'Choose a file with sound for this track.',

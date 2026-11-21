@@ -6,7 +6,6 @@ The price: a copy can only start on a keyframe, so each kept piece may begin a l
 sound (text, colour, speed, a different canvas, sound clean-up…) makes the edit ineligible, and the
 normal export is used instead.
 """
-import os
 import tempfile
 from pathlib import Path
 
@@ -14,7 +13,7 @@ from PySide6.QtCore import QThread, Signal
 
 from akis.media_service import MediaService, RenderCancelled
 from akis.timeline_model import Timeline
-from akis.timeline_render import concat_entry, export_failure, output_overwrites_source, partial_output_path
+from akis.timeline_render import concat_entry, export_failure, output_overwrites_source, partial_output_path, place_output
 
 COPYABLE = ('.mp4', '.mov', '.m4v')   # containers whose streams can go into an .mp4 unchanged…
 # …but only when their codecs are ones MP4 can carry. A camera MOV often holds ProRes, DNxHD or PCM sound,
@@ -95,7 +94,7 @@ def export(pieces, output, media, on_progress=None):
                                 partial], text=True)
             if result.returncode or not Path(partial).is_file():
                 raise RuntimeError('\n'.join((result.stderr or '').splitlines()[-6:]) or 'FFmpeg çıktı üretemedi')
-        os.replace(partial, output)
+        place_output(partial, output)
         report(1.0)
     except BaseException:
         try:

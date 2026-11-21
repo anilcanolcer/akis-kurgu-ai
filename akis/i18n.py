@@ -323,6 +323,8 @@ EN_UI = {
     'Kurgu dosyası kaydedildi: {name}': 'Edit file saved: {name}',
     'Kurgu dosyası kaydedildi:\n{path}': 'Edit file saved:\n{path}',
     'Hedef dosya: {path}': 'Target file: {path}',
+    'Hedef dosya başka bir programda açık (örneğin bir video oynatıcıda). O programı kapatıp yeniden deneyin.':
+        'The target file is open in another program (a video player, for example). Close that program and try again.',
     'Windows Güvenliği veya antivirüs yazmayı engellediyse, klasör izinlerini ve Denetimli klasör erişimini kontrol edin; bu uygulama ile FFmpeg’e izin verin ya da başka klasör seçin.':
         'If Windows Security or antivirus blocked the write, check folder permissions and Controlled folder access; allow this app and FFmpeg to write there, or choose another folder.',
     '{count} klip yazıldı.': '{count} clips written.',

@@ -8,3 +8,4 @@ sample-output*.mp4
 ui-preview.png
 .env
 .venv/
+scripts/media-audit/ui-flows/.uia/

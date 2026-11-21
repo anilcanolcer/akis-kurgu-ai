@@ -66,23 +66,42 @@ def _replace_with_retry(source, target):
             time.sleep(delays[attempt])
 
 
+NOT_A_PROJECT = 'Bu dosya bir Akış Kurgu projesi değil.'
+NEWER_PROJECT = 'Bu proje programın daha yeni bir sürümüyle kaydedilmiş. Açmak için programı güncelleyin.'
+DAMAGED_PROJECT = 'Proje dosyası bozuk ya da yarım kalmış (satır {line}, sütun {column}).'
+DAMAGED_PROJECT_TIMELINE = 'Proje dosyasındaki kurgu okunamadı; dosya bozulmuş ya da elle değiştirilmiş olabilir.'
+
+
 def migrate(document):
-    if document.get('format') != 'akis-kurgu-project':
-        raise ValueError('Unsupported project format')
+    # These texts reach the person opening the file; they used to be English ("Unsupported project version").
+    if not isinstance(document, dict) or document.get('format') != 'akis-kurgu-project':
+        raise ValueError(NOT_A_PROJECT)
     version = document.get('version', 1)
-    if not isinstance(version, int) or version < 1 or version > CURRENT_VERSION:
-        raise ValueError('Unsupported project version')
+    if not isinstance(version, int) or isinstance(version, bool) or version < 1:
+        raise ValueError(NOT_A_PROJECT)
+    if version > CURRENT_VERSION:
+        raise ValueError(NEWER_PROJECT)
     result = dict(document)
-    if version == 1:
-        result['timeline'] = result.get('timeline') or Timeline.from_legacy(result.get('state', {})).to_dict()
-    Timeline.from_dict(result['timeline'])
+    try:
+        if version == 1:
+            result['timeline'] = result.get('timeline') or Timeline.from_legacy(result.get('state', {})).to_dict()
+        Timeline.from_dict(result['timeline'])
+    except (ValueError, TypeError, KeyError, AttributeError, IndexError) as exc:
+        # A damaged or hand-edited timeline: the model's own words ("Invalid clip range") are not for people
+        raise ValueError(DAMAGED_PROJECT_TIMELINE) from exc
     result['version'] = CURRENT_VERSION
     return result
 
 
 def load(path):
-    with Path(path).open(encoding='utf-8') as stream:
-        return migrate(json.load(stream))
+    try:
+        with Path(path).open(encoding='utf-8') as stream:
+            document = json.load(stream)
+    except json.JSONDecodeError as exc:      # a cut-off, empty or hand-broken file: Python's parser text is not for people
+        raise ValueError(DAMAGED_PROJECT.format(line=exc.lineno, column=exc.colno)) from exc
+    except UnicodeDecodeError as exc:        # not a text file at all
+        raise ValueError(NOT_A_PROJECT) from exc
+    return migrate(document)
 
 
 def media_paths(document):
