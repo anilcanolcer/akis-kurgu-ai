@@ -92,7 +92,7 @@ class MediaFactsTests(unittest.TestCase):
         asset = root.find('resources/asset')
         fmt = root.find(f"resources/format[@id='{asset.get('format')}']")
         self.assertEqual((fmt.get('width'), fmt.get('height'), fmt.get('frameDuration')), ('320', '240', '1/30s'))
-        self.assertEqual(asset.find('media-rep').get('src'), (self.root / 'telefon.mov').as_uri())
+        self.assertEqual(asset.find('media-rep').get('src'), (self.root / 'telefon.mov').resolve().as_uri())
 
     def test_fcpxml_describes_sound_files_as_sound(self):
         m, root = self.media, self.root
