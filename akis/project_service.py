@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path, PureWindowsPath
 
+from akis.file_names import sibling_with_suffix
 from akis.timeline_model import Timeline
 
 CURRENT_VERSION = 2
@@ -182,8 +183,7 @@ SNAPSHOT_NAME = re.compile(r'\d{8}-\d{6}-\d{6}\.json')
 
 
 def versions_folder(path):
-    target = Path(path)
-    return target.parent / f'{target.name}.versions'
+    return sibling_with_suffix(path, '.versions')
 
 
 def prune_versions(path, keep=KEEP_VERSIONS):

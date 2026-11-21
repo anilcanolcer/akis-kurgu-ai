@@ -1,7 +1,7 @@
 """Safe GitHub release checks, verified installer downloads and the install hand-over.
 
 Flow: check_update() reads the release metadata only. The caller asks the user, then download()
-fetches the installer into one fixed folder (update_dir) as `<name>.part`, verifies its SHA-256 and
+fetches the installer into one fixed folder (update_dir) in a unique partial file, verifies its SHA-256 and
 only then renames it into place; nothing in the install folder is touched until then. Before the
 install the caller checks free space (space_shortfall / required_install_space). launch_installer()
 verifies the hash again and starts the installer directly in its visible /UPDATE mode: no helper
@@ -22,6 +22,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 from akis import __version__
+from akis.download_files import matches, publish, sha256_file
 
 VERSION = __version__
 API = 'https://api.github.com/repos/anilcanolcer/akis-kurgu-ai/releases/latest'
@@ -137,22 +138,6 @@ def installer_path(folder, update):
     return Path(folder) / f"{INSTALLER_PREFIX}{'.'.join(map(str, numbers))}.exe"
 
 
-def sha256_file(path):
-    digest = hashlib.sha256()
-    with open(path, 'rb') as file:
-        while chunk := file.read(1024 * 1024):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def matches(path, expected):
-    """Whether the file exists and its SHA-256 equals `expected` (hex, any case)."""
-    try:
-        return sha256_file(path).lower() == str(expected).lower()
-    except OSError:
-        return False
-
-
 def cleanup_update_dir(folder, keep=None):
     """Delete every downloaded installer and partial download in `folder` except `keep`.
 
@@ -169,6 +154,15 @@ def cleanup_update_dir(folder, keep=None):
         name = entry.name.lower()
         if name == keep_name:
             continue
+        if name != INSTALL_LOG:
+            match = re.fullmatch(re.escape(INSTALLER_PREFIX.lower()) + r'\d+(?:\.\d+){2}\.exe(?:\.([\w-]+)\.part|\.part)?', name)
+            if not match:
+                continue
+            try:
+                if match[1] and time.time() - entry.stat().st_mtime < 24 * 3600:
+                    continue  # another application instance may still be downloading
+            except OSError:
+                continue
         if name == INSTALL_LOG:
             try:
                 if entry.stat().st_size <= INSTALL_LOG_LIMIT:
@@ -268,21 +262,19 @@ def download(update, destination, *, should_stop=None, progress=None, opener=Non
     """Download and verify the installer to `destination`; returns its path.
 
     should_stop(): polled between chunks; True raises DownloadCancelled. progress(done, total): total is 0
-    when unknown. Data goes to `<destination>.part` and is renamed into place only after the SHA-256
-    matched, so `destination` is either absent or a verified installer. A file already there that verifies
-    is reused without downloading again.
+    when unknown. Data goes to a unique partial file and is renamed into place only after the SHA-256
+    matched. A file already there that verifies is reused without downloading again.
     """
     target = Path(destination)
-    if target.is_file():
-        if matches(target, update['sha256']):
-            return str(target)
-        target.unlink()
+    if matches(target, update['sha256']):
+        return str(target)
     target.parent.mkdir(parents=True, exist_ok=True)
-    partial = target.with_name(target.name + '.part')
     request = urllib.request.Request(update['url'], headers={'User-Agent': 'AkisKurguAI'})
     digest = hashlib.sha256()
+    handle, name = tempfile.mkstemp(dir=target.parent, prefix=target.name + '.', suffix='.part')
+    partial = Path(name)
     try:
-        with (opener or urllib.request.urlopen)(request, timeout=READ_TIMEOUT) as response, partial.open('wb') as output:
+        with os.fdopen(handle, 'wb') as output, (opener or urllib.request.urlopen)(request, timeout=READ_TIMEOUT) as response:
             try:
                 total = int(response.headers.get('Content-Length') or 0)
             except (AttributeError, TypeError, ValueError):
@@ -302,11 +294,10 @@ def download(update, destination, *, should_stop=None, progress=None, opener=Non
                     progress(done, total)
         if digest.hexdigest() != update['sha256'].lower():
             raise ValueError('Güncelleme dosyasının doğrulaması başarısız.')
-        os.replace(partial, target)
+        publish(partial, target, update['sha256'])
         return str(target)
-    except BaseException:
+    finally:
         partial.unlink(missing_ok=True)
-        raise
 
 
 UAC_DECLINED = 'Kurulum için izin verilmedi; güncelleme kurulmadı.'

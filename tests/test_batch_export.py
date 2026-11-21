@@ -328,6 +328,50 @@ class WindowTests(unittest.TestCase):
         self.assertEqual((worker.sources, worker.cut_silences), (['C:/v/a.mp4', 'C:/v/b.mp4'], True))
         self.assertEqual(worker.aspect, self.window.aspect.currentData())
 
+    def test_batch_protects_the_open_projects_off_timeline_media(self):
+        source = self.root / 'a_akis.mp4'
+        source.write_bytes(b'original')
+        self.window.media_bin.add(source)
+        with patch('main.QMessageBox.warning') as warning:
+            started, asked = self.start()
+        self.assertEqual(started, [])
+        asked.assert_not_called()
+        warning.assert_called_once()
+        self.assertEqual(source.read_bytes(), b'original')
+
+    def test_shorts_and_highlights_protect_the_original_even_after_removing_its_clip(self):
+        from akis.shorts_split import outputs_for
+        titles = ['Giriş']
+        source = Path(outputs_for(self.root, titles, 'project')[0])
+        source.write_bytes(b'original')
+        self.window.state.source = str(source)
+        parts = [(0, 4)]
+        for highlights in (True, False):
+            dialog = 'HighlightsDialog' if highlights else 'ShortsDialog'
+            with self.subTest(dialog=dialog), patch('akis.window.exporting.' + dialog) as picker, \
+                 patch('PySide6.QtWidgets.QFileDialog.getExistingDirectory', return_value=str(self.root)), \
+                 patch('main.QMessageBox.warning') as warning, patch('main.QMessageBox.question') as overwrite, \
+                 patch.object(self.window, 'start_worker') as start:
+                picker.return_value.selection.return_value = (parts, titles) if highlights else (parts, 'blur', True, titles)
+                if highlights:
+                    self.window.choose_highlights([(0, 4, 1, {})])
+                else:
+                    self.window.choose_shorts([], 4)
+                warning.assert_called_once()
+                overwrite.assert_not_called()
+                start.assert_not_called()
+        self.assertEqual(source.read_bytes(), b'original')
+
+    def test_long_source_names_produce_writable_batch_and_ratio_outputs(self):
+        from akis import multi_export
+        source = self.root / ('p' * 248 + '.mp4')
+        source.touch()
+        outputs = batch_export.outputs_for([source, source], self.root)
+        outputs += [path for _, _, path in multi_export.targets(source)]
+        self.assertEqual(len(set(outputs)), 5)
+        for output in outputs:
+            Path(output).touch(exist_ok=False)
+
     def test_existing_outputs_are_named_first(self):
         started, asked = self.start(existing=['b_akis.mp4'], answer=QMessageBox.StandardButton.No)
         self.assertEqual(started, [])

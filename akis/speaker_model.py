@@ -13,8 +13,11 @@ from __future__ import annotations
 
 import hashlib
 import os
+import tempfile
 import urllib.request
 from pathlib import Path
+
+from akis.download_files import matches, publish
 
 import numpy as np
 
@@ -29,18 +32,9 @@ def path_in(folder):
     return Path(folder) / 'models' / FILE_NAME
 
 
-def _sha256(path):
-    digest = hashlib.sha256()
-    with open(path, 'rb') as handle:
-        for block in iter(lambda: handle.read(1 << 20), b''):
-            digest.update(block)
-    return digest.hexdigest()
-
-
 def available(folder):
     """The model file is there and is the expected one."""
-    path = path_in(folder)
-    return path.is_file() and _sha256(path) == SHA256
+    return matches(path_in(folder), SHA256)
 
 
 def download(folder, opener=urllib.request.urlopen, on_progress=None):
@@ -50,10 +44,11 @@ def download(folder, opener=urllib.request.urlopen, on_progress=None):
     if available(folder):
         return target
     target.parent.mkdir(parents=True, exist_ok=True)
-    partial = target.with_suffix('.part')
+    handle, name = tempfile.mkstemp(dir=target.parent, prefix=target.name + '.', suffix='.part')
+    partial = Path(name)
     digest, got = hashlib.sha256(), 0
     try:
-        with opener(URL, timeout=60) as response, open(partial, 'wb') as out:
+        with os.fdopen(handle, 'wb') as out, opener(URL, timeout=60) as response:
             total = int(response.headers.get('Content-Length') or 0)
             for block in iter(lambda: response.read(1 << 16), b''):
                 out.write(block)
@@ -63,7 +58,7 @@ def download(folder, opener=urllib.request.urlopen, on_progress=None):
                     on_progress(got / total)
         if digest.hexdigest() != SHA256:
             raise RuntimeError('İndirilen konuşmacı modeli doğrulanamadı (SHA-256 uyuşmuyor).')
-        os.replace(partial, target)
+        publish(partial, target, SHA256)
     finally:
         partial.unlink(missing_ok=True)
     return target

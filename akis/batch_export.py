@@ -11,6 +11,7 @@ import os
 from PySide6.QtCore import QThread, Signal
 
 from akis import edit_plan, silence_cut, timeline_service, user_templates
+from akis.file_names import sibling_with_suffix
 from akis.media_service import MediaService, RenderCancelled
 from akis.timeline_model import Timeline
 from akis.timeline_render import TimelineRenderer, export_failure, output_overwrites_source
@@ -19,7 +20,7 @@ SUFFIX = '_akis'
 
 
 def output_for(source, folder):
-    return str(Path(folder) / f'{Path(source).stem}{SUFFIX}.mp4')
+    return str(sibling_with_suffix(Path(folder) / Path(source).stem, SUFFIX + '.mp4'))
 
 
 def outputs_for(sources, folder):
@@ -43,7 +44,7 @@ def outputs_for(sources, folder):
         base = Path(output_for(source, folder))
         path, number = base, 2
         while key(path) in reserved or is_source(path):
-            path = base.with_name(f'{base.stem}_{number}{base.suffix}')
+            path = sibling_with_suffix(Path(folder) / Path(source).stem, f'{SUFFIX}_{number}.mp4')
             number += 1
         reserved.add(key(path))
         outputs.append(str(path))

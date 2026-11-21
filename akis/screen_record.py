@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+from pathlib import Path
 
 
 def even(value):
@@ -18,7 +19,7 @@ def even(value):
 def screen_area(screen):
     """(x, y, width, height) of a QScreen in the physical pixels gdigrab uses (scaled displays included)."""
     geometry, ratio = screen.geometry(), screen.devicePixelRatio()
-    return (round(geometry.x() * ratio), round(geometry.y() * ratio),
+    return (geometry.x(), geometry.y(),
             even(geometry.width() * ratio), even(geometry.height() * ratio))
 
 
@@ -33,7 +34,7 @@ def audio_devices(executable, run=subprocess.run):
     return re.findall(r'"([^"]+)"\s*\(audio\)', result.stderr or '')
 
 
-def command(executable, area, output, microphone=None, fps=30):
+def command(executable, area, microphone=None, fps=30):
     x, y, width, height = area
     args = [executable, '-hide_banner', '-loglevel', 'error', '-y',
             '-f', 'gdigrab', '-framerate', str(fps), '-draw_mouse', '1',
@@ -42,7 +43,7 @@ def command(executable, area, output, microphone=None, fps=30):
         args += ['-f', 'dshow', '-i', f'audio={microphone}']
     args += ['-map', '0:v'] + (['-map', '1:a', '-c:a', 'aac', '-b:a', '160k'] if microphone else [])
     args += ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p',
-             '-movflags', '+faststart', str(output)]
+             '-f', 'mp4', 'fd:']
     return args
 
 
@@ -60,10 +61,28 @@ class ScreenRecorder:
     def start(self, area, output, microphone=None):
         if self.recording:
             raise RuntimeError('Kayıt zaten sürüyor.')
-        self.output = str(output)
-        self.process = self.popen(command(self.executable, area, output, microphone), stdin=subprocess.PIPE,
-                                  stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
-                                  creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
+        target = Path(output)
+        # Give the muxer a seekable Windows handle. Only the editor opens the user's path,
+        # including redirected Videos folders, Unicode names and long paths.
+        with target.open('xb') as handle:
+            try:
+                self.process = self.popen(command(self.executable, area, microphone), stdin=subprocess.PIPE,
+                                          stdout=handle, stderr=subprocess.PIPE,
+                                          creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
+            except OSError:
+                handle.close()
+                target.unlink(missing_ok=True)
+                raise
+        self.output = str(target)
+
+    def _remove_empty_output(self):
+        if self.output:
+            path = Path(self.output)
+            try:
+                if path.stat().st_size == 0:
+                    path.unlink()
+            except OSError:
+                pass
 
     def stop(self, timeout=20):
         """Finish the file; returns its path, or raises RuntimeError with ffmpeg's last words."""
@@ -78,6 +97,7 @@ class ScreenRecorder:
             process.kill()
             _, message = process.communicate()
         if timed_out or process.returncode != 0 or not self.output or not os.path.isfile(self.output) or os.path.getsize(self.output) == 0:
+            self._remove_empty_output()
             message = message or b''
             raise RuntimeError(message.decode('utf-8', 'replace').strip()[-400:] or 'Kayıt dosyası oluşmadı.')
         return self.output
@@ -90,9 +110,11 @@ class ScreenRecorder:
             return ''
         process, self.process = self.process, None
         try:
-            text = (process.stderr.read() or b'').decode('utf-8', 'replace').strip()[-400:]
+            _, message = process.communicate()
+            text = (message or b'').decode('utf-8', 'replace').strip()[-400:]
         except (OSError, ValueError, AttributeError):
             text = ''
+        self._remove_empty_output()
         return text or f'FFmpeg kaydı beklenmedik şekilde durdurdu (çıkış kodu {process.returncode}).'
 
     def discard(self):

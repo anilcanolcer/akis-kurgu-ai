@@ -32,6 +32,32 @@ class ProjectServiceTests(unittest.TestCase):
             self.assertEqual(Path(source), (root / 'video.mp4').resolve())
             self.assertEqual(loaded['state']['source'], str((root / 'video.mp4').resolve()))
 
+    def test_long_project_names_keep_separate_autosaves_locks_and_snapshots(self):
+        from akis.window.project import ProjectMixin
+        from akis.timeline_model import Timeline
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as folder:
+            autosaves, histories = set(), set()
+            for ending in ('A', 'B'):
+                target = Path(folder) / ('p' * 240 + ending + '.akis.json')
+                document = project_service.make_document({}, Timeline(), {}, ending)
+                result = project_service.save_with_snapshot(target, document, snapshot=True)
+                self.assertTrue(result.snapshot_saved)
+                history = project_service.versions_folder(target)
+                histories.add(history)
+                self.assertEqual(len(list(history.glob('*.json'))), 1)
+                stub = SimpleNamespace(project_path=str(target), _recovery_lock=None, _project_autosave_lock=None)
+                auto = ProjectMixin.autosave_path(stub)
+                lock = ProjectMixin.lock_project_autosave(stub, auto)
+                self.assertIsNotNone(lock)
+                try:
+                    autosaves.add(auto)
+                    project_service.save(auto, document)
+                    self.assertEqual(project_service.load(auto)['ai_prompt'], ending)
+                finally:
+                    lock.unlock()
+            self.assertEqual((len(autosaves), len(histories)), (2, 2))
+
     def test_reject_future_format(self):
         with self.assertRaises(ValueError):
             project_service.migrate({'format': 'akis-kurgu-project', 'version': 99})

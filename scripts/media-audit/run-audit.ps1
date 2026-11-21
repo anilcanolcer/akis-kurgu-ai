@@ -49,7 +49,7 @@ try {
     if (-not $Headless) {
         $env:QT_QPA_PLATFORM = 'windows'
         $env:AKIS_RUN_WINDOWS_GUI_SMOKE = '1'
-        & $Python -X utf8 -B -m unittest tests.test_shorts_windows_smoke -v
+        & $Python -X utf8 -B -m unittest tests.test_shorts_windows_smoke tests.test_record.NativeRecordingTests -v
         if ($LASTEXITCODE) { $failed += 'Windows GUI' }
     }
     if ($failed) { throw ("Failed audit groups: " + ($failed -join ', ')) }

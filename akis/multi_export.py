@@ -5,6 +5,8 @@ keep their own framing: a fitted clip gets bars on a canvas of another shape, a 
 """
 from pathlib import Path
 
+from akis.file_names import bounded_name
+
 from PySide6.QtCore import QThread, Signal
 
 from akis.media_service import MediaService, RenderCancelled
@@ -22,7 +24,7 @@ def targets(chosen):
     for suffix, _, _ in FORMATS:  # choosing an earlier result again must not pile suffixes up
         if stem.endswith('_' + suffix):
             stem = stem[:-len(suffix) - 1]
-    return [(name, canvas, str(base.with_name(f'{stem}_{suffix}.mp4'))) for suffix, name, canvas in FORMATS]
+    return [(name, canvas, str(base.with_name(bounded_name(stem, f'_{suffix}.mp4')))) for suffix, name, canvas in FORMATS]
 
 
 class MultiExportWorker(QThread):

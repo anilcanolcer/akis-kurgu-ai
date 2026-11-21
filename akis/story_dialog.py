@@ -489,7 +489,8 @@ class StoryDialog(QDialog):
         self.genre.setText(bible.genre)
         data = {k: v for k, v in self.state.to_dict()['bible'].items()
                 if k not in ('premise', 'style', 'pov', 'tense')}
-        self.bible_editor.setPlainText(json.dumps(data, ensure_ascii=False, indent=2))
+        self._applied_guide = json.dumps(data, ensure_ascii=False, indent=2)
+        self.bible_editor.setPlainText(self._applied_guide)
         self._loading = False
 
     def read_idea_fields(self):
@@ -513,6 +514,7 @@ class StoryDialog(QDialog):
             setattr(merged, name, getattr(self.state.bible, name))
         merged.genre = self.genre.text().strip()
         self.state.bible = merged
+        self._applied_guide = self.bible_editor.toPlainText()
         self.set_status('Rehber güncellendi.')
         return True
 
@@ -951,6 +953,8 @@ class StoryDialog(QDialog):
     # ------------------------------------------------------------ files
 
     def save_story(self, path=None):
+        if self.bible_editor.toPlainText() != self._applied_guide and not self.apply_bible_editor():
+            return False
         self.store_scene()
         self.read_idea_fields()
         if not path:

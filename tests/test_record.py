@@ -2,13 +2,14 @@
 import os
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QMainWindow
 
@@ -36,17 +37,54 @@ class FakeScreen:
 
 class RecorderTests(unittest.TestCase):
     def test_screen_area_in_physical_pixels_and_even(self):
-        self.assertEqual(screen_record.screen_area(FakeScreen(x=1280, width=1281, height=721)), (1600, 0, 1600, 900))
+        self.assertEqual(screen_record.screen_area(FakeScreen(x=1280, width=1281, height=721)), (1280, 0, 1600, 900))
+        self.assertEqual(screen_record.screen_area(FakeScreen(x=-1920, y=-180, ratio=1.5)),
+                         (-1920, -180, 1920, 1080))
 
     def test_command_with_and_without_a_microphone(self):
-        plain = screen_record.command('ffmpeg', (10, 20, 640, 360), 'out.mp4')
+        plain = screen_record.command('ffmpeg', (10, 20, 640, 360))
         self.assertIn('gdigrab', plain)
         self.assertEqual(plain[plain.index('-video_size') + 1], '640x360')
         self.assertEqual((plain[plain.index('-offset_x') + 1], plain[plain.index('-offset_y') + 1]), ('10', '20'))
         self.assertNotIn('dshow', plain)
-        mic = screen_record.command('ffmpeg', (0, 0, 640, 360), 'out.mp4', 'Mikrofon (USB)')
+        mic = screen_record.command('ffmpeg', (0, 0, 640, 360), 'Mikrofon (USB)')
         self.assertIn('audio=Mikrofon (USB)', mic)
         self.assertIn('1:a', mic)
+
+    def test_encoder_receives_a_seekable_handle_and_cannot_replace_an_existing_recording(self):
+        from unittest.mock import Mock
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / 'Akış Kurgu kayıtları'
+            folder.mkdir()
+            target = folder / 'kayit.mp4'
+            def launch(args, **options):
+                self.assertNotIn(str(folder), ' '.join(args))
+                self.assertEqual(args[-3:], ['-f', 'mp4', 'fd:'])
+                self.assertTrue(options['stdout'].seekable())
+                options['stdout'].write(b'encoded')
+                return Mock(poll=lambda: 0)
+            recorder = screen_record.ScreenRecorder('ffmpeg', popen=launch)
+            recorder.start((0, 0, 64, 64), target)
+            with self.assertRaises(FileExistsError):
+                recorder.start((0, 0, 64, 64), target)
+            self.assertEqual(target.read_bytes(), b'encoded')
+
+    @unittest.skipUnless(FFMPEG, 'ffmpeg required')
+    def test_unicode_recording_output_with_the_real_mp4_muxer(self):
+        import time
+        from akis.media_service import MediaService
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / 'Akış Kurgu kayıtları'
+            folder.mkdir()
+            target = folder / 'çalışma.mp4'
+            def synthetic_screen(args, **options):
+                inputs = ['-f', 'lavfi', '-re', '-i', 'testsrc2=size=160x90:rate=30']
+                return subprocess.Popen(args[:args.index('-f')] + inputs + args[args.index('-map'):], **options)
+            recorder = screen_record.ScreenRecorder(FFMPEG, popen=synthetic_screen)
+            recorder.start((0, 0, 160, 90), target)
+            time.sleep(2)
+            self.assertEqual(recorder.stop(), str(target))
+            self.assertGreater(MediaService(FFMPEG).duration(target), 0.4)
 
     def test_microphone_names_from_ffmpeg(self):
         listing = ('[dshow @ 0] "HD Kamera" (video)\n[dshow @ 0]   Alternative name "@device_pnp_x"\n'
@@ -203,6 +241,8 @@ class FakeProcess:
         return self.returncode
 
     def communicate(self, input=None, timeout=None):
+        if self.returncode is not None:
+            return b'', self.said
         Path(self.output).write_bytes(b'video')
         self.returncode = 0
         return b'', b''
@@ -216,7 +256,7 @@ class StayingAwayTests(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
         d = RecordDialog(parent, folder=tmp, devices=FakeDevices)
-        d.screen_recorder.popen = lambda command, **options: FakeProcess(command[-1])
+        d.screen_recorder.popen = lambda command, **options: FakeProcess(options['stdout'].name)
         return d
 
     def test_the_window_can_be_minimised(self):
@@ -245,6 +285,14 @@ class StayingAwayTests(unittest.TestCase):
             self.assertEqual(d.result(), 1)
             self.assertTrue(Path(d.path).is_file())
             parent.close()
+
+    def test_recording_bar_uses_the_dialog_language(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = self.dialog(tmp)
+            d.language = 'en'
+            d.start()
+            self.assertEqual(d.bar.preview_button.text(), 'Preview')
+            d.bar.button.click()
 
     def test_escape_while_recording_keeps_recording(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -284,7 +332,7 @@ class StayingAwayTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             d = self.dialog(tmp)
             d.show()
-            d.screen_recorder.popen = lambda command, **options: FakeProcess(command[-1], ended=1)
+            d.screen_recorder.popen = lambda command, **options: FakeProcess(options['stdout'].name, ended=1)
             d.start()
             d._tick()
             self.assertFalse(d.recording)
@@ -292,6 +340,41 @@ class StayingAwayTests(unittest.TestCase):
             self.assertTrue(d.start_button.isEnabled())
             self.assertIn('çıkış kodu 1', d.status.text())
             d.close()
+
+    def test_discard_device_recording_waits_for_the_writer_and_deletes_its_file(self):
+        from PySide6.QtCore import QUrl
+        from unittest.mock import Mock
+        with tempfile.TemporaryDirectory() as tmp:
+            d = self.dialog(tmp)
+            target = Path(tmp) / 'ses.m4a'
+            target.write_bytes(b'audio')
+            d.recorder = Mock()
+            stopped = d.M.QMediaRecorder.RecorderState.StoppedState
+            d.recorder.recorderState.return_value = d.M.QMediaRecorder.RecorderState.RecordingState
+            d.recorder.actualLocation.return_value = QUrl.fromLocalFile(str(target))
+            with patch.object(d, 'ask_while_recording', return_value='drop'):
+                d.reject()
+            self.assertTrue(target.exists())
+            d.recorder.stop.assert_called_once()
+            d.recorder.recorderState.return_value = stopped
+            d._state_changed(stopped)
+            self.assertFalse(target.exists())
+            self.assertIsNone(d.path)
+
+    def test_user_can_retry_in_another_folder_after_a_write_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = self.dialog(tmp)
+            bad = Path(tmp) / 'blocked'
+            bad.touch()
+            d.folder = bad
+            d.start_button.click()
+            self.assertIn('Kayıt yapılamadı', d.status.text())
+            with patch('akis.record_dialog.QFileDialog.getExistingDirectory', return_value=tmp):
+                d.folder_button.click()
+            d.start_button.click()
+            self.assertTrue(d.recording)
+            d.bar.button.click()
+            self.assertEqual(Path(d.path).parent, Path(tmp))
 
     def test_a_folder_that_cannot_be_made_is_explained(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -301,6 +384,62 @@ class StayingAwayTests(unittest.TestCase):
             self.assertFalse(d.recording)
             self.assertIn('Kayıt klasörü oluşturulamadı', d.status.text())
             d.close()
+
+
+@unittest.skipUnless(FFMPEG and os.environ.get('AKIS_RUN_WINDOWS_GUI_SMOKE') == '1', 'native Windows desktop required')
+class NativeRecordingTests(unittest.TestCase):
+    def test_modal_dialog_preview_minimise_stop_and_decode(self):
+        for index, screen in enumerate(app.screens()):
+            with self.subTest(screen=screen.name()):
+                self.capture(index)
+
+    def capture(self, index):
+        from akis.record_dialog import RecordDialog
+        from akis.media_service import MediaService
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / 'Türkçe kullanıcı' / 'Akış Kurgu kayıtları'
+            parent = QMainWindow()
+            parent.showMaximized()
+            dialog = RecordDialog(parent, folder=folder, executable=FFMPEG, devices=FakeDevices)
+            dialog.source.setCurrentIndex(index)
+            observed = {}
+            def start():
+                observed['initial preview'] = not dialog.screen_view.pixmap().isNull()
+                QTest.mouseClick(dialog.start_button, Qt.MouseButton.LeftButton)
+            def preview():
+                if dialog.bar is not None:
+                    observed['modal bar'] = app.activeModalWidget() is dialog.bar
+                    observed['minimised'] = parent.isMinimized() and dialog.isMinimized()
+                    QTest.mouseClick(dialog.bar.preview_button, Qt.MouseButton.LeftButton)
+            def stop():
+                if dialog.bar is not None:
+                    observed['recording preview'] = not dialog.bar.preview.pixmap().isNull()
+                    QTest.mouseClick(dialog.bar.button, Qt.MouseButton.LeftButton)
+                else:
+                    dialog.done(0)
+            timeout = QTimer(dialog)
+            timeout.setSingleShot(True)
+            timeout.timeout.connect(lambda: dialog.done(0))
+            timeout.start(15000)
+            QTimer.singleShot(900, dialog, start)
+            QTimer.singleShot(2000, dialog, preview)
+            QTimer.singleShot(4400, dialog, stop)
+            try:
+                self.assertEqual(dialog.exec(), 1, dialog.status.text())
+                timeout.stop()
+                self.assertEqual(observed, dict.fromkeys(('initial preview', 'modal bar', 'minimised', 'recording preview'), True))
+                self.assertTrue(parent.isMaximized())
+                self.assertEqual(Path(dialog.path).parent, folder)
+                duration = MediaService(FFMPEG).duration(dialog.path)
+                self.assertGreater(duration, 1)
+                decode = subprocess.run([FFMPEG, '-v', 'error', '-i', dialog.path, '-vf', 'scale=32:18',
+                                         '-an', '-f', 'framemd5', '-'], capture_output=True, check=True, timeout=30)
+                frames = sum(line.startswith(b'0,') for line in decode.stdout.splitlines())
+                self.assertGreater(frames, 15)
+                print(f'Windows recording (display {index + 1}): {duration:.2f}s, {frames} decoded frames, preview and modal stop verified')
+            finally:
+                dialog.done(0)
+                parent.close()
 
 
 class WindowTests(unittest.TestCase):

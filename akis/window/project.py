@@ -1,6 +1,8 @@
 """Media and projects: adding videos, saving, opening, autosave and recovery."""
 from __future__ import annotations
 
+from akis.file_names import sibling_with_suffix
+
 import copy
 import hashlib
 import json
@@ -292,7 +294,7 @@ class ProjectMixin:
 
     def open_project_file(self, path: str) -> bool:
         """Open a project file, offering its unclaimed recovery copy if one exists."""
-        autosave = Path(str(Path(path).resolve()) + '.autosave')
+        autosave = sibling_with_suffix(Path(path).resolve(), '.autosave')
         # Reopening our own project after Discard selects the saved copy. Its recovery stays on disk
         # until the load succeeds. An orphan or another instance's recovery still goes through locking.
         if not autosave.is_file() or (self._autosave_file and Path(self._autosave_file) == autosave):
@@ -615,12 +617,14 @@ class ProjectMixin:
     def autosave_path(self) -> str:
         if self._recovery_lock is not None:
             return str(self._recovery_lock[0])
-        return str(Path(self.project_path).resolve()) + '.autosave' if self.project_path else str(self.untitled_recovery_path())
+        if self.project_path:
+            return str(sibling_with_suffix(Path(self.project_path).resolve(), '.autosave'))
+        return str(self.untitled_recovery_path())
 
     def lock_project_autosave(self, path: str) -> QLockFile | None:
         if self._project_autosave_lock and self._project_autosave_lock[0] == path:
             return self._project_autosave_lock[1]
-        lock = QLockFile(path + '.lock')
+        lock = QLockFile(str(sibling_with_suffix(path, '.lock')))
         lock.setStaleLockTime(0)  # a long edit is valid; Qt can still detect a dead local process
         return lock if lock.tryLock(0) else None
 

@@ -168,6 +168,16 @@ class DialogSmokeTests(unittest.TestCase):
         self.assertFalse(dialog.apply_bible_editor())
         self.assertEqual(dialog.state.bible.title, 'Original')
 
+    def test_save_applies_manual_guide_edits_and_keeps_invalid_edits_dirty(self):
+        path = self.folder / 'story.json'
+        self.dialog.bible_editor.setPlainText('{"title":"Yolculuk"}')
+        self.assertTrue(self.dialog.save_story(str(path)))
+        self.assertEqual(ss.load_story(path).bible.title, 'Yolculuk')
+        self.dialog.bible_editor.setPlainText('{"characters":')
+        self.assertFalse(self.dialog.save_story(str(path)))
+        self.assertTrue(self.dialog.is_dirty())
+        self.assertEqual(ss.load_story(path).bible.title, 'Yolculuk')
+
     def test_failed_open_after_discard_keeps_current_story_dirty(self):
         from unittest.mock import patch
         from PySide6.QtWidgets import QMessageBox

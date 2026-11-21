@@ -32,6 +32,13 @@ from akis.app_support import APP_NAME, safe_filename
 class ExportMixin:
     """Exporting: one video, FCPXML, batches, Shorts, highlights, three formats, publish text."""
 
+    def safe_export_paths(self, outputs) -> bool:
+        sources = [self.state.source, *self.media_bin.paths]
+        if any(timeline_service.output_overwrites_source(self.multitrack, path, sources) for path in outputs):
+            QMessageBox.warning(self, APP_NAME, self.ui_text('Çıktı yolu kaynak medya ile aynı olamaz; başka bir dosya adı seçin.'))
+            return False
+        return True
+
     def ensure_export_timeline(self) -> bool:
         if duration_frames(self.multitrack) > 0:
             return True
@@ -62,8 +69,7 @@ class ExportMixin:
         path = app_support.normalize_export_path(chosen)
         if not self.confirm_overwrite(chosen, path):
             return
-        if timeline_service.output_overwrites_source(self.multitrack, path, (self.state.source,)):
-            QMessageBox.warning(self, APP_NAME, self.ui_text('Çıktı yolu kaynak medya ile aynı olamaz; başka bir dosya adı seçin.'))
+        if not self.safe_export_paths([path]):
             return
         fps = self.multitrack.fps_num / self.multitrack.fps_den
         seconds = duration_frames(self.multitrack) / fps / self.state.speed
@@ -159,7 +165,10 @@ class ExportMixin:
         if not dialog.exec():
             return
         videos, folder, cut_silences, template = dialog.selection()
-        existing = [Path(path).name for path in outputs_for(videos, folder) if Path(path).exists()]
+        outputs = outputs_for(videos, folder)
+        if not self.safe_export_paths(outputs):
+            return
+        existing = [Path(path).name for path in outputs if Path(path).exists()]
         if existing and QMessageBox.question(
                 self, APP_NAME, self.ui_text('Şu dosyalar zaten var ve üzerine yazılacak:\n{names}\n\nDevam edilsin mi?',
                                              names='\n'.join(existing)),
@@ -235,6 +244,8 @@ class ExportMixin:
         if not folder:
             return
         outputs = shorts_split.outputs_for(folder, titles, safe_filename(self.project_title.text()) + '-one-cikan')
+        if not self.safe_export_paths(outputs):
+            return
         existing = [Path(path).name for path in outputs if Path(path).exists()]
         if existing and QMessageBox.question(
                 self, APP_NAME, self.ui_text('Şu dosyalar zaten var ve üzerine yazılacak:\n{names}\n\nDevam edilsin mi?',
@@ -272,6 +283,8 @@ class ExportMixin:
         if not folder:
             return
         outputs = shorts_split.outputs_for(folder, titles, safe_filename(self.project_title.text()))
+        if not self.safe_export_paths(outputs):
+            return
         existing = [Path(path).name for path in outputs if Path(path).exists()]
         if existing and QMessageBox.question(
                 self, APP_NAME, self.ui_text('Şu dosyalar zaten var ve üzerine yazılacak:\n{names}\n\nDevam edilsin mi?',
@@ -314,10 +327,8 @@ class ExportMixin:
         if not chosen:
             return
         outputs = multi_export.targets(app_support.normalize_export_path(chosen))
-        for _, _, path in outputs:
-            if timeline_service.output_overwrites_source(self.multitrack, path, (self.state.source,)):
-                QMessageBox.warning(self, APP_NAME, self.ui_text('Çıktı yolu kaynak medya ile aynı olamaz; başka bir dosya adı seçin.'))
-                return
+        if not self.safe_export_paths(path for _, _, path in outputs):
+            return
         existing = [Path(path).name for _, _, path in outputs if Path(path).exists()]
         if existing and QMessageBox.question(
                 self, APP_NAME, self.ui_text('Şu dosyalar zaten var ve üzerine yazılacak:\n{names}\n\nDevam edilsin mi?',

@@ -96,6 +96,32 @@ class DownloadTests(unittest.TestCase):
         download(UPDATE, self.target, opener=opener_for(DATA))
         self.assertEqual(self.target.read_bytes(), DATA)
 
+    def test_cleanup_keeps_unrelated_files(self):
+        self.folder.mkdir()
+        note = self.folder / 'notes.txt'
+        note.write_bytes(b'keep')
+        cleanup_update_dir(self.folder)
+        self.assertEqual(note.read_bytes(), b'keep')
+
+    def test_simultaneous_downloads_use_separate_partial_files(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from akis import speaker_model
+        for installer in (True, False):
+            barrier = threading.Barrier(2, timeout=5)
+            response_state = threading.local()
+            def progress(*args):
+                if not getattr(response_state, 'started', False):
+                    response_state.started = True
+                    barrier.wait()
+            def fetch():
+                if installer:
+                    return Path(download(UPDATE, self.target, opener=opener_for(DATA), progress=progress))
+                return speaker_model.download(self.folder, opener=opener_for(DATA), on_progress=progress)
+            with self.subTest(installer=installer), patch.object(speaker_model, 'SHA256', SHA), ThreadPoolExecutor(2) as pool:
+                paths = list(pool.map(lambda _: fetch(), range(2)))
+                self.assertEqual(paths[0], paths[1])
+                self.assertEqual(paths[0].read_bytes(), DATA)
+
     def test_cleanup_keeps_only_target_and_log(self):
         self.folder.mkdir()
         for name in ('AkisKurguAI-Setup-9.9.8.exe', 'AkisKurguAI-Setup-9.9.9.exe.part', 'install.log', self.target.name):
