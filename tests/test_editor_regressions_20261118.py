@@ -8,6 +8,7 @@ from PySide6.QtCore import QPoint, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
+from akis import word_captions
 from akis.caption_service import caption_track
 from akis.multitrack_widget import MultitrackWidget
 from akis.timeline_audio import TimelineAudio
@@ -61,7 +62,9 @@ class EditorRegressionTests(unittest.TestCase):
         QTest.mouseMove(widget, QPoint(223, 45))
         QTest.mouseRelease(widget, Qt.MouseButton.LeftButton, pos=QPoint(223, 45))
         self.assertEqual((clip.start, clip.length), (60, 20))
-        self.assertEqual(clip.style['words'], [[0, 8, 'b'], [10, 18, 'c']])
+        # The word trimmed off the start keeps its time (dragging back brings it back) and is not drawn.
+        self.assertEqual(clip.style['words'], [[-10, -2, 'a'], [0, 8, 'b'], [10, 18, 'c']])
+        self.assertEqual([w[2] for w in word_captions.visible(clip)[0]], ['b', 'c'])
         self.assertEqual(clip.keyframes['opacity'], [{'frame': 2, 'value': .5}, {'frame': 12, 'value': 1}])
 
 

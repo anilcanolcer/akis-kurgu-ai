@@ -83,7 +83,10 @@ def visible(clip, lit=None):
     words past the new end must not be drawn meanwhile.
     """
     words = clip.style.get('words') or []
-    kept = [index for index, word in enumerate(words) if int(word[0]) < clip.length]
+    # Words trimmed off the start keep negative times (timeline_model.Track.trim_start): of those, only the
+    # one still lit at the first frame is shown.
+    kept = [index for index, word in enumerate(words) if int(word[0]) < clip.length
+            and (index + 1 == len(words) or int(words[index + 1][0]) > 0)]
     shown = [words[index] for index in kept]
     return shown, (kept.index(lit) if lit in kept else None)
 

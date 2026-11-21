@@ -54,7 +54,12 @@ def transition_of(track, clip):
     if '_transition_elapsed' in clip.style:   # a piece of a cut clip: the whole clip's transition, as it was
         frames = int(clip.style.get('transition_frames', 10))
         return (name, frames) if frames > int(clip.style['_transition_elapsed']) else None
-    frames = min(int(clip.style.get('transition_frames', 10)), clip.length // 2)
+    # A fixed transition (timeline_model.fixed_transition) keeps its length while the clip is cut: a clip
+    # split inside it shows the frames it showed before, the rest of the transition cut off with the clip.
+    # An older one is capped at half the clip.
+    frames = int(clip.style.get('transition_frames', 10))
+    if not clip.style.get('transition_fixed'):
+        frames = min(frames, clip.length // 2)
     return (name, frames) if frames >= 1 else None
 
 
@@ -344,7 +349,9 @@ class TimelineRenderer:
                  f'trim=start=0:duration={(last + 2) / fps:.9f},setpts=PTS-STARTPTS,'
                  # The output frame number is written out (ceil), not left to the fps filter's rounding
                  # of a fractional time: that rounding put every frame one output frame early.
-                 f"setpts='max(0,ceil((N-{fraction:.9f})/{rate:.9f}-0.000001))/FR/TB',"
+                 # round(): n/FR/TB is a hair under n for some n (28/25/0.04 = 27.999…), and setpts cuts the
+                 # fraction off, so two frames shared one number and the second was dropped.
+                 f"setpts='round(max(0,ceil((N-{fraction:.9f})/{rate:.9f}-0.000001))/FR/TB)',"
                  # settb=AVTB: in the 1/fps time base, adding the clip's place (13/30 s = 12.9999…
                  # units) was cut down to 12 and the clip came in one frame early.
                  f'fps={fps_num}/{fps_den},settb=AVTB')

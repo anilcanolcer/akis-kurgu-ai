@@ -80,7 +80,10 @@ class PlacementTests(unittest.TestCase):
         self.assertEqual(clip.style['words'], [[0, 8, 'a'], [10, 15, 'b']])
         self.assertEqual(right.style['words'], [[0, 3, 'b'], [5, 13, 'c']])
         track.trim_start(right.id, 19)
-        self.assertEqual(right.style['words'], [[1, 9, 'c']])
+        # 'b' keeps its time; it is still lit at the new first frame (until 'c' starts), as it was there.
+        self.assertEqual(right.style['words'], [[-4, -1, 'b'], [1, 9, 'c']])
+        self.assertEqual(word_captions.visible(right)[0], [[-4, -1, 'b'], [1, 9, 'c']])
+        self.assertEqual(word_captions.states(right), [(0, 1, 0), (1, 11, 1)])
         whole = Clip('', 0, 30, text='a b c', style={'words': [[0, 8, 'a'], [10, 18, 'b'], [20, 28, 'c']]})
         part = slice_timeline(Timeline(fps_num=10, tracks=[Track('text', 'T', [whole])]), 12, 30)
         self.assertEqual(part.tracks[0].clips[0].style['words'], [[0, 6, 'b'], [8, 16, 'c']])

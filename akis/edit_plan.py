@@ -14,7 +14,7 @@ from pathlib import Path
 
 from akis.caption_service import caption_track
 from akis.shape_art import COLORS, SHAPES
-from akis.timeline_model import Clip, Timeline, Track, with_phase
+from akis.timeline_model import Clip, Timeline, Track, with_phase, fixed_transition
 from akis.timeline_render import TEXT_COLORS, TEXT_SCALE, TRANSITIONS
 
 ASPECTS = ('9:16', '16:9', '1:1', '4:5')
@@ -166,7 +166,7 @@ def current_segments(timeline, sources, keep=False):
             continue
         segment = {'source': index[clip.source], 'start': round(clip.source_in / fps, 2),
                    'end': round(clip.source_end / fps, 2)}
-        if segments and clip.style.get('transition') in TRANSITIONS:
+        if (segments or keep) and clip.style.get('transition') in TRANSITIONS:   # a local cut keeps the opening one
             segment['transition'] = clip.style['transition']
         if keep:
             segment['clip'] = clip.id
@@ -905,6 +905,9 @@ def _remap_words(clip, old_start, frame_map):
     cut goes with it, so the caption never lights up a word that is no longer heard."""
     words = []
     for a, b, text in clip.style.get('words') or ():
+        if b <= 0:        # trimmed off the caption's start (timeline_model.Track.trim_start)
+            continue
+        a = max(0, a)
         first = frame_map.first_usable(old_start + a, old_start + b)
         if first is None:
             continue
@@ -1074,11 +1077,16 @@ def _recut(result, sources, segments, fps, follow=()):
             cursor += gaps_before[owner.id] - gaps_used
             gaps_used = gaps_before[owner.id]
             style = with_phase({k: v for k, v in owner.style.items() if not k.startswith('transition')}, phase)
-            if new_clips and segment.get('transition'):
-                same = owner.style.get('transition') == segment['transition']
-                style.update(transition=segment['transition'],
-                             transition_frames=owner.style.get('transition_frames', 10) if same
-                             else max(2, round(TRANSITION_SECONDS * fps)))
+            same = owner.style.get('transition') == segment.get('transition')
+            # The clip's own transition stays, the opening clip's included (a local cut restates it);
+            # a new one from the plan is not put on the very first clip.
+            if segment.get('transition') and (new_clips or same):
+                if same:
+                    kept = fixed_transition(owner.style, owner.length)
+                    style.update({k: v for k, v in kept.items() if k.startswith('transition')})
+                else:
+                    style.update(fixed_transition({'transition': segment['transition'],
+                                                   'transition_frames': max(2, round(TRANSITION_SECONDS * fps))}, frames))
             offset = old_start - owner.start
             new_clips.append(Clip(path, cursor, frames, source_in=src_in, source_length=source_frames,
                                   volume=owner.volume, keyframes=_slice_keyframes(owner.keyframes, offset, frames),
@@ -1095,7 +1103,8 @@ def _recut(result, sources, segments, fps, follow=()):
             style = dict(style)
             # Only the plan sets transitions: the model is shown the existing ones and told to restate them.
             if cursor and not i and segment.get('transition'):
-                style.update(transition=segment['transition'], transition_frames=max(2, round(TRANSITION_SECONDS * fps)))
+                style.update(fixed_transition({'transition': segment['transition'],
+                                               'transition_frames': max(2, round(TRANSITION_SECONDS * fps))}, piece_length))
             new_clips.append(Clip(path, cursor, piece_length, source_in=src_in, source_length=source_frames,
                                   volume=volume, keyframes=keyframes, style=style))
             cursor += piece_length

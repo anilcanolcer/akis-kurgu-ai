@@ -60,7 +60,7 @@ def slice_timeline(timeline, start, end):
                                    for k, v in piece.keyframes.items()}
             transition = transition_of(track, clip)
             if transition and offset < transition[1]:
-                if offset or min(int(clip.style.get('transition_frames', 10)), piece.length // 2) != transition[1]:
+                if offset or transition_of(track, piece) != transition:
                     # Pinned: the transition runs at its full length, `offset` frames of it already shown.
                     piece.style = dict(piece.style, transition_frames=transition[1], **{TRANSITION_ELAPSED: offset})
                 if a == start and not track.muted:

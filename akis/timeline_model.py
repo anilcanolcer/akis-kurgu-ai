@@ -25,13 +25,35 @@ def clip_speed(clip) -> float:
 
 def cut_words(style, offset, length):
     """The style of the part [offset, offset+length) of a word-by-word caption (akis.word_captions):
-    its words re-based to the part's start, those outside it dropped. Other styles come back as they are."""
+    its words re-based to the part's start, those outside it dropped. A word stays lit until the next one
+    starts (word_captions.states), so the word lit where the part begins stays in it, at its first frame:
+    a part cut after a word was said still shows that word, never the whole sentence as plain text.
+    Other styles come back as they are."""
     words = style.get('words') if isinstance(style, dict) else None
     if not words:
         return style
-    kept = [[max(0, w[0] - offset), min(length, w[1] - offset), w[2]] for w in words
-            if w[1] > offset and w[0] < offset + length]
+    kept = []
+    for index, (a, b, text) in enumerate(words):
+        lit_until = words[index + 1][0] if index + 1 < len(words) else math.inf
+        if max(b, lit_until) > offset and a < offset + length:
+            start = max(0, a - offset)
+            kept.append([start, min(length, max(b - offset, start + 1)), text])
     return dict(style, words=kept)
+
+
+def fixed_transition(style, length):
+    """`style` with its transition's length written down as it now plays (style 'transition_fixed').
+
+    A transition used to be capped at half its clip, worked out again from the clip's current length, so
+    splitting or trimming the clip shortened the transition too. A fixed one keeps its length and is only
+    capped by the clip itself (timeline_render.transition_of)."""
+    if not style.get('transition') or style.get('transition_fixed') or '_transition_elapsed' in style:
+        return style
+    try:
+        frames = min(int(style.get('transition_frames', 10)), length // 2)
+    except (TypeError, ValueError):
+        return style
+    return dict(style, transition_frames=frames, transition_fixed=True) if frames >= 1 else style
 
 
 def source_span(length, speed) -> int:
@@ -165,6 +187,7 @@ class Track:
         if not 0 < offset < clip.length:
             raise ValueError("Split must be inside clip")
         source_in, phase = clip.source_at(frame) if clip.source else (clip.source_in + offset, 0.0)
+        clip.style = fixed_transition(clip.style, clip.length)
         right = Clip(source=clip.source, start=frame, length=clip.length-offset,
                      source_in=source_in,
                      source_length=clip.source_length,
@@ -231,9 +254,9 @@ class Track:
         clip.start, clip.length, clip.source_in = start, length, source_in
         if clip.source:
             clip.style = with_phase(clip.style, phase)
-        if delta > 0:
-            clip.style = cut_words(clip.style, delta, length)
-        elif delta < 0 and clip.style.get('words'):
+        if clip.style.get('words'):
+            # Words before the new start keep their (negative) times, as trimming the end keeps those past
+            # it: dragging the edge back brings them back. word_captions.visible() leaves them out meanwhile.
             clip.style = dict(clip.style, words=[[a - delta, b - delta, text] for a, b, text in clip.style['words']])
         clip.keyframes = {name: [dict(p, frame=p['frame'] - delta) for p in points if p['frame'] - delta >= 0]
                           for name, points in clip.keyframes.items()}
@@ -249,8 +272,9 @@ class Track:
         if length < 1 or (clip.source_length is not None and
                           clip.source_in + int(clip.source_phase + length * clip.speed + 1e-6) > clip.source_length):
             raise ValueError("Invalid trim")
-        old_length = clip.length
+        old_length, old_style = clip.length, clip.style
         following = [c for c in self.clips if c.id != clip.id and c.start >= clip.end]
+        clip.style = fixed_transition(clip.style, old_length)
         clip.length = length
         if ripple:
             for other in following:
@@ -258,7 +282,7 @@ class Track:
         try:
             self.validate()
         except Exception:
-            clip.length = old_length
+            clip.length, clip.style = old_length, old_style
             if ripple:
                 for other in following:
                     other.start -= length - old_length
@@ -318,6 +342,9 @@ class Timeline:
     def from_dict(cls, data):
         tracks = [Track(kind=t['kind'], name=t['name'], muted=t.get('muted', False),
                         clips=[Clip(**c) for c in t.get('clips', [])]) for t in data.get('tracks', [])]
+        for track in tracks:      # transitions of older projects, written down as they play (fixed_transition)
+            for clip in track.clips if track.kind == 'video' else ():
+                clip.style = fixed_transition(clip.style, clip.length)
         return cls(fps_num=data.get('fps_num', 30), fps_den=data.get('fps_den', 1),
                    tracks=tracks, markers=data.get('markers', []))
 

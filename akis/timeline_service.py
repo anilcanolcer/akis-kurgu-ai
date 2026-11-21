@@ -291,9 +291,11 @@ def _retime_captions(timeline, track, old_start, old_end, factor, delta):
             end = max(start + 1, round(where(caption.end)))
             words = caption.style.get('words')
             if words:
-                caption.style = dict(caption.style, words=[
-                    [max(0, round(where(caption.start + a)) - start), max(1, round(where(caption.start + b)) - start), text]
-                    for a, b, text in words])
+                moved = []
+                for a, b, text in words:
+                    first = max(0, round(where(caption.start + a)) - start)
+                    moved.append([first, max(first + 1, round(where(caption.start + b)) - start), text])
+                caption.style = dict(caption.style, words=moved)
             caption.start, caption.length = start, end - start
             last_end = caption.end
     return saved
