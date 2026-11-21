@@ -140,7 +140,19 @@ Eklenen ve değişen testler: `tests/test_windows_audit_0620.py` (yeni; 10 test)
 
 ## Yayın
 
-Sonuçlar yayından sonra eklenecek.
+Sürüm commit'i `3679f5b`. GitHub Windows derlemesi ([çalıştırma 44935731306](https://github.com/anilcanolcer/akis-kurgu-ai/actions/runs/44935731306)) yaklaşık 18 dakikada başarıyla bitti ve sürümü yayımladı.
+
+| Adım | Sonuç |
+| --- | --- |
+| Genel test kümesi | 1.088 test geçti. 6 test GitHub makinesinde atlandı: gerçek ses çıkışı, masaüstü penceresi, gerçek ekran kaydı ya da indirilmiş konuşmacı modeli gerektiriyorlar. Ses ve kayıt olanları bu bilgisayarda çalıştı (yukarıdaki tablo). |
+| Medya grupları | 6/6 geçti |
+| Kural denetleyicileri | 10 denetleyici (yeni `open_fuzz` ve proje hızlı `render_fuzz` dahil) hata vermedi; biri hata verseydi derleme dururdu |
+| Paketlenmiş programda ses ve Whisper tanılaması | Geçti |
+| Kurulum, yerinde güncelleme ve kaldırma senaryoları | 18 senaryonun 18'i geçti |
+| Yayımlanmış sürümle güncelleme denemesi | Geçti |
+| Kaldırma doğrulaması (kullanıcı dosyası korunur, program silinir) | Geçti |
+
+**Yayımlanan kurucu:** [AkisKurguAI-Setup.exe](https://github.com/anilcanolcer/akis-kurgu-ai/releases/download/v0.6.20/AkisKurguAI-Setup.exe), 146.876.139 bayt. Bu bilgisayara indirildi ve SHA-256 değeri hesaplandı: `9af251bba385e6f83ed18248492d166156c72ac772c683e2ca34aaa8a399a339`. Bu değer yanındaki `AkisKurguAI-Setup.exe.sha256` dosyası ve GitHub'ın verdiği özetle aynı. Programın güncelleme denetimi 0.6.19'dan v0.6.20'yi aynı özet ve boyutla buluyor.
 
 ## Yeniden çalıştırma
 
