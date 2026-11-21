@@ -103,7 +103,7 @@ Talking-head videos, tutorials, vlogs and Shorts take hours of repetitive work: 
 - In-app updates that verify the installer's SHA-256 checksum and restore the previous version if anything fails.
 - Proxy files in the background for smooth playback, chunked preview rendering for long edits, HDR (PQ/HLG) sources tone-mapped to SDR.
 
-**Version 0.6.18** lets you choose the recording folder, preview the selected screen while recording, and stop from the floating bar. It also protects project media during export and keeps manual story-guide edits when saving. [Release notes](https://github.com/anilcanolcer/akis-kurgu-ai/releases/tag/v0.6.18) · [Audit report (Turkish)](docs/toplu-denetim-0.6.18.md).
+**Version 0.6.19** names the problem in plain words when an export target is open in another program (it now waits briefly and then says so) and when a project file is damaged, cut off or saved by a newer version. The main editing, recording and export flows were tried through the real Windows interface and the packaged program. [Release notes](https://github.com/anilcanolcer/akis-kurgu-ai/releases/tag/v0.6.19) · [Audit report (Turkish)](docs/toplu-denetim-0.6.19.md).
 
 ## Screenshots
 
