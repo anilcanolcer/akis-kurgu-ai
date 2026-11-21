@@ -56,13 +56,15 @@ def dismiss_recovery(window, timeout=6):
     return None
 
 
-def start(exe=None, settings=None, args=()):
+def start(exe=None, settings=None, args=(), recovery='later', command=None):
+    """recovery='later' answers a startup recovery offer with "Sonra sor"; None leaves it to the caller.
+    command replaces how the editor is started (e.g. fake_ai_launch.py)."""
     env = dict(os.environ)
     env['QT_QPA_PLATFORM'] = 'windows'
     env.pop('AKIS_RUN_WINDOWS_GUI_SMOKE', None)
     if settings:
         env['AKIS_SETTINGS_FILE'] = str(settings)
-    command = [str(exe)] if exe else [str(PYTHON), str(REPO / 'main.py')]
+    command = list(command or ([str(exe)] if exe else [str(PYTHON), str(REPO / 'main.py')]))
     process = subprocess.Popen(command + list(args), cwd=str(REPO), env=env)
     deadline = time.time() + 90
     while True:
@@ -74,7 +76,7 @@ def start(exe=None, settings=None, args=()):
             window = app.window(handle=found[0].handle)
             window.wait('visible', timeout=10)
             process.owners = owners
-            process.recovery_offer = dismiss_recovery(window) if not args else None
+            process.recovery_offer = dismiss_recovery(window) if not args and recovery == 'later' else None
             return process, app, window
         if time.time() > deadline or process.poll() is not None:
             raise TimeoutError('düzenleyici penceresi açılmadı')
@@ -131,7 +133,10 @@ def windows_of(app):
     for w in Desktop(backend='uia').windows():
         if w.process_id() == app.process:
             out.append(w)
-            out += [c for c in w.children() if c.element_info.control_type == 'Window']
+            children = [c for c in w.children() if c.element_info.control_type == 'Window']
+            out += children
+            for child in children:     # a file dialog opened from a dialog (e.g. Toplu dışa aktar › Video ekle)
+                out += [c for c in child.children() if c.element_info.control_type == 'Window']
     return out
 
 

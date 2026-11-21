@@ -4,11 +4,13 @@ Each source frame carries its own number (three grey blocks, base 8) and a fourt
 so a decoded output frame says which file and which source frame it shows. For random projects built
 from edits (speed, split, trim, delete, local cut, slice) the exported frames, and still previews of a few
 random frames, must show what Clip.source_frame names for the top picture at that frame. Frames inside a
-transition are skipped (they blend two pictures).
+transition are skipped (they blend two pictures). About a third of the exports also run at a project
+playback speed (Düzenle › Oynatma hızı): output frame n must then show timeline frame floor(n × speed).
 
 Usage: python scripts/media-audit/render_fuzz.py <project root> [runs] [first seed]
 """
 import json
+import math
 import random
 import shutil
 import sys
@@ -20,6 +22,7 @@ import numpy as np
 sys.path.insert(0, str(Path(sys.argv[1] if len(sys.argv) > 1 else '.').resolve()))
 
 from akis import edit_plan, silence_cut, timeline_service  # noqa: E402
+from akis.i18n import SPEEDS  # noqa: E402
 from akis.media_service import MediaService  # noqa: E402
 from akis.timeline_model import CLIP_SPEEDS, Clip, Timeline, Track  # noqa: E402
 from akis.timeline_render import TRANSITIONS, TimelineRenderer, duration_frames, outgoing_hold, transition_of  # noqa: E402
@@ -184,14 +187,19 @@ def main():
         root = Path(folder)
         sources = {name: make_source(root, name) for name in TAGS}
         paths = {path: name for name, path in sources.items()}
-        renderer = TimelineRenderer(MEDIA, (W, H))
         for seed in range(first, first + runs):
             rng = random.Random(seed)
+            # Drawn apart from rng, so every seed keeps the project and edits it always had.
+            pace = random.Random(seed + 10 ** 6)
+            speed = pace.choice([s for s in SPEEDS if s != 1.0]) if pace.random() < 1 / 3 else 1.0
+            renderer = TimelineRenderer(MEDIA, (W, H), speed=speed)
             timeline = random_project(rng, sources)
             timeline, steps = random_edits(rng, timeline, list(sources.values()))
             total = duration_frames(timeline)
             if total < 1:
                 continue
+            if speed != 1.0:
+                steps.append(f'proje hızı {speed}')
             out = root / f'out{seed}.mp4'
             try:
                 renderer.export(timeline, out)
@@ -200,12 +208,14 @@ def main():
                 continue
             got = read_frames(out)
             wrong = []
-            if len(got) != total:
-                wrong.append(f'kare sayısı {len(got)} · beklenen {total}')
-            for frame in range(min(total, len(got))):
+            count = math.ceil(total / speed - 1e-9)
+            if len(got) != count:
+                wrong.append(f'kare sayısı {len(got)} · beklenen {count}')
+            for shown_at in range(min(count, len(got))):
+                frame = int(shown_at * speed + 1e-9)
                 want = expected(timeline, frame, paths)
-                if want != 'skip' and got[frame] != want:
-                    wrong.append(f'kare {frame}: {got[frame]} · beklenen {want}')
+                if want != 'skip' and got[shown_at] != want:
+                    wrong.append(f'kare {shown_at}: {got[shown_at]} · beklenen {want}')
             for frame in rng.sample(range(total), min(2, total)):
                 want = expected(timeline, frame, paths)
                 still = root / f'still{seed}.png'

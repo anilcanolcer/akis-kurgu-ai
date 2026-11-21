@@ -111,9 +111,12 @@ class ProjectOpenTests(unittest.TestCase):
         self.assertFalse(self.window.has_unsaved_changes())
 
     def test_failure_inside_apply_project_state_restores_previous_project(self):
-        project_b, _ = write_project_b(self.tmp.name, speed='hızlı')  # breaks f"{speed:.2f}" in apply_project_state
+        project_b, _ = write_project_b(self.tmp.name, speed=1.5)
         before = self.picture()
-        critical, _ = self.open(project_b)
+        # An unusable setting in the file (speed 'hızlı') no longer fails the open: it goes back to its default
+        # (project_service.repair_settings). The failure is made inside apply_project_state itself instead.
+        with patch.object(self.window, 'select_speed', side_effect=ValueError('bozuk hız')):
+            critical, _ = self.open(project_b)
         self.assert_failed_open_left_a_intact(before, critical)
 
     def test_failure_inside_seek_timeline_restores_previous_project(self):

@@ -325,6 +325,15 @@ EN_UI = {
     'Hedef dosya: {path}': 'Target file: {path}',
     'Hedef dosya başka bir programda açık (örneğin bir video oynatıcıda). O programı kapatıp yeniden deneyin.':
         'The target file is open in another program (a video player, for example). Close that program and try again.',
+    # Settings of a damaged or hand-edited project put back to their defaults (akis.project_service).
+    'Proje açıldı. Dosyadaki şu ayarlar okunamadı ve varsayılana döndürüldü: {names}.':
+        'The project is open. These settings in the file could not be read and are back to their defaults: {names}.',
+    'proje ayarları': 'project settings', 'ana video': 'main video', 'eski giriş-çıkış aralığı': 'old in/out range',
+    'tuval oranı': 'canvas ratio',   # parlaklık, kontrast, doygunluk: already below
+    'oynatma hızı': 'playback speed', 'dışa aktarma profili': 'export profile', 'ses iyileştirme': 'sound clean-up',
+    'yayın metni': 'publish text', 'AI isteği': 'AI request',
+    # Screen-reader names of controls without visible text (main.MainWindow.apply_language).
+    'Altyazı görünümü': 'Caption style',
     'Windows Güvenliği veya antivirüs yazmayı engellediyse, klasör izinlerini ve Denetimli klasör erişimini kontrol edin; bu uygulama ile FFmpeg’e izin verin ya da başka klasör seçin.':
         'If Windows Security or antivirus blocked the write, check folder permissions and Controlled folder access; allow this app and FFmpeg to write there, or choose another folder.',
     '{count} klip yazıldı.': '{count} clips written.',

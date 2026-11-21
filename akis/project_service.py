@@ -70,6 +70,97 @@ NOT_A_PROJECT = 'Bu dosya bir Akış Kurgu projesi değil.'
 NEWER_PROJECT = 'Bu proje programın daha yeni bir sürümüyle kaydedilmiş. Açmak için programı güncelleyin.'
 DAMAGED_PROJECT = 'Proje dosyası bozuk ya da yarım kalmış (satır {line}, sütun {column}).'
 DAMAGED_PROJECT_TIMELINE = 'Proje dosyasındaki kurgu okunamadı; dosya bozulmuş ya da elle değiştirilmiş olabilir.'
+REPAIRED_SETTINGS = 'Proje açıldı. Dosyadaki şu ayarlar okunamadı ve varsayılana döndürüldü: {names}.'
+REPAIRED = 'repaired_settings'   # key migrate() adds to the loaded document; never written back (make_document)
+# What a person calls each setting, in the order the message lists them.
+SETTING_NAMES = {'state': 'proje ayarları', 'source': 'ana video', 'duration': 'eski giriş-çıkış aralığı',
+                 'start': 'eski giriş-çıkış aralığı', 'end': 'eski giriş-çıkış aralığı', 'aspect': 'tuval oranı',
+                 'brightness': 'parlaklık', 'contrast': 'kontrast', 'saturation': 'doygunluk', 'speed': 'oynatma hızı',
+                 'export_profile': 'dışa aktarma profili', 'audio_level': 'ses iyileştirme',
+                 'audio_denoise': 'ses iyileştirme', 'audio_duck': 'ses iyileştirme', 'ai_title': 'yayın metni',
+                 'ai_caption': 'yayın metni', 'ai_hashtags': 'yayın metni', 'publish': 'yayın metni',
+                 'ai_prompt': 'AI isteği'}
+
+
+def _finite_number(value):
+    import math
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def repair_settings(document):
+    """Put back the defaults for settings a damaged or hand-edited file holds in a form the editor cannot use.
+
+    The timeline is the work itself and is checked strictly (DAMAGED_PROJECT_TIMELINE); the settings around
+    it (canvas, colour, speed, sound switches, publish texts, the AI request) are not worth refusing the
+    project for. A value of the wrong kind is dropped, so the editor's default applies; a colour value
+    outside -50…50 is brought into range. Returns the setting keys that changed, in SETTING_NAMES' terms.
+    """
+    from akis import i18n
+    repaired = []
+    state = document.get('state', {})
+    if not isinstance(state, dict):
+        repaired.append('state')
+        state = {}
+    state = dict(state)
+    for name in ('duration', 'start', 'end'):
+        if name in state:
+            if _finite_number(state[name]) and state[name] >= 0:
+                state[name] = float(state[name])
+            else:
+                del state[name]
+                repaired.append(name)
+    for name in ('brightness', 'contrast', 'saturation'):
+        if name in state:
+            if _finite_number(state[name]):
+                value = max(-50, min(50, int(round(state[name]))))
+                if value != state[name]:
+                    repaired.append(name)
+                state[name] = value
+            else:
+                del state[name]
+                repaired.append(name)
+    for name in ('source', 'aspect', 'export_profile', 'ai_title', 'ai_caption', 'ai_hashtags'):
+        if name in state and not isinstance(state[name], str):
+            del state[name]
+            repaired.append(name)
+    for name in ('audio_level', 'audio_denoise', 'audio_duck'):
+        if name in state and not isinstance(state[name], bool):
+            del state[name]
+            repaired.append(name)
+    if 'speed' in state:
+        speed = state['speed']
+        try:   # older files hold the text a combo showed ('1.25×'); i18n.speed_key reads both
+            usable = (_finite_number(speed) and speed > 0) or (isinstance(speed, str) and i18n.speed_key(speed) > 0)
+        except ValueError:
+            usable = False
+        if not usable:
+            del state['speed']
+            repaired.append('speed')
+    document['state'] = state
+    publish = document.get('publish', {})
+    if not isinstance(publish, dict):
+        repaired.append('publish')
+        publish = {}
+    publish = dict(publish)
+    for name in ('title', 'caption', 'hashtags'):
+        if name in publish and not isinstance(publish[name], str):
+            del publish[name]
+            repaired.append('publish')
+    document['publish'] = publish
+    if 'ai_prompt' in document and not isinstance(document['ai_prompt'], str):
+        del document['ai_prompt']
+        repaired.append('ai_prompt')
+    return repaired
+
+
+def repaired_names(keys):
+    """The person's words for repaired setting keys, each once, in a stable order."""
+    names = []
+    for key in keys:
+        name = SETTING_NAMES.get(key, key)
+        if name not in names:
+            names.append(name)
+    return names
 
 
 def migrate(document):
@@ -82,6 +173,8 @@ def migrate(document):
     if version > CURRENT_VERSION:
         raise ValueError(NEWER_PROJECT)
     result = dict(document)
+    # Settings first: a version 1 file builds its timeline from them.
+    result[REPAIRED] = repair_settings(result)
     try:
         if version == 1:
             result['timeline'] = result.get('timeline') or Timeline.from_legacy(result.get('state', {})).to_dict()

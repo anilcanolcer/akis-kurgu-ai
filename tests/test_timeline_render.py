@@ -361,11 +361,14 @@ class RenderFixTests(unittest.TestCase):
             TimelineRenderer(media, (160, 90), speed=1.5).export(timeline, Path(tmp) / 'out.mp4')
         self.assertEqual(len(calls), 1)
         args, graph, _ = calls[0]
-        self.assertIn('[graded]setpts=PTS/1.500000[timed]', graph)
+        # Each finished frame is placed on its output frame and fps picks one per frame (exact timing:
+        # tests.test_windows_audit_0620.ProjectSpeedFrameTests reads the frames back).
+        self.assertIn("[graded]setpts='round(ceil(N/1.500000000-0.000001)/FR/TB)',fps=10/1[timed]", graph)
         self.assertIn('atempo=1.500000[mixed]', graph)
         self.assertIn(f'[mixed]apad=whole_dur={2 / 1.5:.9f}[aout]', graph)   # as long as the retimed picture
         self.assertEqual(args[args.index('-map') + 1], '[timed]')
-        self.assertEqual(args[args.index('-t') + 1], f'{2 / 1.5:.9f}')
+        # 20 frames at 1.5× are 13⅓ output frames: the file holds 14 whole ones, so the last picture stays.
+        self.assertEqual(args[args.index('-t') + 1], f'{14 / 10:.9f}')
 
     def test_failed_or_cancelled_export_keeps_existing_file(self):
         with tempfile.TemporaryDirectory() as tmp:

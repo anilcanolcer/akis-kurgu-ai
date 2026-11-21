@@ -80,12 +80,15 @@ class WindowTests(unittest.TestCase):
         before = [(box.isChecked(), getattr(w.state, name)) for box, name in w.audio_boxes()]
         source = str(self.video('other.mp4'))
         document = w.project_document()
-        document['state'].update(source=source, speed='invalid', audio_level=False,
+        document['state'].update(source=source, speed=1.5, audio_level=False,
                                  audio_denoise=True, audio_duck=False)
         document['timeline']['tracks'][0]['clips'][0]['source'] = source
         project = self.root / 'broken.akis.json'
         project_service.save(project, document)
-        with patch.object(w, 'confirm_close', return_value=True), patch('main.QMessageBox.critical') as critical:
+        # An unusable speed in the file now goes back to its default (project_service.repair_settings), so the
+        # open is made to fail inside apply_project_state, after the sound switches were already set.
+        with patch.object(w, 'confirm_close', return_value=True), patch('main.QMessageBox.critical') as critical, \
+                patch.object(w, 'select_speed', side_effect=ValueError('bozuk hız')):
             self.assertFalse(w.open_path(str(project)))
         critical.assert_called_once()
         self.assertEqual([(box.isChecked(), getattr(w.state, name)) for box, name in w.audio_boxes()], before)

@@ -502,6 +502,10 @@ class MainWindow(LayoutMixin, PlaybackMixin, TimelineEditMixin, ProjectMixin, As
                 tip = self._retranslated(widget, "tooltip", widget.toolTip(), code)
                 if tip != widget.toolTip():
                     widget.setToolTip(tip)
+            if widget.accessibleName():   # what a screen reader says ("Arayüz dili", "Altyazı görünümü")
+                name = self._retranslated(widget, "accessible", widget.accessibleName(), code)
+                if name != widget.accessibleName():
+                    widget.setAccessibleName(name)
             if isinstance(widget, QTabWidget):
                 for index in range(widget.count()):
                     widget.setTabText(index, self._retranslated(widget, f"tab{index}", widget.tabText(index), code))

@@ -615,7 +615,14 @@ class TimelineRenderer:
             # picture, then the finished mix. atempo takes 0.5-2.0 per instance, the allowed range.
             speed = self.speed if frame is None else 1.0
             if speed != 1.0 and want_video:
-                graph.append(f'[{base}]setpts=PTS/{speed:.6f}[timed]')
+                # Each frame N of the finished picture is placed on output frame ceil(N / speed), the first
+                # one at or after its retimed time; fps then keeps the last frame per output frame and
+                # repeats one where none lands, so output frame n shows frame floor(n × speed), as the clip
+                # speed path does. setpts=PTS/speed alone truncated odd timestamps in the 1/fps time base,
+                # and left to the muxer's frame-rate conversion (-r) the picture came out two frames
+                # (67 ms) behind its sound at 1.25×–2× and one frame ahead (and short) at 0.5×–0.75×.
+                graph.append(f"[{base}]setpts='round(ceil(N/{speed:.9f}-0.000001)/FR/TB)',"
+                             f'fps={timeline.fps_num}/{timeline.fps_den}[timed]')
                 base = 'timed'
             if output_frames is not None and want_video:
                 # A cumulative rounded boundary can require one more frame than this part alone.
@@ -655,7 +662,9 @@ class TimelineRenderer:
                 if output_frames is not None:
                     args += ['-frames:v', str(output_frames)]
                 elif speed != 1.0:  # retimed frames would otherwise round up to an extra frame or two
-                    args += ['-t', f'{total / fps / speed:.9f}']
+                    # In whole frames: -t keeps a frame only when it ends by then, so an edit whose length is
+                    # not a whole number of output frames (17 frames at 2×) would lose its last picture.
+                    args += ['-t', f'{-(-total // speed) / fps:.9f}' if total % speed else f'{total / fps / speed:.9f}']
                 args += ['-r', f'{timeline.fps_num}/{timeline.fps_den}', '-c:v', 'libx264', *quality, '-pix_fmt', 'yuv420p', '-movflags', '+faststart', str(output)]
             if on_progress is None:
                 result = self.media.run(args, text=True)

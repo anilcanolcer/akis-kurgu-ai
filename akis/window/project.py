@@ -369,6 +369,10 @@ class ProjectMixin:
             QMessageBox.warning(self, APP_NAME, self.ui_text(
                 'Projede kullanılan şu medya dosyaları bulunamadı:\n{names}\n\n'
                 'Proje açıldı; bu dosyaları kullanan klipler önizlemede ve dışa aktarmada eksik kalabilir.', names=names))
+        repaired = document.get(project_service.REPAIRED)
+        if repaired:  # a damaged or hand-edited file: say which settings are now the defaults
+            names = ', '.join(self.ui_text(name) for name in project_service.repaired_names(repaired))
+            QMessageBox.information(self, APP_NAME, self.ui_text(project_service.REPAIRED_SETTINGS, names=names))
         return True
 
     def locate_missing_media(self, path: str) -> dict:

@@ -103,7 +103,7 @@ Talking-head videos, tutorials, vlogs and Shorts take hours of repetitive work: 
 - In-app updates that verify the installer's SHA-256 checksum and restore the previous version if anything fails.
 - Proxy files in the background for smooth playback, chunked preview rendering for long edits, HDR (PQ/HLG) sources tone-mapped to SDR.
 
-**Version 0.6.19** names the problem in plain words when an export target is open in another program (it now waits briefly and then says so) and when a project file is damaged, cut off or saved by a newer version. The main editing, recording and export flows were tried through the real Windows interface and the packaged program. [Release notes](https://github.com/anilcanolcer/akis-kurgu-ai/releases/tag/v0.6.19) · [Audit report (Turkish)](docs/toplu-denetim-0.6.19.md).
+**Version 0.6.20** keeps picture and sound exactly in step at every playback speed other than 1.00× (the picture used to run two frames behind at 1.25×–2×). A project whose settings were damaged or hand-edited now opens with those settings back at their defaults and names them, instead of refusing the whole edit. Screen-reader names follow the English interface. Exports in three formats, Shorts, highlights, FCPXML, fast and batch export, titles, speed, loudness, voice-over, local captions, silences, crash recovery, language, templates and the AI edit (with a test reply) were tried through the real Windows interface. [Release notes](https://github.com/anilcanolcer/akis-kurgu-ai/releases/tag/v0.6.20) · [Audit report (Turkish)](docs/toplu-denetim-0.6.20.md).
 
 ## Screenshots
 
