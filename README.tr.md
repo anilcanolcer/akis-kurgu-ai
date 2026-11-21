@@ -103,7 +103,7 @@ Konuşma videoları, eğitimler, vloglar ve Shorts saatlerce tekrar eden iş ist
 - Uygulama içinden güncelleme: kurucunun SHA-256 özeti doğrulanır, bir sorun olursa eski sürüm geri yüklenir.
 - Akıcı oynatma için arka planda proxy, uzun kurgularda parçalı önizleme, HDR (PQ/HLG) kaynaklarda SDR'ye ton eşleme.
 
-**0.6.16 sürümü** hızı değiştirilmiş ve farklı kare hızındaki kliplerde dışa aktarmada atlanan kareleri, kesimden sonra kelime altyazılarını ve bölünen ya da kırpılan kliplerin geçişlerini düzeltir. [Sürüm notları](https://github.com/anilcanolcer/akis-kurgu-ai/releases/tag/v0.6.16) · [Denetim raporu](docs/toplu-denetim-0.6.16.md).
+**0.6.17 sürümü** ekran kaydını kullanılır hale getirir: program kayda girmeyen küçük bir durdurma çubuğuyla kenara çekilir, pencereyi kapatmak kaydı sessizce silmez. [Sürüm notları](https://github.com/anilcanolcer/akis-kurgu-ai/releases/tag/v0.6.17) · [Denetim raporu](docs/toplu-denetim-0.6.17.md).
 
 ## Ekran görüntüleri
 

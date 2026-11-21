@@ -103,7 +103,7 @@ Talking-head videos, tutorials, vlogs and Shorts take hours of repetitive work: 
 - In-app updates that verify the installer's SHA-256 checksum and restore the previous version if anything fails.
 - Proxy files in the background for smooth playback, chunked preview rendering for long edits, HDR (PQ/HLG) sources tone-mapped to SDR.
 
-**Version 0.6.16** fixes skipped frames in exported sped-up and mixed frame-rate clips, word captions after a cut, and transitions of split or trimmed clips. [Release notes](https://github.com/anilcanolcer/akis-kurgu-ai/releases/tag/v0.6.16) · [Audit report (Turkish)](docs/toplu-denetim-0.6.16.md).
+**Version 0.6.17** makes screen recording usable: the program steps aside with a small stop bar that is not recorded, and closing never deletes a recording silently. [Release notes](https://github.com/anilcanolcer/akis-kurgu-ai/releases/tag/v0.6.17) · [Audit report (Turkish)](docs/toplu-denetim-0.6.17.md).
 
 ## Screenshots
 
