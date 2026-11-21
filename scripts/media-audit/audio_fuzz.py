@@ -14,6 +14,7 @@ import random
 import shutil
 import sys
 import tempfile
+import threading
 from pathlib import Path
 
 import numpy as np
@@ -35,10 +36,11 @@ FPS_OF = {'a': (30, 1), 'b': (25, 1), 'm': (30, 1)}
 SECONDS = 14
 W, H = 32, 18
 MEDIA = MediaService(shutil.which('ffmpeg'))
+EXPORT_LIMIT = 180        # seconds; an export here takes well under one, so a stuck FFmpeg is reported, not waited on
 
 
 def ff(args):
-    done = MEDIA.run(['-v', 'error', *args])
+    done = MEDIA.run(['-v', 'error', *args], timeout=EXPORT_LIMIT)   # TimeoutExpired names the stuck command
     if done.returncode:
         raise RuntimeError(done.stderr)
     return done.stdout
@@ -247,6 +249,7 @@ def main():
     failures = []
     with tempfile.TemporaryDirectory() as folder:
         root = Path(folder)
+        print('audio_fuzz: making the tone sources', file=sys.stderr, flush=True)
         sources = {name: make_source(root, name) for name in BANDS}
         paths = {path: name for name, path in sources.items()}
         renderer = TimelineRenderer(MEDIA, (W, H))
@@ -257,12 +260,34 @@ def main():
             if duration_frames(timeline) < 4:
                 continue
             out = root / f'out{seed}.mp4'
+            print(f'audio_fuzz: seed {seed}', file=sys.stderr, flush=True)   # the CI log shows where a run stops
+            stuck = []
+
+            def unstick():
+                process = MEDIA._process
+                if process is not None:
+                    stuck.append(' '.join(map(str, process.args))[-1500:])
+                    process.kill()
+            watchdog = threading.Timer(EXPORT_LIMIT, unstick)
+            watchdog.start()
             try:
                 renderer.export(timeline, out)
             except Exception as error:   # noqa: BLE001
-                failures.append({'seed': seed, 'steps': steps, 'problem': [f'dışa aktarma hatası: {error}'[:300]]})
+                problem = f'dışa aktarma {EXPORT_LIMIT} saniyede bitmedi (FFmpeg takıldı): {stuck[0]}' if stuck \
+                    else f'dışa aktarma hatası: {error}'[:300]
+                failures.append({'seed': seed, 'steps': steps, 'problem': [problem]})
                 continue
-            wrong = check(timeline, read_sound(out), paths)
+            finally:
+                watchdog.cancel()
+            if stuck:
+                failures.append({'seed': seed, 'steps': steps, 'problem': [f'FFmpeg takıldı: {stuck[0]}']})
+                continue
+            try:
+                heard = read_sound(out)
+            except Exception as error:   # noqa: BLE001   (a stuck read names its command)
+                failures.append({'seed': seed, 'steps': steps, 'problem': [f'ses okunamadı: {error}'[:600]]})
+                continue
+            wrong = check(timeline, heard, paths)
             if wrong:
                 failures.append({'seed': seed, 'steps': steps, 'fps': [timeline.fps_num, timeline.fps_den],
                                  'clips': [[t.kind, t.muted, [(c.start, c.length, paths.get(c.source), c.source_in, c.speed,
