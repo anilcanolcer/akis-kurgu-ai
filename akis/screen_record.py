@@ -83,8 +83,40 @@ class ScreenRecorder:
         return self.output
 
     def failed(self):
-        """ffmpeg's error text when it stopped by itself (a busy device, say), else ''."""
+        """Why ffmpeg stopped by itself (a busy device, say): its error text, or its exit code when it said
+        nothing; '' while it is still recording or when nothing was started. An ffmpeg that ended without a
+        word used to give '' here too, so the dialog kept counting a recording that no longer ran."""
         if self.process is None or self.process.poll() is None:
             return ''
         process, self.process = self.process, None
-        return (process.stderr.read() or b'').decode('utf-8', 'replace').strip()[-400:]
+        try:
+            text = (process.stderr.read() or b'').decode('utf-8', 'replace').strip()[-400:]
+        except (OSError, ValueError, AttributeError):
+            text = ''
+        return text or f'FFmpeg kaydı beklenmedik şekilde durdurdu (çıkış kodu {process.returncode}).'
+
+    def discard(self):
+        """Stop recording and delete whatever was written (the user chose not to keep it)."""
+        if self.recording:
+            try:
+                self.stop()
+            except RuntimeError:
+                pass
+        self.process = None
+        if self.output:
+            try:
+                os.remove(self.output)
+            except OSError:
+                pass
+
+
+def exclude_from_capture(widget):
+    """Keep a window out of screen recordings and screenshots (Windows 10 2004 and later): the recording
+    bar stays on screen for the person recording but never appears in the video. False where unsupported."""
+    if os.name != 'nt':
+        return False
+    try:
+        import ctypes
+        return bool(ctypes.windll.user32.SetWindowDisplayAffinity(int(widget.winId()), 0x11))  # WDA_EXCLUDEFROMCAPTURE
+    except (AttributeError, OSError, ValueError):
+        return False

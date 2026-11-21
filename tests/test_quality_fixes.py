@@ -172,7 +172,8 @@ class GraphTests(unittest.TestCase):
 
     def test_mix_of_several_sources_is_limited(self):
         graph = self.render(GraphRecorder(), [video_track(), Track('audio', 'A', [Clip('m.mp3', 0, 30)])])
-        self.assertIn(f'amix=inputs=2:duration=longest:normalize=0,{LIMITER}[aout]', graph)
+        self.assertIn(f'amix=inputs=2:duration=longest:normalize=0,{LIMITER}[mixed]', graph)
+        self.assertIn('[mixed]apad=whole_dur=', graph)          # then padded to the picture's length
 
     def test_single_source_is_left_untouched(self):
         self.assertNotIn('alimiter', self.render(GraphRecorder(), [video_track()]))

@@ -16,6 +16,16 @@ from akis.frame_plan import plan_frame, plan_segments
 from akis.timeline_slice import picture_clips, plan_ranges, slice_timeline
 
 
+def timed_tempo(rate, seconds):
+    """The clip's sound played at `rate` and lasting exactly `seconds` (its timeline length), or '' at 1×.
+
+    atempo drops the last part of its input that does not fill a whole window: a 0.25× clip lost the last
+    50-70 ms of its sound, and a slow clip of a few frames could lose all of it. A little silence is added
+    after the real sound for atempo to work through, and the result is cut to the clip's length."""
+    chain = atempo_chain(rate)
+    return f',apad=pad_dur=0.5{chain},atrim=duration={seconds:.9f}' if chain else ''
+
+
 def atempo_chain(rate):
     """',atempo=…' filters that change tempo by `rate` (one instance takes 0.5-2.0), or '' for 1.0."""
     parts = []
@@ -413,7 +423,7 @@ class TimelineRenderer:
                     # The clip's own speed: it plays length × rate seconds of its source in `length`.
                     rate = clip.speed if clip.source else 1.0
                     retime = f',setpts=PTS/{rate:.6f}' if rate != 1.0 else ''
-                    tempo = atempo_chain(rate)
+                    tempo = timed_tempo(rate, length)
                     # skip: how far into this clip the preview moment lies (the last frame for a clip
                     # held under the next clip's transition); placed: output time its remainder starts.
                     skip = 0.0 if frame is None else min(max(0, frame - clip.start), clip.length - 1) / fps
@@ -591,6 +601,9 @@ class TimelineRenderer:
                 # music under speech can exceed full scale: a limiter catches those peaks instead of
                 # letting the encoder clip them. Quieter material passes through unchanged.
                 graph += audio_polish.mix(voices, music, self.audio, LIMITER, tempo)
+                # As long as the picture: an edit that ends in silence or in a gap made a shorter sound track.
+                graph[-1] = graph[-1][:-len('[aout]')] + '[mixed]'
+                graph.append(f'[mixed]apad=whole_dur={(total - (frame or 0)) / fps / speed:.9f}[aout]')
             # The graph grows with every clip; passed inline it overflows the Windows command line
             # (32,767 chars). ffmpeg >= 7 reads it from a file via -/filter_complex. The temp dir
             # outlives the ffmpeg call below.

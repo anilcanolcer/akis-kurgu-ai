@@ -39,8 +39,11 @@ EN_UI = {
         "Record from a camera, a screen or the microphone alone; the recording is added to the project when it ends. It stays on your computer.",
     "Yalnız ses kaydedilir. Kayıt, oynatma çizgisinin olduğu yere seslendirme olarak eklenir.":
         "Sound only. The recording is added as a voiceover where the playhead is.",
-    "“{name}” ekranı kaydedilecek ({width}×{height}). Kaydı başlattıktan sonra bu pencereyi küçültüp ekranda göstermek istediğinizi yapabilirsiniz.":
-        "The screen “{name}” will be recorded ({width}×{height}). After starting, you can minimise this window and do what you want to show.",
+    "“{name}” ekranı kaydedilecek ({width}×{height}). Kayıt başlayınca program küçülür; ekranın üstündeki küçük çubuktan durdurabilirsiniz. Çubuk kayda girmez.":
+        "The screen “{name}” will be recorded ({width}×{height}). When recording starts, the program is minimised; stop it from the small bar at the top of the screen. The bar is not recorded.",
+    "Kayıt sürüyor. Ne yapılsın?": "Still recording. What should happen?",
+    "Durdur ve ekle": "Stop and add", "Kaydı sil": "Delete the recording", "Kayda devam et": "Keep recording",
+    "Kayıt klasörü oluşturulamadı ({folder}): {error}": "The recordings folder could not be created ({folder}): {error}",
     "Yalnız ses kaydı için bir mikrofon seçin; bu bilgisayarda mikrofon görünmüyor.": "Choose a microphone to record sound only; no microphone is visible on this computer.",
     "Yalnız ses kaydı için bir mikrofon seçin.": "Choose a microphone to record sound only.",
     "● Kaydı başlat": "● Start recording", "■ Durdur ve ekle": "■ Stop and add", "Kaydediliyor…": "Recording…",

@@ -199,7 +199,10 @@ def markers(found, clips, fps):
         source_frame = round(start * fps)
         clip = next((c for c in clips if c.source_in <= source_frame < c.source_end), None)
         if clip is not None:
-            result.append({'frame': round(clip.timeline_frame(source_frame)), 'label': f'Konuşmacı {speaker + 1}'})
+            # Inside the clip: a split clip that begins a fraction of a frame into its source put a change at
+            # its very first source frame before the clip (frame -1 at 0.25×).
+            frame = min(clip.end - 1, max(clip.start, round(clip.timeline_frame(source_frame))))
+            result.append({'frame': frame, 'label': f'Konuşmacı {speaker + 1}'})
     return result
 
 

@@ -819,6 +819,9 @@ class _FrameMap:
                 if hi > lo:
                     pieces.append((round(clip.timeline_frame(lo)), round(clip.timeline_frame(hi)),
                                    new_a + round((lo - src_a) / speed)))
+        # A sliver of a slow or fast clip can round to no frame at all; an empty piece would mark a frame
+        # before it as kept without saying where it went (and applying the plan failed with a TypeError).
+        pieces = [piece for piece in pieces if piece[1] > piece[0]]
         self.pieces = pieces
         kept = []
         for a, b in sorted((a, b) for a, b, _ in pieces):

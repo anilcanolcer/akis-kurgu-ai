@@ -33,9 +33,12 @@ try {
         & $Python -X utf8 -B "$PSScriptRoot/verify.py" $outDir $name
         if ($LASTEXITCODE) { $failed += "$name verification" }
     }
-    # Random edit chains checked frame by frame against the model, and random edits exported by FFmpeg with
-    # every output frame read back (scripts/media-audit/fuzz.py, render_fuzz.py).
-    foreach ($check in @(@('fuzz', '2000'), @('render_fuzz', '30'))) {
+    # Rule checkers on random input (scripts/media-audit): edit chains frame by frame against the model;
+    # exports whose every frame and sound are read back; AI replies and transcripts; preview pieces and live
+    # sound; editing sessions in the main window with undo and redo; stories, templates and update versions.
+    $checks = @(@('fuzz', '2000'), @('render_fuzz', '30'), @('audio_fuzz', '40'), @('ai_fuzz', '10000'),
+                @('preview_fuzz', '1000'), @('window_fuzz', '100'), @('store_fuzz', '1500'))
+    foreach ($check in $checks) {
         & $Python -X utf8 -B "$PSScriptRoot/$($check[0]).py" $repo $check[1] | Out-File "$outDir/$($check[0])-final.json" -Encoding utf8
         if ($LASTEXITCODE) { $failed += $check[0] }
     }

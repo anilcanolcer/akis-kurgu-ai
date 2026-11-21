@@ -8,7 +8,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import Qt
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication, QMainWindow
 
 from akis import screen_record
 from akis.timeline_model import Clip, Timeline, Track
@@ -188,6 +190,116 @@ class DialogTests(unittest.TestCase):
                 d.start()
             start.assert_not_called()
             self.assertIn('Seçilen mikrofon', d.status.text())
+            d.close()
+
+
+class FakeProcess:
+    """An ffmpeg that keeps recording until asked to finish ('q'), or that has already ended."""
+    def __init__(self, output, ended=None, said=b''):
+        self.output, self.returncode, self.said = output, ended, said
+        self.stderr = SimpleNamespace(read=lambda: said)
+
+    def poll(self):
+        return self.returncode
+
+    def communicate(self, input=None, timeout=None):
+        Path(self.output).write_bytes(b'video')
+        self.returncode = 0
+        return b'', b''
+
+
+class StayingAwayTests(unittest.TestCase):
+    """Screen recording gets the program out of the way and never throws a recording away silently."""
+    def dialog(self, tmp, parent=None):
+        from akis.record_dialog import RecordDialog
+        patcher = patch('akis.record_dialog.RecordDialog._screens', return_value=[FakeScreen(name='Ana ekran')])
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        d = RecordDialog(parent, folder=tmp, devices=FakeDevices)
+        d.screen_recorder.popen = lambda command, **options: FakeProcess(command[-1])
+        return d
+
+    def test_the_window_can_be_minimised(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = self.dialog(tmp)
+            self.assertTrue(d.windowFlags() & Qt.WindowType.WindowMinimizeButtonHint)
+            d.close()
+
+    def test_recording_a_screen_minimises_the_program_and_shows_the_bar(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            parent = QMainWindow()
+            parent.show()
+            d = self.dialog(tmp, parent)
+            d.show()
+            d.start()
+            self.assertTrue(d.recording)
+            self.assertIsNotNone(d.bar)
+            self.assertTrue(d.bar.isVisible())
+            self.assertTrue(parent.isMinimized())
+            d._started -= 3
+            d._tick()
+            self.assertEqual(d.bar.time.text(), '00:03')
+            d.bar.button.click()                                  # "Stop and add" on the bar
+            self.assertIsNone(d.bar)
+            self.assertFalse(parent.isMinimized())
+            self.assertEqual(d.result(), 1)
+            self.assertTrue(Path(d.path).is_file())
+            parent.close()
+
+    def test_escape_while_recording_keeps_recording(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = self.dialog(tmp)
+            d.show()
+            d.start()
+            QTest.keyClick(d, Qt.Key.Key_Escape)
+            self.assertTrue(d.recording)
+            self.assertTrue(d.isVisible())
+            d.screen_recorder.discard()
+            d.close()
+
+    def test_closing_while_recording_asks(self):
+        for choice in ('continue', 'keep', 'drop'):
+            with self.subTest(choice=choice), tempfile.TemporaryDirectory() as tmp:
+                d = self.dialog(tmp)
+                d.show()
+                d.start()
+                output = Path(d.screen_recorder.output)
+                with patch.object(d, 'ask_while_recording', return_value=choice) as asked:
+                    d.reject()                                    # the title bar's X, Alt+F4
+                asked.assert_called_once()
+                if choice == 'continue':
+                    self.assertTrue(d.recording)
+                    self.assertIsNotNone(d.bar)                   # back out of the way
+                    d.screen_recorder.discard()
+                    d.close()
+                elif choice == 'keep':
+                    self.assertEqual(d.result(), 1)
+                    self.assertTrue(Path(d.path).is_file())
+                else:
+                    self.assertEqual(d.result(), 0)
+                    self.assertIsNone(d.path)
+                    self.assertFalse(output.exists())
+
+    def test_ffmpeg_ending_without_a_word_is_reported(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = self.dialog(tmp)
+            d.show()
+            d.screen_recorder.popen = lambda command, **options: FakeProcess(command[-1], ended=1)
+            d.start()
+            d._tick()
+            self.assertFalse(d.recording)
+            self.assertIsNone(d.bar)
+            self.assertTrue(d.start_button.isEnabled())
+            self.assertIn('çıkış kodu 1', d.status.text())
+            d.close()
+
+    def test_a_folder_that_cannot_be_made_is_explained(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = self.dialog(tmp)
+            with patch.object(Path, 'mkdir', side_effect=PermissionError(13, 'Erişim engellendi')):
+                d.start()
+            self.assertFalse(d.recording)
+            self.assertIn('Kayıt klasörü oluşturulamadı', d.status.text())
             d.close()
 
 

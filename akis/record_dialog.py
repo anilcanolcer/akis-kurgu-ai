@@ -13,11 +13,11 @@ from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QStandardPaths, Qt, QTimer, QUrl
-from PySide6.QtWidgets import (QComboBox, QDialog, QFormLayout, QHBoxLayout, QLabel, QPushButton, QStackedLayout,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QComboBox, QDialog, QFormLayout, QHBoxLayout, QLabel, QMessageBox, QPushButton,
+                               QStackedLayout, QVBoxLayout, QWidget)
 
 from akis import i18n, theme
-from akis.screen_record import ScreenRecorder, audio_devices, screen_area
+from akis.screen_record import ScreenRecorder, audio_devices, exclude_from_capture, screen_area
 
 FOLDER_NAME = 'Akış Kurgu kayıtları'
 CAMERA, SCREEN, MIC_ONLY = 'camera', 'screen', 'audio'
@@ -29,7 +29,12 @@ QFrame#recStage, QWidget#recStage { background: $video_bg; border-radius: 10px; 
 QLabel#recPlaceholder { color: $video_text; }
 QPushButton#recStart { background: $cut; color: white; font-weight: 700; padding: 10px 22px; text-align: center; }
 QPushButton#recStop { background: $raised; border: 1px solid $border_strong; font-weight: 700; padding: 10px 22px; text-align: center; }
+QWidget#recBar { background: #1c1c1e; border: 1px solid #3a3a3c; border-radius: 10px; }
+QWidget#recBar QLabel { color: white; font-weight: 700; }
+QWidget#recBar QLabel#recDot { color: #ff3b30; }
+QWidget#recBar QPushButton { background: #ff3b30; color: white; font-weight: 700; padding: 6px 14px; border-radius: 6px; }
 """
+PREVIEW_MS = 400          # how often the chosen screen's picture is refreshed in the dialog
 
 
 def default_folder() -> Path:
@@ -45,6 +50,37 @@ def file_name(kind: str, when: datetime | None = None) -> str:
 def clock(seconds: float) -> str:
     seconds = max(0, int(seconds))
     return f'{seconds // 60:02d}:{seconds % 60:02d}'
+
+
+class RecordingBar(QWidget):
+    """The small bar shown while a screen is recorded: the time and "Stop and add". The program and the
+    dialog are minimised meanwhile so they are not in the video; the bar stays on top, and Windows is asked
+    to leave it out of the capture (screen_record.exclude_from_capture), so it is not in the video either."""
+
+    def __init__(self, label, on_stop):
+        super().__init__(None, Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
+        self.setObjectName('recBar')
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setStyleSheet(theme.css(STYLE))
+        row = QHBoxLayout(self)
+        row.setContentsMargins(12, 6, 8, 6)
+        dot = QLabel('●')
+        dot.setObjectName('recDot')
+        self.time = QLabel('00:00')
+        self.button = QPushButton(label)
+        self.button.clicked.connect(on_stop)
+        row.addWidget(dot)
+        row.addWidget(self.time)
+        row.addWidget(self.button)
+        self.excluded = False
+
+    def show_on(self, screen):
+        """Show the bar at the top centre of `screen` (a QScreen)."""
+        self.adjustSize()
+        area = screen.availableGeometry() if hasattr(screen, 'availableGeometry') else screen.geometry()
+        self.move(area.x() + (area.width() - self.width()) // 2, area.y() + 12)
+        self.show()
+        self.excluded = exclude_from_capture(self)
 
 
 class RecordDialog(QDialog):
@@ -64,6 +100,10 @@ class RecordDialog(QDialog):
         self._dshow = None          # microphone names ffmpeg sees, read once when a screen is recorded
         t = self.tr_
         self.setWindowTitle(t('Kayıt'))
+        # Minimisable: the person recording has to get the window out of the way.
+        self.setWindowFlag(Qt.WindowType.WindowMinimizeButtonHint, True)
+        self.bar = None             # RecordingBar while a screen is recorded
+        self._hidden_parent = False
         self.resize(760, 600)
         self.setStyleSheet(theme.css(STYLE))
 
@@ -113,10 +153,21 @@ class RecordDialog(QDialog):
         self.placeholder.setObjectName('recPlaceholder')
         self.placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.placeholder.setWordWrap(True)
+        self.screen_view = QLabel()          # the chosen screen, as it looks now
+        self.screen_view.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.screen_view.setMinimumSize(1, 1)
         self.stage.addWidget(self.preview)
         self.stage.addWidget(self.placeholder)
+        self.stage.addWidget(self.screen_view)
         layout.addWidget(stage, 1)
+        self.hint = QLabel()
+        self.hint.setObjectName('recNote')
+        self.hint.setWordWrap(True)
+        layout.addWidget(self.hint)
         self.session.setVideoOutput(self.preview)
+        self.screen_timer = QTimer(self)
+        self.screen_timer.setInterval(PREVIEW_MS)
+        self.screen_timer.timeout.connect(self._show_screen)
 
         row = QHBoxLayout()
         self.dot = QLabel('●')
@@ -179,6 +230,9 @@ class RecordDialog(QDialog):
             self.session.setScreenCapture(None)
             self.screen_capture.deleteLater()
             self.screen_capture = None
+        if kind != SCREEN:
+            self.screen_timer.stop()
+            self.hint.setText('')
         if kind == CAMERA:
             self.camera = M.QCamera(device, self)
             self.session.setCamera(self.camera)
@@ -186,15 +240,109 @@ class RecordDialog(QDialog):
             self.stage.setCurrentWidget(self.preview)
         elif kind == SCREEN:
             x, y, width, height = screen_area(device)
-            self.placeholder.setText(self.tr_('“{name}” ekranı kaydedilecek ({width}×{height}). Kaydı başlattıktan sonra '
-                                              'bu pencereyi küçültüp ekranda göstermek istediğinizi yapabilirsiniz.').format(
-                                                  name=device.name(), width=width, height=height))
+            text = self.tr_('“{name}” ekranı kaydedilecek ({width}×{height}). Kayıt başlayınca program küçülür; '
+                            'ekranın üstündeki küçük çubuktan durdurabilirsiniz. Çubuk kayda girmez.').format(
+                                name=device.name(), width=width, height=height)
+            self.placeholder.setText(text)
+            self.hint.setText(text)
             self.stage.setCurrentWidget(self.placeholder)
+            self._show_screen()
+            self.screen_timer.start()
         else:
             self.placeholder.setText(self.tr_('Yalnız ses kaydedilir. Kayıt, oynatma çizgisinin olduğu yere '
                                               'seslendirme olarak eklenir.'))
             self.stage.setCurrentWidget(self.placeholder)
         self._update_ready()
+
+    def _show_screen(self):
+        """The chosen screen's current picture in the stage (the placeholder text when it cannot be read)."""
+        kind, device = self.current_source()
+        if kind != SCREEN or self.isMinimized() or self.bar is not None:
+            return
+        try:
+            picture = device.grabWindow(0)
+        except (AttributeError, RuntimeError):
+            picture = None
+        if picture is None or picture.isNull():
+            self.stage.setCurrentWidget(self.placeholder)
+            return
+        size = self.screen_view.size()
+        self.screen_view.setPixmap(picture.scaled(max(1, size.width()), max(1, size.height()),
+                                                  Qt.AspectRatioMode.KeepAspectRatio,
+                                                  Qt.TransformationMode.SmoothTransformation))
+        self.stage.setCurrentWidget(self.screen_view)
+
+    def _step_aside(self, screen):
+        """While a screen is recorded: the bar on top, this dialog and the program minimised."""
+        self.bar = RecordingBar(self.tr_('■ Durdur ve ekle'), self.stop)
+        self.bar.show_on(self._bar_screen(screen))
+        parent = self.parentWidget()
+        if parent is not None and parent.isVisible() and not parent.isMinimized():
+            parent.showMinimized()
+            self._hidden_parent = True
+        self.showMinimized()
+
+    def _bar_screen(self, recorded):
+        """Another screen than the recorded one when there is one, so the bar is not over what is shown."""
+        others = [screen for screen in self._screens() if screen is not recorded]
+        return others[0] if others else recorded
+
+    def _come_back(self):
+        """Undo _step_aside: the bar goes, the program and this dialog come back."""
+        if self.bar is not None:
+            self.bar.close()
+            self.bar.deleteLater()
+            self.bar = None
+        if self._hidden_parent and self.parentWidget() is not None:
+            self.parentWidget().showNormal()
+            self._hidden_parent = False
+        if self.isMinimized():
+            self.showNormal()
+            self.raise_()
+            self.activateWindow()
+
+    @property
+    def recording(self):
+        return (self.screen_recorder.recording
+                or self.recorder.recorderState() == self.M.QMediaRecorder.RecorderState.RecordingState)
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Escape and self.recording:
+            event.ignore()                 # Esc used to end the dialog and throw the recording away
+            return
+        super().keyPressEvent(event)
+
+    def ask_while_recording(self):
+        """'keep', 'drop' or 'continue': what to do with a running recording when the window is closed."""
+        box = QMessageBox(QMessageBox.Icon.Question, self.tr_('Kayıt'), self.tr_('Kayıt sürüyor. Ne yapılsın?'), parent=self)
+        keep = box.addButton(self.tr_('Durdur ve ekle'), QMessageBox.ButtonRole.AcceptRole)
+        drop = box.addButton(self.tr_('Kaydı sil'), QMessageBox.ButtonRole.DestructiveRole)
+        box.addButton(self.tr_('Kayda devam et'), QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(keep)
+        box.exec()
+        return 'keep' if box.clickedButton() is keep else 'drop' if box.clickedButton() is drop else 'continue'
+
+    def reject(self):
+        """Closing while recording (the X, Alt+F4) asks what to do with the recording; it used to be
+        stopped and thrown away without a word."""
+        if not self.recording:
+            super().reject()
+            return
+        self._come_back()
+        choice = self.ask_while_recording()
+        if choice == 'keep':
+            self.stop()
+        elif choice == 'drop':
+            self._started = None
+            if self.screen_recorder.recording:
+                self.screen_recorder.discard()
+            else:
+                self.recorder.stop()
+            self.path = None
+            super().reject()
+        elif self.screen_recorder.recording:
+            kind, device = self.current_source()
+            self._step_aside(device)
 
     def _use_microphone(self):
         device = self.microphone.currentData()
@@ -235,7 +383,11 @@ class RecordDialog(QDialog):
         M = self.M
         kind, device = self.current_source()
         self.kind = 'audio' if kind == MIC_ONLY else 'video'
-        self.folder.mkdir(parents=True, exist_ok=True)
+        try:
+            self.folder.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:   # a protected folder (Windows controlled folder access, security software)
+            self._failed(None, self.tr_('Kayıt klasörü oluşturulamadı ({folder}): {error}').format(folder=self.folder, error=exc))
+            return
         target = self.folder / file_name(self.kind)
         if kind == SCREEN:
             microphone = self._dshow_name()
@@ -249,6 +401,7 @@ class RecordDialog(QDialog):
                 return
             self.path = None
             self._state_changed(M.QMediaRecorder.RecorderState.RecordingState)
+            self._step_aside(device)
             return
         fmt = M.QMediaFormat()
         if self.kind == 'audio':
@@ -266,6 +419,7 @@ class RecordDialog(QDialog):
         self.recorder.record()
 
     def stop(self):
+        self._come_back()
         if self.screen_recorder.recording:
             self.status.setText(self.tr_('Kayıt kapatılıyor…'))
             try:
@@ -307,11 +461,14 @@ class RecordDialog(QDialog):
     def _tick(self):
         if self._started is not None:
             self.time.setText(clock(time.monotonic() - self._started))
+            if self.bar is not None:
+                self.bar.time.setText(self.time.text())
         problem = self.screen_recorder.failed() if self.kind == 'video' else ''
         if problem:                       # ffmpeg stopped by itself (a busy or missing device)
+            self._come_back()
             self._started = None
-            self._failed(None, problem)
             self._state_changed(self.M.QMediaRecorder.RecorderState.StoppedState)
+            self._failed(None, problem)
 
     def _failed(self, error, message):
         self.ticker.stop()
@@ -321,6 +478,10 @@ class RecordDialog(QDialog):
 
     def done(self, result):
         """Stop the devices when the dialog closes, however it closes."""
+        self.screen_timer.stop()
+        if self.bar is not None:
+            self.bar.close()
+            self.bar = None
         if self.screen_recorder.recording:
             try:
                 self.screen_recorder.stop()

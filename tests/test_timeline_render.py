@@ -362,7 +362,8 @@ class RenderFixTests(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         args, graph, _ = calls[0]
         self.assertIn('[graded]setpts=PTS/1.500000[timed]', graph)
-        self.assertIn('atempo=1.500000[aout]', graph)
+        self.assertIn('atempo=1.500000[mixed]', graph)
+        self.assertIn(f'[mixed]apad=whole_dur={2 / 1.5:.9f}[aout]', graph)   # as long as the retimed picture
         self.assertEqual(args[args.index('-map') + 1], '[timed]')
         self.assertEqual(args[args.index('-t') + 1], f'{2 / 1.5:.9f}')
 
