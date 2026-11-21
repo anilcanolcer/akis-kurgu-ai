@@ -478,12 +478,15 @@ class AssistantMixin:
 
     def apply_local_captions(self):
         with self.history_step():
-            # Applying again replaces the previous caption track instead of drawing the captions twice.
-            self.multitrack.tracks = [track for track in self.multitrack.tracks
-                                      if not (track.kind == 'text' and track.name == edit_plan.CAPTION_TRACK)]
-            self.multitrack_view.selected = self.multitrack_view.selected_track = None
             look = word_captions.CHOICES[max(0, self.caption_look.currentIndex())]
             count = caption_track(self.multitrack, self.caption_source, self.caption_segments, look)
+            if not count:
+                self.set_status(self.ui_text('Konuşma metni zaman çizelgesindeki görüntüyle örtüşmüyor.'))
+                return
+            added = self.multitrack.tracks[-1]
+            self.multitrack.tracks = [track for track in self.multitrack.tracks if track is added or
+                                      not (track.kind == 'text' and track.name == edit_plan.CAPTION_TRACK)]
+            self.multitrack_view.selected = self.multitrack_view.selected_track = None
         self.refresh_timeline_view()
         self.multitrack_view.update()
         self.seek_timeline(self.timeline_frame)
@@ -500,7 +503,7 @@ class AssistantMixin:
         if not chosen:
             return
         path = chosen if chosen.lower().endswith('.wav') else chosen + '.wav'
-        if not self.confirm_overwrite(chosen, path):
+        if not self.safe_export_paths([path]) or not self.confirm_overwrite(chosen, path):
             return
         self.begin_work('Windows sesi oluşturuluyor…')
         self._voiceover_at = self.timeline_frame if self.tts_to_timeline.isChecked() else None
@@ -544,7 +547,10 @@ class AssistantMixin:
                 except ValueError:
                     continue
         names = {track.name for track in self.multitrack.tracks}
-        name = next(n for n in ('Seslendirme', *(f'Seslendirme {i}' for i in range(2, 100))) if n not in names)
+        name, number = 'Seslendirme', 1
+        while name in names:
+            number += 1
+            name = f'Seslendirme {number}'
         self.multitrack.tracks.append(Track('audio', name, [clip]))
         return clip
 

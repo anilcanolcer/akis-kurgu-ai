@@ -8,6 +8,7 @@ import re
 import subprocess
 import sys
 import time
+import tempfile
 from pathlib import Path
 
 S = Path(__file__).resolve().parent
@@ -26,19 +27,20 @@ PYTHON = REPO / '.venv' / 'Scripts' / 'python.exe'
 TITLE = r'.*Akış Kurgu AI.*'
 
 
-RECOVERY = Path(os.environ['LOCALAPPDATA']) / 'AkisStudio' / 'Akış Kurgu AI' / 'recovery'
-BEFORE = {p.name for p in RECOVERY.glob('*')} if RECOVERY.is_dir() else set()
+# A new profile belongs only to this test process and the editors that it launches.
+_profile = tempfile.TemporaryDirectory(prefix='akis-ui-profile-')
+PROFILE = Path(_profile.name)
+RECOVERY = PROFILE / 'recovery'
+BEFORE = set()
 
 
 def clean_recovery():
-    """Remove only the recovery files these test sessions made (the person's own ones stay)."""
-    if RECOVERY.is_dir():
-        for p in RECOVERY.glob('*'):
-            if p.name not in BEFORE:
-                try:
-                    p.unlink()
-                except OSError:
-                    pass
+    for path in RECOVERY.glob('*'):
+        if path.is_file():
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:          # a lock the editor just stopped still holds; the profile is temporary
+                pass
 
 
 def dismiss_recovery(window, timeout=6):
@@ -61,6 +63,7 @@ def start(exe=None, settings=None, args=(), recovery='later', command=None):
     command replaces how the editor is started (e.g. fake_ai_launch.py)."""
     env = dict(os.environ)
     env['QT_QPA_PLATFORM'] = 'windows'
+    env['AKIS_APP_DATA_DIR'] = str(PROFILE)
     env.pop('AKIS_RUN_WINDOWS_GUI_SMOKE', None)
     if settings:
         env['AKIS_SETTINGS_FILE'] = str(settings)
@@ -154,16 +157,13 @@ def file_dialog(app, path, title_re=None, timeout=20, replace=None):
     edits = dialog.descendants(control_type='Edit')
     named = [e for e in edits if e.element_info.automation_id in ('1148', '1001')
              or re.match(r'(Dosya adı|File name)', e.element_info.name or '')]
+    edit = (named or edits)[0]
     try:
-        named[0].set_edit_text(str(path))
-    except Exception:   # noqa: BLE001   (the save dialog's box refuses the value pattern: paste instead)
-        import win32clipboard
-        win32clipboard.OpenClipboard()
-        win32clipboard.EmptyClipboard()
-        win32clipboard.SetClipboardText(str(path), win32clipboard.CF_UNICODETEXT)
-        win32clipboard.CloseClipboard()
-        (named or edits)[0].set_focus()
-        keyboard.send_keys('^a^v')
+        edit.set_edit_text(str(path))
+    except Exception:  # Some native save dialogs expose an Edit handle but no UIA value pattern.
+        from pywinauto.controls.win32_controls import EditWrapper
+        from pywinauto.win32_element_info import HwndElementInfo
+        EditWrapper(HwndElementInfo(edit.handle)).set_edit_text(str(path))
     time.sleep(0.2)
     keyboard.send_keys('{ENTER}')
     if replace is not None:                      # Windows' own "already exists, replace?" prompt

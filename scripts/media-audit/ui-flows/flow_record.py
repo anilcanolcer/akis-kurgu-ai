@@ -5,14 +5,15 @@ Usage: python flow_record.py <workdir> [packaged exe]
 """
 import ctypes
 import json
-import os
 import re
 import subprocess
 import sys
 import time
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import flow_more_lib as F
 import uia_env as U  # noqa: E402
 import uitest_media as M  # noqa: E402
 from PIL import ImageGrab, ImageStat  # noqa: E402
@@ -20,9 +21,8 @@ from PIL import ImageGrab, ImageStat  # noqa: E402
 work = Path(sys.argv[1])
 exe = Path(sys.argv[2]) if len(sys.argv) > 2 else None
 work.mkdir(parents=True, exist_ok=True)
-videos = Path(os.environ['USERPROFILE']) / 'Videos' / 'Akış Kurgu kayıtları'
-folder_existed = videos.exists()
-before = {p.name for p in videos.glob('*')} if folder_existed else set()
+recordings = tempfile.TemporaryDirectory(dir=work, prefix='Akış kayıt ')
+videos = Path(recordings.name)
 user32 = ctypes.windll.user32
 result = {'mode': 'exe' if exe else 'source', 'checks': {}}
 started = time.time()
@@ -56,11 +56,16 @@ try:
     U.press(window, 'Kayıt al')
     dialog = U.wait_for(lambda: next((d for d in children(window) if d.window_text() in ('Kayıt', 'Record')), None),
                         timeout=15, what='kayıt penceresi')
+    folder_button = next(b for b in dialog.descendants(control_type='Button') if Path(b.window_text()).is_absolute())
+    folder_button.invoke()
+    F.qt_folder(process, videos, title='Kayıt klasörü')
+    U.wait_for(lambda: Path(folder_button.window_text()) == videos, what='özel kayıt klasörü')
     time.sleep(1.5)
-    labels = [c for c in dialog.descendants(control_type='Text')]
-    stage = max(labels, key=lambda c: c.rectangle().width() * c.rectangle().height())
-    check('preview shows the screen', spread(stage.rectangle()) > 8, spread=round(spread(stage.rectangle()), 1),
-          hint=[t.window_text()[:80] for t in labels if 'ekran' in t.window_text().lower()][:1])
+    dialog.set_focus()
+    stage = U.wait_for(lambda: next((c for c in dialog.descendants() if c.is_visible() and
+                       c.element_info.automation_id.endswith('.screenPreview')), None), what='ekran önizlemesi')
+    variance = spread(stage.rectangle())
+    check('preview shows the screen', variance > 8, spread=round(variance, 1), rect=str(stage.rectangle()))
     main_handle = window.handle
     start_button = next(b for b in dialog.descendants(control_type='Button') if 'Kaydı başlat' in b.window_text())
     start_button.invoke()
@@ -86,7 +91,7 @@ try:
     check('main window back', not user32.IsIconic(main_handle))
     total = U.wait_for(lambda: (clock(window) or (0, 0))[1] > 1 and clock(window), timeout=30, what='kaydın projeye eklenmesi')
     check('recording in the project', total[1] > 1, clock=total)
-    made = sorted((p for p in videos.glob('*.mp4') if p.name not in before), key=lambda p: p.stat().st_mtime)
+    made = sorted((p for p in videos.glob('*.mp4')), key=lambda p: p.stat().st_mtime)
     check('file written', made, files=[p.name for p in made])
     if made:
         info = M.info(made[-1])
@@ -97,11 +102,10 @@ try:
 finally:
     U.stop(process)
     U.clean_recovery()
-    for p in videos.glob('*') if videos.exists() else []:
-        if p.name not in before:
-            p.unlink()
-    if not folder_existed and videos.exists() and not any(videos.iterdir()):
-        videos.rmdir()
+    recordings.cleanup()
     result['seconds'] = round(time.time() - started, 1)
     (work / 'flow_record.json').write_text(json.dumps(result, ensure_ascii=False, indent=1), encoding='utf-8')
     print(json.dumps(result, ensure_ascii=False))
+
+if not all(check['ok'] for check in result['checks'].values()):
+    raise AssertionError('Recording checks failed; see flow_record.json')

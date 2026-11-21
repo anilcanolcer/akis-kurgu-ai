@@ -177,6 +177,8 @@ class RecordDialog(QDialog):
         self.placeholder.setWordWrap(True)
         self.screen_view = QLabel()          # the chosen screen, as it looks now
         self.screen_view.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.screen_view.setObjectName('screenPreview')
+        self.screen_view.setAccessibleName(t('Önizleme'))
         self.screen_view.setMinimumSize(1, 1)
         self.screen_view.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
         self.stage.addWidget(self.preview)

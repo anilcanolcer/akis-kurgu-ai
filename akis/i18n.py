@@ -43,6 +43,8 @@ EN_UI = {
         "The screen “{name}” will be recorded ({width}×{height}). When recording starts, the program is minimised; stop it from the small bar at the top of the screen. The bar is not recorded.",
     "Kayıt sürüyor. Ne yapılsın?": "Still recording. What should happen?",
     "Durdur ve ekle": "Stop and add", "Kaydı sil": "Delete the recording", "Kayda devam et": "Keep recording",
+    "Konuşma metni zaman çizelgesindeki görüntüyle örtüşmüyor.": "The transcript does not overlap any video in the timeline.",
+    "Kurgu analiz sırasında değişti. Güncel kurgu için analizi yeniden başlatın.": "The edit changed during analysis. Run the analysis again for the current edit.",
     "Önizleme": "Preview",
     "Ekran önizlemesi alınamadı.": "Screen preview unavailable.",
     "Kayıt klasörü": "Recording folder",

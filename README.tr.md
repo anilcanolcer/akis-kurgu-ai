@@ -103,7 +103,7 @@ Konuşma videoları, eğitimler, vloglar ve Shorts saatlerce tekrar eden iş ist
 - Uygulama içinden güncelleme: kurucunun SHA-256 özeti doğrulanır, bir sorun olursa eski sürüm geri yüklenir.
 - Akıcı oynatma için arka planda proxy, uzun kurgularda parçalı önizleme, HDR (PQ/HLG) kaynaklarda SDR'ye ton eşleme.
 
-**0.6.20 sürümünde** oynatma hızı 1,00× dışındayken ses ve görüntü her hızda tam uyumlu; önceden 1,25×–2×'te görüntü iki kare geride kalıyordu. Ayarları bozulmuş ya da elle değiştirilmiş bir proje artık kurgusuyla açılır; okunamayan ayarlar varsayılana döner ve program hangileri olduğunu söyler. Ekran okuyucu adları İngilizce arayüzü izler. Üç biçimde aktarma, Shorts, öne çıkanlar, FCPXML, hızlı ve toplu aktarma, başlık, hız, ses düzeyi, seslendirme, yerel altyazı, sessizlikler, kapanma sonrası kurtarma, dil, şablonlar ve yapay zekâ kurgusu (test yanıtıyla) gerçek Windows arayüzünde denendi. [Sürüm notları](https://github.com/anilcanolcer/akis-kurgu-ai/releases/tag/v0.6.20) · [Denetim raporu](docs/toplu-denetim-0.6.20.md).
+**0.6.21 sürümü** mevcut altyazıları ve ses dosyalarını korur. Hikâye klasörü taşındığında sahne medyası açılır. Konuşmacı işaretleri kliplerin kurgudaki sırasını izler. [Sürüm notları](https://github.com/anilcanolcer/akis-kurgu-ai/releases/tag/v0.6.21) · [Denetim raporu](docs/toplu-denetim-0.6.21.md).
 
 ## Ekran görüntüleri
 

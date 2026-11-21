@@ -192,17 +192,22 @@ def markers(found, clips, fps):
     """[{'frame', 'label'}]: where on the timeline a different speaker starts, through the video clips
     (`clips`: the main track's clips of this recording)."""
     result, last = [], None
-    for start, _, speaker, _ in found:
-        if speaker == last:
-            continue
-        last = speaker
-        source_frame = round(start * fps)
-        clip = next((c for c in clips if c.source_in <= source_frame < c.source_end), None)
-        if clip is not None:
-            # Inside the clip: a split clip that begins a fraction of a frame into its source put a change at
-            # its very first source frame before the clip (frame -1 at 0.25×).
-            frame = min(clip.end - 1, max(clip.start, round(clip.timeline_frame(source_frame))))
-            result.append({'frame': frame, 'label': f'Konuşmacı {speaker + 1}'})
+    # The edit may repeat or reorder the recording, or start inside an utterance.
+    for clip in sorted(clips, key=lambda item: item.start):
+        first, end = clip.source_bounds
+        for start, stop, speaker, _ in found:
+            if start * fps >= end:
+                break
+            if stop * fps <= first or speaker == last:
+                continue
+            frame = round(clip.timeline_frame(max(first, start * fps)))
+            frame = min(clip.end - 1, max(clip.start, frame))
+            marker = {'frame': frame, 'label': f'Konuşmacı {speaker + 1}'}
+            if result and result[-1]['frame'] == frame:
+                result[-1] = marker
+            else:
+                result.append(marker)
+            last = speaker
     return result
 
 

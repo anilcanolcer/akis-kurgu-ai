@@ -21,7 +21,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import date
 from pathlib import Path
 
-from akis import gemini_api
+from akis import gemini_api, project_service
 from akis.ai_providers import ResponseTruncatedError
 
 FORMAT_VERSION = 1
@@ -293,7 +293,10 @@ def save_story(path, state):
     handle, temp = tempfile.mkstemp(prefix='.akis-', suffix='.tmp', dir=path.parent)
     try:
         with os.fdopen(handle, 'w', encoding='utf-8') as out:
-            json.dump(state.to_dict(), out, ensure_ascii=False, indent=2)
+            data = state.to_dict()
+            media = [file for scene in state.scenes for file in (scene.image_path, scene.video_path) if file]
+            data['relative_media'] = project_service.relative_paths(media, path.parent)
+            json.dump(data, out, ensure_ascii=False, indent=2)
         os.replace(temp, path)
     except BaseException:
         try:
@@ -308,7 +311,17 @@ def load_story(path):
         data = json.loads(Path(path).read_text(encoding='utf-8'))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ValueError(f'Hikâye dosyası okunamadı: {exc}') from exc
-    return StoryState.from_dict(data)
+    state = StoryState.from_dict(data)
+    relative = data.get('relative_media', {})
+    relative = {k: v for k, v in relative.items() if isinstance(v, str)} if isinstance(relative, dict) else {}
+    for scene in state.scenes:
+        for field in ('image_path', 'video_path'):
+            stored = getattr(scene, field)
+            if stored:
+                resolved = project_service.resolve_media(stored, Path(path).parent, relative)
+                if resolved:
+                    setattr(scene, field, resolved)
+    return state
 
 
 # ============================================================== rendering and context

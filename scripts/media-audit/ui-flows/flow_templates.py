@@ -1,13 +1,10 @@
 """Real-UI flow: Şablonlar (apply a ready-made template, undo it) and Şablonlarım (save this project's look as
 a template, change everything, apply the saved template, delete it).
 
-Saved templates live in the person's own app-data folder (templates.json): the file is copied first and put
-back afterwards, whatever happens.
+The editor writes templates inside the test profile.
 Usage: python flow_templates.py <workdir> [packaged exe]
 """
 import json
-import os
-import shutil
 import sys
 import time
 import traceback
@@ -25,11 +22,7 @@ work.mkdir(parents=True, exist_ok=True)
 video = work / 'Şablon denemesi' / 'şablon video.mp4'
 if not video.exists():
     M.make(video)
-templates = Path(os.environ['LOCALAPPDATA']) / 'AkisStudio' / 'Akış Kurgu AI' / 'templates.json'
-backup = work / 'templates.json.yedek'
-had_templates = templates.exists()
-if had_templates:
-    shutil.copy2(templates, backup)
+templates = U.PROFILE / 'templates.json'
 results = {'mode': 'exe' if exe else 'source'}
 
 
@@ -148,9 +141,4 @@ try:
 finally:
     U.stop(process)
     U.clean_recovery()
-    if had_templates:
-        shutil.copy2(backup, templates)
-    elif templates.exists():
-        templates.unlink()
-    results['templates_restored'] = templates.read_text(encoding='utf-8') if templates.exists() else None
     (work / 'flow_templates.json').write_text(json.dumps(results, ensure_ascii=False, indent=1, default=str), encoding='utf-8')

@@ -1003,6 +1003,10 @@ class TimelineEditMixin:
         """Run a slow, self-contained step off the window's thread; `done(result)` follows on this thread.
 
         The window stays usable meanwhile; other work waits, as for any running task."""
+        def current_edit():
+            return self.project_path, self.state.source, self.state.speed, self.multitrack.to_dict()
+
+        initial_edit = current_edit()
         self.worker = CallWorker(function)
         self.begin_work(text)
 
@@ -1022,6 +1026,9 @@ class TimelineEditMixin:
                 return
             if not result['received']:
                 self.on_worker_error(self.ui_text('Analiz işlemi sonuç vermeden kapandı.'))
+                return
+            if current_edit() != initial_edit:
+                self.finish_work(self.ui_text('Kurgu analiz sırasında değişti. Güncel kurgu için analizi yeniden başlatın.'))
                 return
             self.finish_work('')
             done(result['value'])

@@ -209,6 +209,23 @@ try:
                and abs(clip[1] / 30 - (info.get('seconds') or 0)) < 0.1, playhead=playhead, wav=info, tracks=tracks)
         results['saved_before_crash'] = tracks
 
+    @section('voiceover over its own wav')
+    def _voice_again():
+        # The WAV just made is now project media: writing a new voice-over over it must be refused.
+        import hashlib
+        wav = out / 'seslendirme ğüş.wav'
+        before = hashlib.sha256(wav.read_bytes()).hexdigest()
+        U.press(window, 'Windows sesiyle WAV oluştur')
+        U.file_dialog(app, wav, replace=True)           # Windows' own "replace?" is answered Yes
+        box = F.wait_dialog(process, timeout=20)
+        said = F.texts_of(box)
+        F.click(box, r'(OK|Tamam)')
+        time.sleep(1.5)
+        after = hashlib.sha256(wav.read_bytes()).hexdigest()
+        busy = [t for t in U.status(window) if 'oluşturuluyor' in t]
+        record('voiceover over its own wav', after == before and any('kaynak medya' in t for t in said) and not busy,
+               message=said, unchanged=after == before, status=busy)
+
     @section('recovery after crash')
     def _recovery():
         global process, app, window
@@ -287,6 +304,30 @@ try:
         record('local captions', bool(said) and min(spoken) > 40 and sum(b > 40 for b in bright) > len(bright) / 2,
                status=said, transcript=text, frames=len(frames), caption_frames=sum(b > 40 for b in bright),
                brightest_per_second=per_second)
+
+    @section('captions kept without overlap')
+    def _captions_again():
+        # Delete the spoken clip (Delete leaves a gap), apply the same transcript again: nothing overlaps it now,
+        # so the captions already made must stay and the editor must say why nothing was added.
+        r = window.child_window(class_name='MultitrackWidget').rectangle()
+        U.mouse.click(coords=(r.left + 100 + 30, r.top + 50))
+        time.sleep(0.5)
+        L.keys(window, '{DELETE}')
+        time.sleep(0.8)
+        U.button(window, 'Yerel altyazıyı zaman çizelgesine ekle').invoke()
+        time.sleep(1)
+        said = [t for t in U.status(window) if 'örtüşmüyor' in t or 'altyazı klibi' in t]
+        project = out / 'altyazı korunur.akis.json'
+        L.keys(window, '^s')
+        U.file_dialog(app, project)
+        U.wait_for(lambda: project.is_file(), timeout=20, what='proje kaydı')
+        time.sleep(1)
+        data, tracks = saved_tracks(project)
+        captions = [t for t in tracks if t[0] == 'text' and 'Altyazı' in (t[1] or '')]
+        videos = [c for t in tracks if t[0] == 'video' for c in t[2]]
+        record('captions kept without overlap', any('örtüşmüyor' in t for t in said) and captions
+               and len(captions[0][2]) >= 5 and not videos,
+               status=said, caption_tracks=[(t[1], len(t[2])) for t in captions], video_clips=len(videos))
 finally:
     U.stop(process)
 

@@ -11,6 +11,8 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
+import wave
 from pathlib import Path
 
 _SCRIPT = r'''
@@ -83,6 +85,24 @@ def synthesize(text, destination, runner=subprocess.run, *, voice_id=None, langu
         raise RuntimeError('Yerel sistem sesi yalnızca Windows üzerinde kullanılabilir.')
     if not text.strip():
         raise ValueError('Konuşma metni boş olamaz.')
+    target = Path(destination)
+    handle, name = tempfile.mkstemp(prefix='.akis-voice-', suffix='.wav', dir=target.parent)
+    os.close(handle)
+    partial = Path(name)
+    try:
+        _write_speech(text, partial, runner, voice_id, language)
+        with wave.open(str(partial), 'rb') as audio:
+            if audio.getnframes():
+                audio.setpos(audio.getnframes() - 1)
+            if len(audio.readframes(1)) != audio.getnchannels() * audio.getsampwidth():
+                raise RuntimeError('Windows ses üretimi boş sonuç verdi.')
+        os.replace(partial, target)
+    finally:
+        partial.unlink(missing_ok=True)
+    return str(destination)
+
+
+def _write_speech(text, destination, runner, voice_id, language):
     classes = _winrt() if runner is subprocess.run else None   # an injected runner means the PowerShell route
     if classes is not None:
         return _synthesize_winrt(classes, text, destination, pick_voice(voices(), voice_id, language))

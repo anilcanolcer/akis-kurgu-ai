@@ -2,7 +2,7 @@
 
 Bu betikler programı ayrı bir süreç olarak başlatır. Düğmelere Windows UI Automation ile, kısayollara ve zaman çizelgesine gerçek tuş ve fare olaylarıyla basar. Dosya pencereleri Windows'un kendi pencereleridir. Her akış, ekrandaki yazıyı değil üretilen dosyayı ölçer: dışa aktarılan videonun her karesinde gösterilen kaynak karesini ve her yarım saniyesinde duyulan kaynak anını okur.
 
-Masaüstünde çalışırlar ve fareyi ve klavyeyi kullanırlar; çalışırken bilgisayarı kullanmayın. Ayarlar geçici bir dosyaya yazılır. Kurtarma klasöründe yalnız bu betiklerin oluşturduğu dosyalar silinir. Kayıt akışı Videolar klasörüne yazdığı kaydı siler.
+Masaüstünde çalışırlar ve fareyi ve klavyeyi kullanırlar; çalışırken bilgisayarı kullanmayın. Ayarlar, şablonlar, kurtarma dosyaları ve ekran kaydı geçici test klasörlerine yazılır. Şablon ve kurtarma akışları için ayrı test profilini destekleyen 0.6.21 veya daha yeni bir paket gerekir.
 
 ## Kurulum
 
@@ -48,9 +48,11 @@ $work = "$env:TEMP\akis-ui"
 | `flow_tools.py` | Başlık katmanı, 2× hız, −14 LUFS, Windows sesiyle seslendirme, kapanmayla kesilen oturumun kurtarılması, yerel Whisper altyazısı, sessizlikleri çıkarma |
 | `flow_settings.py` | Ayar bölümü bozuk projeleri “Proje aç” ile açma; gösterilen her ileti |
 | `flow_language.py` | Arayüzü English yapıp ana pencerede ve on pencerede Türkçe kalan yazıları arama; geri dönüş; açık/koyu tema |
-| `flow_templates.py` | Hazır şablon uygulama ve geri alma; Şablonlarım'a kaydetme, uygulama, silme (şablon dosyası yedeklenip geri konur) |
+| `flow_templates.py` | Hazır şablon uygulama ve geri alma; Şablonlarım'a kaydetme, uygulama, silme |
 | `flow_ai.py` | “Prompt ile kurgula”, yapay zekâ servisi yerine sabit yanıt veren `fake_ai_launch.py` ile; plan onayı, dışa aktarılan kareler, geri al/yinele, plan olmayan yanıt |
 
 `longmedia.py` uzun deneme videosu üretir (64 sn'ye kadar; her karede kendi numarası, her saniyede 1 kHz altında kendi perdesi, her 4 sn'de 1 sn duraklama). `probe_*.py` betikleri, akışlarda görülen bir belirtinin programdan mı betikten mi geldiğini ayırmak için kullanılan küçük yoklamalardır.
+
+Ritme oturtma, ses artışında yakınlaştırma, önceden indirilmiş WeSpeaker modeli ve taşınmış hikâye sahnesi için yerel Qt penceresi denetimi de vardır. Boş bir çalışma klasöründe `.venv/Scripts/python.exe -X utf8 scripts/media-audit/sound_story_windows.py . <klasör>` komutuyla çalışır.
 
 Her betik sonuçlarını çalışma klasörüne JSON olarak yazar.

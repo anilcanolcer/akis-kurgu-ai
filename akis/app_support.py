@@ -137,6 +137,8 @@ def wait_for_background_threads() -> None:
 
 def app_data_dir() -> Path:
     """Per-user folder for logs and untitled-project recovery files."""
+    if folder := os.environ.get('AKIS_APP_DATA_DIR'):
+        return Path(folder)
     return Path(QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppLocalDataLocation))
 
 

@@ -109,7 +109,7 @@ try:
     note('trimmed', clock=after_cut, status=[t for t in U.status(window) if 'atıldı' in t or 'Kırp' in t][:3])
 
     def said():
-        return [t for t in U.status(window) if any(w in t for w in ('Geri', 'Yinel', 'alındı', 'atıldı', 'bölündü'))][:3]
+        return [t for t in U.status(window) if t in ('Son adım geri alındı.', 'Adım yinelendi.')]
     keys(window, '^z')
     after_undo = said()
     keys(window, '^y')
@@ -128,7 +128,7 @@ try:
          keys=list(saved)[:12])
 
     window.child_window(title='Kapat', control_type='Button', found_index=0).invoke()
-    U.wait_for(lambda: process.poll() is not None or not window.exists(), timeout=30, what='program kapanması')
+    U.wait_for(lambda: process.poll() is not None, timeout=30, what='program kapanması')
     leftover = popups(process, main=window) if process.poll() is None else []
     note('closed', exit=process.poll(), leftover=[p[1:] for p in leftover])
     U.stop(process)
@@ -175,3 +175,7 @@ finally:
     U.clean_recovery()
     (work / 'flow_edit.json').write_text(json.dumps(result, ensure_ascii=False, indent=1), encoding='utf-8')
     print(json.dumps({k: v for k, v in result.items() if k != 'log'}, ensure_ascii=False))
+
+if not ('Son adım geri alındı.' in after_undo and 'Adım yinelendi.' in after_redo and
+        result['frames_ok'] and result['sound_ok']):
+    raise AssertionError('Undo, redo or decoded media check failed; see flow_edit.json')

@@ -39,7 +39,7 @@ try:
     window.child_window(title='Kapat', control_type='Button', found_index=0).invoke()
     box, texts, buttons = message(process, timeout=10)
     click(box, 'At|Discard')
-    U.wait_for(lambda: process.poll() is not None or not window.exists(), timeout=20, what='kapanma')
+    U.wait_for(lambda: process.poll() is not None, timeout=20, what='kapanma')
     results['discard closes'] = {'ok': True}
 finally:
     U.stop(process)

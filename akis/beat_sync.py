@@ -64,8 +64,10 @@ def beats(onsets, hop=HOP):
 def music_clip(timeline):
     """The first clip on a sounding audio track, or None."""
     for track in timeline.tracks:
-        if track.kind == 'audio' and not track.muted and track.clips:
-            return min(track.clips, key=lambda clip: clip.start)
+        if track.kind == 'audio' and not track.muted:
+            audible = [clip for clip in track.clips if clip.source and clip.volume > 0]
+            if audible:
+                return min(audible, key=lambda clip: clip.start)
     return None
 
 
@@ -85,7 +87,7 @@ def snap_segments(segments, beat_times, durations, max_shift=MAX_SHIFT, min_leng
             target = min(beat_times, key=lambda beat: abs(beat - end_at))
             shift = target - end_at
             longest = (durations[piece['source']] - piece['end']) / rate
-            shortest = (piece['end'] - piece['start']) / rate - min_length
+            shortest = max(0.0, (piece['end'] - piece['start']) / rate - min_length)
             shift = max(-shortest, min(longest, shift))
             if abs(target - end_at) <= max_shift and abs(shift) > 1e-3:
                 piece['end'] = round(piece['end'] + shift * rate, 6)

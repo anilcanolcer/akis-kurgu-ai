@@ -233,10 +233,15 @@ def relative_media(document, folder, *, media_root=None):
     together with its media still opens. A snapshot is written inside a versions subfolder, but its
     media root stays the original project folder; only media within that root get relative references.
     """
+    paths = media_paths(document) + list(still_images(document).values())
+    return relative_paths(paths, folder, media_root=media_root)
+
+
+def relative_paths(paths, folder, *, media_root=None):
     folder = Path(folder).resolve()
     root = Path(media_root).resolve() if media_root is not None else folder
     result = {}
-    for path in media_paths(document) + [image for image in still_images(document).values()]:
+    for path in paths:
         try:
             stored = Path(path)
             source = (stored if stored.is_absolute() else root / stored).resolve()
