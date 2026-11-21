@@ -87,7 +87,17 @@ Fiziksel kamera ve mikrofon takılı değildi. Ücretli bulut sağlayıcıların
 
 ## Yayın
 
-Sonuçlar yayından sonra eklenecek.
+Sürüm commit'i `8b49fb2`. GitHub Windows derlemesi ([çalıştırma 44948228790](https://github.com/anilcanolcer/akis-kurgu-ai/actions/runs/44948228790)) yaklaşık 16 dakikada başarıyla bitti ve sürümü yayımladı.
+
+| Adım | Sonuç |
+| --- | --- |
+| Genel test kümesi | 1.097 test geçti; 6'sı GitHub makinesinde atlandı (gerçek ses çıkışı, masaüstü penceresi, gerçek ekran kaydı ya da indirilmiş konuşmacı modeli gerektiriyorlar; ses ve kayıt olanları bu bilgisayarda çalıştı) |
+| Medya grupları ve 10 kural denetleyicisi | Geçti (biri hata verseydi derleme dururdu) |
+| Kurulum, yerinde güncelleme ve kaldırma senaryoları | 18 senaryonun 18'i geçti |
+| Yayımlanmış sürümle güncelleme denemesi | Geçti |
+| Kaldırma doğrulaması | Geçti |
+
+**Yayımlanan kurucu:** [AkisKurguAI-Setup.exe](https://github.com/anilcanolcer/akis-kurgu-ai/releases/download/v0.6.21/AkisKurguAI-Setup.exe), 146.838.371 bayt. Bu bilgisayara indirilip hesaplanan SHA-256 `919a37f0864bf3a2e0d98ebc3a6e3d1056b570159e7500c8f71dcafe1848e7b4`; yanındaki `.sha256` dosyası ve GitHub'ın özetiyle aynı. Programın güncelleme denetimi 0.6.20'den v0.6.21'i aynı özet ve boyutla buluyor.
 
 ## Yeniden çalıştırma
 
